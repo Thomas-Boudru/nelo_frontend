@@ -1,29 +1,41 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
-    "version": "1.0.0",
+    "name": "Numi",
+    "slug": "numi",
+    "scheme": "numi",
+    "privacy": "public",
+    "version": "0.1.0",
+    "description": "Personal document assistant.",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icons/splash_numi.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
+    "assetBundlePatterns": ["**/*"],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.thomasboudru.numi"
     },
     "android": {
+      "versionCode": 1,
+      "package": "com.thomasboudru.numi",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+        "foregroundImage": "./assets/icons/splash_numi.png",
+        "backgroundColor": "#E699F5"
+      }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/icons/logo.png"
+    },
+    "plugins": [
+      "expo-localization",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E699F5",
+          "image": "./assets/icons/splash_numi.png",
+          "imageWidth": 190
+        }
+      ]
+    ]
   }
 }
