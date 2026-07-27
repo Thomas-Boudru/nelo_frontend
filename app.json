@@ -1,29 +1,28 @@
 {
   "expo": {
-    "name": "Numi",
-    "slug": "numi",
-    "scheme": "numi",
-    "privacy": "public",
+    "name": "Nelo",
+    "slug": "nelo",
+    "scheme": "nelo",
     "version": "0.1.0",
-    "description": "Personal document assistant.",
+    "description": "A simple and reassuring companion for parents.",
     "orientation": "portrait",
-    "icon": "./assets/icons/splash_numi.png",
+    "icon": "./assets/icons/splash.png",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.thomasboudru.numi"
+      "bundleIdentifier": "com.thomasboudru.nelo"
     },
     "android": {
       "versionCode": 1,
-      "package": "com.thomasboudru.numi",
+      "package": "com.thomasboudru.nelo",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icons/splash_numi.png",
-        "backgroundColor": "#E699F5"
+        "foregroundImage": "./assets/icons/logo.png",
+        "backgroundColor": "#DCEFFC"
       }
     },
     "web": {
-      "favicon": "./assets/icons/logo.png"
+      "favicon": "./assets/icons/favicon_nelo.png"
     },
     "plugins": [
       "expo-localization",
@@ -31,8 +30,8 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#E699F5",
-          "image": "./assets/icons/splash_numi.png",
+          "backgroundColor": "#DCEFFC",
+          "image": "./assets/icons/splash.png",
           "imageWidth": 190
         }
       ]
