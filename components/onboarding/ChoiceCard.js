@@ -1,12 +1,12 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors, radius, spacing } from "../../theme";
-
+import { onboardingColors, radius, spacing } from "../../theme";
+const colors = onboardingColors;
 export default function ChoiceCard({
   title,
   description,
-  illustration,
+  imageSource,
   selected = false,
   onPress,
   style,
@@ -24,8 +24,14 @@ export default function ChoiceCard({
         style,
       ]}
     >
-      {illustration ? (
-        <View style={styles.illustrationContainer}>{illustration}</View>
+      {imageSource ? (
+        <View style={styles.illustrationContainer}>
+          <Image
+            source={imageSource}
+            resizeMode="contain"
+            style={styles.illustration}
+          />
+        </View>
       ) : null}
 
       <View style={styles.content}>
@@ -48,16 +54,28 @@ export default function ChoiceCard({
 const styles = StyleSheet.create({
   card: {
     width: "100%",
-    minHeight: 150,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.xl,
-    backgroundColor: colors.white,
+    minHeight: 170,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
 
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.lg,
+
+    borderWidth: 1,
+    borderColor: "rgba(110, 140, 195, 0.1)",
+    borderRadius: radius.xl,
+    backgroundColor: colors.white,
+
+    shadowColor: "#5D7CC7",
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+
+    elevation: 5,
   },
 
   cardSelected: {
@@ -66,35 +84,43 @@ const styles = StyleSheet.create({
   },
 
   cardPressed: {
-    opacity: 0.82,
+    opacity: 0.88,
     transform: [{ scale: 0.99 }],
   },
 
   illustrationContainer: {
-    width: 112,
-    height: 112,
-    borderRadius: radius.full,
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.background,
+
+    backgroundColor: "#EEF4FF",
     overflow: "hidden",
+  },
+
+  illustration: {
+    width: 100,
+    height: 100,
   },
 
   content: {
     flex: 1,
+    minWidth: 0,
     gap: spacing.sm,
   },
 
   title: {
     color: colors.textPrimary,
-    fontFamily: "Outfit_600SemiBold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontSize: 20,
-    lineHeight: 26,
+    lineHeight: 27,
   },
 
   description: {
     color: colors.textSecondary,
-    fontFamily: "Outfit_400Regular",
+    fontFamily: "PlusJakartaSans_500Regular",
     fontSize: 15,
     lineHeight: 22,
   },
@@ -106,10 +132,11 @@ const styles = StyleSheet.create({
 
     width: 28,
     height: 28,
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
+    borderRadius: 14,
 
     alignItems: "center",
     justifyContent: "center",
+
+    backgroundColor: colors.primary,
   },
 });

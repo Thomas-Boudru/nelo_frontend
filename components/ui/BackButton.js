@@ -1,8 +1,8 @@
 import { Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors } from "../../theme";
-
+import { onboardingColors } from "../../theme";
+const colors = onboardingColors;
 export default function BackButton({ onPress, style }) {
   return (
     <Pressable
@@ -16,17 +16,28 @@ export default function BackButton({ onPress, style }) {
         style,
       ]}
     >
-      <Ionicons name="chevron-back" size={30} color={colors.textPrimary} />
+      <Ionicons name="chevron-back" size={25} color={colors.textPrimary} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    width: 44,
-    height: 44,
-    alignItems: "flex-start",
+    width: 40,
+    height: 40,
+    alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.white,
+    borderRadius: 15,
+    shadowColor: "#092B56",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+
+    elevation: 2,
   },
 
   buttonPressed: {

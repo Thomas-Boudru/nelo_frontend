@@ -1,18 +1,22 @@
+import "react-native-gesture-handler";
 import "react-native-reanimated";
 import "intl-pluralrules";
 import "./i18n/index.js";
 
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider } from "react-redux";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import HomeScreen from "./screens/HomeScreen.js";
 import RootNavigator from "./navigation/RootNavigator.js";
 import { store } from "./store/store.js";
 import { useAppFonts } from "./theme/fonts.js";
-
-const Stack = createNativeStackNavigator();
+import ToastProvider from "./components/ui/toast/ToastProvider.js";
 
 export default function App() {
   const [fontsLoaded] = useAppFonts();
@@ -22,12 +26,20 @@ export default function App() {
   }
 
   return (
-    <Provider store={store}>
-      <NavigationContainer>
-        <StatusBar style="dark" />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <Provider store={store}>
+          <BottomSheetModalProvider>
+            <ToastProvider>
+              <NavigationContainer>
+                <StatusBar style="dark" />
 
-        <RootNavigator />
-      </NavigationContainer>
-    </Provider>
+                <RootNavigator />
+              </NavigationContainer>
+            </ToastProvider>
+          </BottomSheetModalProvider>
+        </Provider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -1,7 +1,7 @@
 import { StyleSheet, View } from "react-native";
 
-import { colors, radius } from "../../theme";
-
+import { onboardingColors, radius } from "../../theme";
+const colors = onboardingColors;
 export default function OnboardingProgressBar({
   currentStep,
   totalSteps,
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
     height: 6,
     overflow: "hidden",
     borderRadius: radius.full,
-    backgroundColor: colors.border,
+    backgroundColor: "#E1EBFB",
   },
 
   progress: {

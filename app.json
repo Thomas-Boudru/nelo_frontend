@@ -8,7 +8,9 @@
     "orientation": "portrait",
     "icon": "./assets/icons/splash.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thomasboudru.nelo"
@@ -34,7 +36,9 @@
           "image": "./assets/icons/splash.png",
           "imageWidth": 190
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-web-browser"
     ]
   }
 }

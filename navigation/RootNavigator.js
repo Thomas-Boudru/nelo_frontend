@@ -8,6 +8,12 @@ export default function RootNavigator() {
     (state) => state.onboarding.completed,
   );
 
+  const showAppDirectly = true;
+
+  if (showAppDirectly) {
+    return <AppNavigator />;
+  }
+
   if (!onboardingCompleted) {
     return <OnboardingNavigator />;
   }

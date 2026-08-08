@@ -7,7 +7,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { colors, radius, spacing } from "../../theme";
+import { onboardingColors, radius, spacing } from "../../theme";
+
+const colors = onboardingColors;
 
 export default function PrimaryButton({
   title,
@@ -16,44 +18,73 @@ export default function PrimaryButton({
   loading = false,
   icon,
   style,
+  variant = "primary",
 }) {
   const isDisabled = disabled || loading;
+  const isDestructive = variant === "destructive";
+
+  const gradientColors = isDestructive
+    ? ["#F58B91", colors.error, "#D94A55"]
+    : ["#85A9FF", colors.primary, "#4A7EF0"];
+
+  const disabledGradientColors = isDestructive
+    ? ["#F7C8CB", "#F2B4B9", "#EFA6AD"]
+    : [colors.primaryDisabled, colors.primaryDisabled, colors.primaryDisabled];
+
+  const shadowColor = isDestructive ? colors.error : colors.primary;
 
   return (
-    <View style={[styles.shadowContainer, style]}>
+    <View
+      style={[
+        styles.shadowContainer,
+        {
+          shadowColor,
+        },
+        isDisabled && styles.shadowContainerDisabled,
+        style,
+      ]}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={title}
-        accessibilityState={{ disabled: isDisabled }}
+        accessibilityState={{
+          disabled: isDisabled,
+        }}
         disabled={isDisabled}
         onPress={onPress}
         style={({ pressed }) => [
           styles.pressable,
           pressed && !isDisabled && styles.buttonPressed,
+          isDisabled && styles.buttonDisabled,
         ]}
       >
         <LinearGradient
-          colors={
-            isDisabled
-              ? [colors.primaryDisabled, colors.primaryDisabled]
-              : ["#78A1FF", colors.primary, "#5688F7"]
-          }
+          pointerEvents="none"
+          colors={isDisabled ? disabledGradientColors : gradientColors}
           locations={[0, 0.55, 1]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.gradient}
-        >
-          <View style={styles.highlight} />
+          style={StyleSheet.absoluteFill}
+        />
 
+        <View
+          pointerEvents="none"
+          style={[styles.highlight, isDisabled && styles.highlightDisabled]}
+        />
+
+        <View style={styles.content}>
           {loading ? (
             <ActivityIndicator color={colors.white} />
           ) : (
-            <View style={styles.content}>
+            <>
               {icon}
-              <Text style={styles.label}>{title}</Text>
-            </View>
+
+              <Text style={[styles.label, isDisabled && styles.labelDisabled]}>
+                {title}
+              </Text>
+            </>
           )}
-        </LinearGradient>
+        </View>
       </Pressable>
     </View>
   );
@@ -62,60 +93,89 @@ export default function PrimaryButton({
 const styles = StyleSheet.create({
   shadowContainer: {
     width: "100%",
+
     borderRadius: radius.lg,
 
-    shadowColor: colors.primary,
     shadowOffset: {
       width: 0,
-      height: 8,
+      height: 6,
     },
-    shadowOpacity: 0.24,
-    shadowRadius: 14,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
 
-    elevation: 7,
+    elevation: 6,
+  },
+
+  shadowContainerDisabled: {
+    shadowOpacity: 0,
+    elevation: 0,
   },
 
   pressable: {
+    position: "relative",
+
     width: "100%",
-    minHeight: 56,
+    height: 56,
+
     borderRadius: radius.lg,
+
     overflow: "hidden",
-  },
-
-  gradient: {
-    minHeight: 56,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.lg,
-
-    alignItems: "center",
-    justifyContent: "center",
   },
 
   highlight: {
     position: "absolute",
+
     top: 0,
-    left: 20,
-    right: 20,
+    right: 18,
+    left: 18,
+
     height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.32)",
+
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+
+    zIndex: 2,
+  },
+
+  highlightDisabled: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
   },
 
   content: {
+    position: "relative",
+
+    width: "100%",
+    height: "100%",
+
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+
     gap: spacing.sm,
+
+    paddingHorizontal: spacing.xl,
+
+    zIndex: 3,
   },
 
   buttonPressed: {
-    transform: [{ scale: 0.985 }],
     opacity: 0.92,
+
+    transform: [{ scale: 0.985 }],
+  },
+
+  buttonDisabled: {
+    opacity: 1,
   },
 
   label: {
-    color: colors.white,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontSize: 17,
     lineHeight: 22,
+
+    color: colors.white,
+  },
+
+  labelDisabled: {
+    opacity: 0.88,
   },
 });
