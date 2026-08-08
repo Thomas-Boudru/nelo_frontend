@@ -71,6 +71,14 @@ const WAVE_BOX_RATIO = 6;
 const MAX_SLOSH_SCALE = 1.7;
 const SLOSH_VELOCITY_REFERENCE = 1500;
 
+const FRONT_WAVE_DURATION = 5200;
+const BACK_WAVE_DURATION = 7600;
+
+// La phase avance en continu sur des centaines de cycles au lieu de relancer un
+// `withTiming` toutes les quelques secondes : le raccord de boucle n'est plus
+// aligné sur une frame de redémarrage, donc plus de saut visible.
+const WAVE_LOOP_COUNT = 600;
+
 const LEVEL_SPRING = { damping: 17, stiffness: 120, mass: 0.85 };
 
 export default function BottleFeedForm({
@@ -79,7 +87,8 @@ export default function BottleFeedForm({
   onPressCapacity,
   onPressMilkType,
   onPressNote,
-  gestureRef,
+  onPressExactAmount,
+  onBottleGestureChange,
 }) {
   const { t } = useTranslation();
 
@@ -266,13 +275,19 @@ export default function BottleFeedForm({
 
   useEffect(() => {
     frontPhase.value = withRepeat(
-      withTiming(1, { duration: 5200, easing: Easing.linear }),
+      withTiming(WAVE_LOOP_COUNT, {
+        duration: WAVE_LOOP_COUNT * FRONT_WAVE_DURATION,
+        easing: Easing.linear,
+      }),
       -1,
       false,
     );
 
     backPhase.value = withRepeat(
-      withTiming(1, { duration: 7600, easing: Easing.linear }),
+      withTiming(WAVE_LOOP_COUNT, {
+        duration: WAVE_LOOP_COUNT * BACK_WAVE_DURATION,
+        easing: Easing.linear,
+      }),
       -1,
       false,
     );
@@ -283,12 +298,10 @@ export default function BottleFeedForm({
     };
   }, [backPhase, frontPhase]);
 
-  const panGesture = useMemo(() => {
-    // La sheet reçoit cette ref via sa prop `waitFor` : son pan de contenu
-    // attend que ce geste échoue. Résultat : glissement du lait sur le biberon,
-    // fermeture par swipe partout ailleurs.
-    const gesture = Gesture.Pan()
-      .minDistance(0)
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
         .shouldCancelWhenOutside(false)
         .onBegin((event) => {
           if (windowHeightValue.value <= 0) {
@@ -323,18 +336,27 @@ export default function BottleFeedForm({
           slosh.value = withTiming(0, { duration: 1100 });
 
           runOnJS(commitDragRatio)(fill.value);
-        });
+        }),
+    [
+      commitDragRatio,
+      fill,
+      isDragging,
+      slosh,
+      windowBottomValue,
+      windowHeightValue,
+    ],
+  );
 
-    return gestureRef ? gesture.withRef(gestureRef) : gesture;
-  }, [
-    commitDragRatio,
-    fill,
-    gestureRef,
-    isDragging,
-    slosh,
-    windowBottomValue,
-    windowHeightValue,
-  ]);
+  const isBottleDraggable =
+    !isExactAmountMode && viewMode === "bottle" && bottleHeight > 0;
+
+  // La sheet met ce geste dans sa prop `waitFor` : son pan de fermeture attend
+  // que le glissement du lait échoue. Résultat : niveau réglable sur le
+  // biberon, swipe de fermeture partout ailleurs. On le lui retire dès que le
+  // biberon n'est plus affiché, sinon elle attendrait un geste démonté.
+  useEffect(() => {
+    onBottleGestureChange?.(isBottleDraggable ? panGesture : null);
+  }, [isBottleDraggable, onBottleGestureChange, panGesture]);
 
   const liquidStyle = useAnimatedStyle(() => {
     const levelHeight = fill.value * geometry.windowHeight;
@@ -344,16 +366,18 @@ export default function BottleFeedForm({
     };
   });
 
+  // On ne translate jamais de plus d'une période : au wrap, le motif retombe
+  // exactement sur lui-même, le raccord est donc invisible.
   const frontWaveStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: -frontPhase.value * waves.front.period },
+      { translateX: -(frontPhase.value % 1) * waves.front.period },
       { scaleY: 1 + slosh.value * (MAX_SLOSH_SCALE - 1) },
     ],
   }));
 
   const backWaveStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: (backPhase.value - 1) * waves.back.period },
+      { translateX: ((backPhase.value % 1) - 1) * waves.back.period },
       { scaleY: 1 + slosh.value * (MAX_SLOSH_SCALE - 1) * 0.7 },
     ],
   }));
@@ -407,7 +431,7 @@ export default function BottleFeedForm({
             ]}
           >
             <Ionicons
-              name="keypad-outline"
+              name="grid-outline"
               size={18}
               color={
                 viewMode === "simple" ? colors.primary : colors.textSecondary
@@ -649,7 +673,10 @@ export default function BottleFeedForm({
               {chunkPairs(BOTTLE_PORTIONS).map((row, rowIndex) => (
                 <View
                   key={rowIndex}
-                  style={[styles.portionsRow, { height: cardMetrics.cardHeight }]}
+                  style={[
+                    styles.portionsRow,
+                    { height: cardMetrics.cardHeight },
+                  ]}
                 >
                   {row.map((portion) => {
                     const isSelected =
@@ -706,7 +733,7 @@ export default function BottleFeedForm({
         </View>
 
         <Pressable
-          onPress={() => patchEntry({ isExactAmountMode: !isExactAmountMode })}
+          onPress={onPressExactAmount}
           style={({ pressed }) => [
             styles.exactAmountButton,
             pressed && styles.pressed,
@@ -714,27 +741,11 @@ export default function BottleFeedForm({
         >
           <Text style={styles.exactAmountButtonLabel}>
             {isExactAmountMode
-              ? t("Use bottle portions")
+              ? t("Edit exact amount")
               : t("Enter exact amount")}
           </Text>
         </Pressable>
       </View>
-
-      {isExactAmountMode ? (
-        <View style={styles.exactAmountField}>
-          <BottomSheetTextInput
-            value={value?.exactAmount ?? ""}
-            onChangeText={(nextValue) => patchEntry({ exactAmount: nextValue })}
-            placeholder={t("Amount in ml")}
-            placeholderTextColor={colors.textSecondary}
-            keyboardType="decimal-pad"
-            autoFocus
-            style={styles.exactAmountInput}
-          />
-
-          <Text style={styles.unit}>ml</Text>
-        </View>
-      ) : null}
 
       <FeedingTimeRow
         isNow={!value?.isDateEdited}
@@ -751,8 +762,18 @@ export default function BottleFeedForm({
 // translateX sur une période, la boucle est donc invisible et rien n'est
 // recalculé image par image.
 function buildWave({ containerWidth, period, amplitude, boxHeight }) {
-  const periodCount = Math.ceil(containerWidth / period) + 1;
-  const width = period * periodCount;
+  // La période est arrondie au pixel entier : les quarts et les demis tombent
+  // alors juste, et deux demi-périodes valent exactement la période dont on se
+  // sert pour translater. Sans ça le motif dérive d'une fraction de pixel à
+  // chaque cycle et le raccord finit par se voir.
+  const step = Math.max(Math.round(period), 8);
+  const half = step / 2;
+  const quarter = step / 4;
+
+  // Une période de marge à droite : la fenêtre visible reste couverte même
+  // quand la translation atteint son maximum.
+  const periodCount = Math.ceil(containerWidth / step) + 1;
+  const width = step * periodCount;
   const midY = boxHeight / 2;
 
   // Une quadratique n'atteint que la moitié de l'offset de son point de
@@ -762,13 +783,13 @@ function buildWave({ containerWidth, period, amplitude, boxHeight }) {
   let path = `M 0 ${round(midY)}`;
 
   for (let index = 0; index < periodCount; index += 1) {
-    path += ` q ${round(period / 4)} ${round(-control)} ${round(period / 2)} 0`;
-    path += ` q ${round(period / 4)} ${round(control)} ${round(period / 2)} 0`;
+    path += ` q ${quarter} ${round(-control)} ${half} 0`;
+    path += ` q ${quarter} ${round(control)} ${half} 0`;
   }
 
-  path += ` L ${round(width)} ${round(boxHeight)} L 0 ${round(boxHeight)} Z`;
+  path += ` L ${width} ${round(boxHeight)} L 0 ${round(boxHeight)} Z`;
 
-  return { path, width, period };
+  return { path, width, period: step };
 }
 
 function round(value) {
@@ -1138,6 +1159,7 @@ function createStyles(colors) {
     },
 
     noteActionButton: {
+      position: "relative",
       alignItems: "center",
       justifyContent: "center",
       minHeight: 32,
@@ -1155,10 +1177,12 @@ function createStyles(colors) {
     },
 
     noteIndicator: {
-      width: 5,
-      height: 5,
+      position: "absolute",
+      top: -3,
+      right: -3,
+      width: 8,
+      height: 8,
       borderRadius: 999,
-      marginLeft: 2,
       backgroundColor: colors.primary,
     },
   });

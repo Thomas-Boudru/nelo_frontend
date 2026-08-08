@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -23,6 +24,12 @@ import BottleFeedForm from "../../../components/addTracking/feeding/BottleFeedFo
 
 import BottleCapacitySheet from "./BottleCapacitySheet.js";
 import MilkTypeSheet from "../../../components/addTracking/feeding/MilkyTypeSheet.js";
+import ExactAmountSheet from "./ExactAmountSheet.js";
+import ManualBreastfeedingSheet from "./ManualBreastFeedingSheet.js";
+import PumpingForm from "../../../components/addTracking/feeding/PumpingForm.js";
+import BreastfeedingForm, {
+  getCurrentBreastfeedingDurations,
+} from "../../../components/addTracking/feeding/BreastfeedingForm.js";
 
 import {
   DEFAULT_BOTTLE_CAPACITY_ML,
@@ -38,11 +45,30 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const bottleCapacitySheetRef = useRef(null);
   const milkTypeSheetRef = useRef(null);
   const noteSheetRef = useRef(null);
+  const exactAmountSheetRef = useRef(null);
+  const manualBreastfeedingSheetRef = useRef(null);
 
+  const [noteTarget, setNoteTarget] = useState(null);
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedType, setSelectedType] = useState("bottle");
+
+  // Le seul geste du contenu qui doit primer sur le pan de fermeture : le
+  // curseur vertical du biberon. Le formulaire nous le donne quand il est
+  // affiché, et le retire sinon.
+  const [bottleGesture, setBottleGesture] = useState(null);
+
+  const openNoteSheet = (target, currentNote = "") => {
+    setNoteTarget(target);
+    noteSheetRef.current?.present(currentNote);
+  };
+
+  useEffect(() => {
+    if (selectedType !== "bottle") {
+      setBottleGesture(null);
+    }
+  }, [selectedType]);
 
   const [bottleEntry, setBottleEntry] = useState({
     bottleCapacityMl: DEFAULT_BOTTLE_CAPACITY_ML,
@@ -54,6 +80,28 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     exactAmount: "",
     feedingDate: new Date(),
     isDateEdited: false,
+  });
+
+  const [breastfeedingEntry, setBreastfeedingEntry] = useState({
+    leftDurationSeconds: 0,
+    rightDurationSeconds: 0,
+    activeSide: null,
+    activeStartedAt: null,
+    note: "",
+    feedingDate: new Date(),
+    isDateEdited: false,
+  });
+
+  const [pumpingEntry, setPumpingEntry] = useState({
+    pumpingDate: new Date(),
+    leftDurationSeconds: 0,
+    rightDurationSeconds: 0,
+    leftAmountMl: 0,
+    rightAmountMl: 0,
+    activeSide: null,
+    activeStartedAt: null,
+    isDateEdited: false,
+    note: "",
   });
 
   const bottleAmountMl = getBottleEntryAmountMl(bottleEntry);
@@ -84,6 +132,10 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     [],
   );
 
+  const handleBottleGestureChange = useCallback((gesture) => {
+    setBottleGesture(gesture ?? null);
+  }, []);
+
   const renderForm = () => {
     switch (selectedType) {
       case "bottle":
@@ -98,18 +150,25 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
               milkTypeSheetRef.current?.present(currentMilkType);
             }}
             onPressNote={() => {
-              noteSheetRef.current?.present(bottleEntry.note);
+              openNoteSheet("bottle", bottleEntry.note);
+            }}
+            onBottleGestureChange={handleBottleGestureChange}
+            onPressExactAmount={() => {
+              exactAmountSheetRef.current?.present(bottleAmountMl);
             }}
           />
         );
       case "breastfeeding":
         return (
-          <EmptyForm
-            icon="heart-outline"
-            title={t("Breastfeeding")}
-            description={t("Record a breastfeeding session for child", {
-              childName,
-            })}
+          <BreastfeedingForm
+            value={breastfeedingEntry}
+            onChange={setBreastfeedingEntry}
+            onPressNote={() => {
+              openNoteSheet("breastfeeding", breastfeedingEntry.note);
+            }}
+            onPressAddManually={() => {
+              manualBreastfeedingSheetRef.current?.present(breastfeedingEntry);
+            }}
           />
         );
 
@@ -124,10 +183,12 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 
       case "pumping":
         return (
-          <EmptyForm
-            icon="fitness-outline"
-            title={t("Pumping")}
-            description={t("Record a pumping session")}
+          <PumpingForm
+            value={pumpingEntry}
+            onChange={setPumpingEntry}
+            onPressNote={() => {
+              openNoteSheet("pumping", pumpingEntry.note);
+            }}
           />
         );
 
@@ -136,6 +197,72 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     }
   };
 
+  const breastfeedingDurations =
+    getCurrentBreastfeedingDurations(breastfeedingEntry);
+
+  const canSaveBottle = selectedType === "bottle" && !!bottleAmountMl;
+
+  const canSaveBreastfeeding =
+    selectedType === "breastfeeding" &&
+    (breastfeedingDurations.leftDurationSeconds > 0 ||
+      breastfeedingDurations.rightDurationSeconds > 0 ||
+      !!breastfeedingEntry.activeSide);
+
+  const handleSaveFeeding = () => {
+    if (selectedType === "bottle") {
+      if (!bottleAmountMl) return;
+
+      onSaveBottle?.({ ...bottleEntry, amountMl: bottleAmountMl });
+      modalRef.current?.dismiss();
+      return;
+    }
+
+    if (selectedType === "breastfeeding") {
+      const currentDurations =
+        getCurrentBreastfeedingDurations(breastfeedingEntry);
+
+      if (
+        currentDurations.leftDurationSeconds <= 0 &&
+        currentDurations.rightDurationSeconds <= 0
+      ) {
+        return;
+      }
+
+      onSaveBreastfeeding?.({
+        ...breastfeedingEntry,
+        ...currentDurations,
+        activeSide: null,
+        activeStartedAt: null,
+      });
+
+      modalRef.current?.dismiss();
+    }
+
+    if (selectedType === "pumping") {
+      const totalAmountMl =
+        (pumpingEntry.leftAmountMl ?? 0) + (pumpingEntry.rightAmountMl ?? 0);
+
+      if (totalAmountMl <= 0) return;
+
+      onSavePumping?.({
+        ...pumpingEntry,
+        totalAmountMl,
+        activeSide: null,
+        activeStartedAt: null,
+      });
+
+      modalRef.current?.dismiss();
+    }
+  };
+
+  const pumpingAmountMl =
+    (pumpingEntry.leftAmountMl ?? 0) + (pumpingEntry.rightAmountMl ?? 0);
+
+  const canSavePumping = selectedType === "pumping" && pumpingAmountMl > 0;
+
+  const canSaveFeeding =
+    canSaveBottle || canSaveBreastfeeding || canSavePumping;
+
   return (
     <BottomSheetModal
       ref={modalRef}
@@ -143,9 +270,10 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
       snapPoints={snapPoints}
       enableDynamicSizing={false}
       enablePanDownToClose
-      // Le contenu contient un curseur vertical (le biberon) : sans ça, la
-      // sheet capte le geste et le glissement devient saccadé.
-      enableContentPanningGesture={false}
+      // Le pan de fermeture reste actif sur tout le contenu, mais il attend que
+      // le curseur du biberon échoue : sans ça les deux gestes se disputent le
+      // glissement et le niveau de lait devient saccadé.
+      waitFor={bottleGesture ?? undefined}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
       handleIndicatorStyle={styles.handle}
@@ -181,13 +309,8 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
         <View style={styles.footerContainer}>
           <PrimaryButton
             title={t("Save feeding")}
-            onPress={() => {
-              if (selectedType !== "bottle" || !bottleAmountMl) return;
-
-              onSaveBottle?.({ ...bottleEntry, amountMl: bottleAmountMl });
-              modalRef.current?.dismiss();
-            }}
-            disabled={selectedType !== "bottle" || !bottleAmountMl}
+            onPress={handleSaveFeeding}
+            disabled={!canSaveFeeding}
           />
         </View>
       </View>
@@ -215,9 +338,48 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
       <NoteSheet
         ref={noteSheetRef}
         onSave={(note) => {
+          if (noteTarget === "bottle") {
+            setBottleEntry((current) => ({
+              ...current,
+              note,
+            }));
+            return;
+          }
+
+          if (noteTarget === "breastfeeding") {
+            setBreastfeedingEntry((current) => ({
+              ...current,
+              note,
+            }));
+          }
+
+          if (noteTarget === "pumping") {
+            setPumpingEntry((current) => ({
+              ...current,
+              note,
+            }));
+          }
+        }}
+      />
+
+      <ManualBreastfeedingSheet
+        ref={manualBreastfeedingSheetRef}
+        onSave={(manualEntry) => {
+          setBreastfeedingEntry((current) => ({
+            ...current,
+            ...manualEntry,
+          }));
+        }}
+      />
+
+      <ExactAmountSheet
+        ref={exactAmountSheetRef}
+        onSave={(exactAmount) => {
           setBottleEntry((current) => ({
             ...current,
-            note,
+            isExactAmountMode: true,
+            portionId: null,
+            exactAmount,
           }));
         }}
       />
@@ -302,6 +464,10 @@ function createStyles(colors) {
     },
 
     formScrollContent: {
+      // Le contenu occupe au minimum toute la zone visible : sans ça un
+      // formulaire plus court que l'écran ne peut pas pousser son action de bas
+      // de page (« Add manually ») contre le footer.
+      flexGrow: 1,
       paddingHorizontal: 20,
       paddingTop: 22,
       paddingBottom: 20,

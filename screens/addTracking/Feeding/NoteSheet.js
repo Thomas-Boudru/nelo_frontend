@@ -1,12 +1,13 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -23,10 +24,25 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
   const { t } = useTranslation();
   const modalRef = useRef(null);
   const [note, setNote] = useState("");
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const snapPoints = useMemo(() => ["42%"], []);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
+    });
+
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     present(currentNote = "") {
@@ -67,14 +83,28 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
     <BottomSheetModal
       ref={modalRef}
       index={0}
-      snapPoints={snapPoints}
+      // « push » : sans ça, gorhom minimise la sheet d'ajout de repas qui nous
+      // contient au moment où on se présente, et les deux disparaissent.
       stackBehavior="push"
       enablePanDownToClose
-      backdropComponent={renderBackdrop}
+      // La hauteur suit le contenu : avec un snap point fixe, le clavier
+      // laissait un grand vide sous les boutons.
+      enableDynamicSizing
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
       backgroundStyle={styles.sheetBackground}
       handleIndicatorStyle={styles.handle}
+      backdropComponent={renderBackdrop}
     >
-      <BottomSheetView style={styles.content}>
+      <BottomSheetView
+        style={[
+          styles.content,
+          keyboardVisible
+            ? styles.contentKeyboardVisible
+            : styles.contentKeyboardHidden,
+        ]}
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>{t("Add a note")}</Text>
@@ -97,14 +127,16 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
 
         <View style={styles.footer}>
           {note.trim() ? (
-            <Pressable onPress={handleClear} style={styles.clearButton}>
-              <Text style={styles.clearLabel}>{t("Remove note")}</Text>
-            </Pressable>
-          ) : (
-            <View />
-          )}
+            <View style={styles.footerButton}>
+              <PrimaryButton
+                title={t("Remove note")}
+                onPress={handleClear}
+                variant="destructive"
+              />
+            </View>
+          ) : null}
 
-          <View style={styles.saveButton}>
+          <View style={styles.footerButton}>
             <PrimaryButton title={t("Save note")} onPress={handleSave} />
           </View>
         </View>
@@ -131,7 +163,14 @@ function createStyles(colors) {
 
     content: {
       paddingHorizontal: 20,
-      paddingBottom: 18,
+    },
+
+    contentKeyboardHidden: {
+      paddingBottom: 24,
+    },
+
+    contentKeyboardVisible: {
+      paddingBottom: 8,
     },
 
     header: {
@@ -180,10 +219,12 @@ function createStyles(colors) {
 
     footer: {
       flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
+      gap: 10,
       paddingTop: 16,
+    },
+
+    footerButton: {
+      flex: 1,
     },
 
     clearButton: {

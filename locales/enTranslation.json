@@ -707,5 +707,16 @@
   "Remove note": "Remove note",
   "Save note": "Save note",
   "Add an optional detail about this feeding": "Add an optional detail about this feeding.",
-  "For example, drank slowly or refused the end": "For example, drank slowly or refused the end."
+  "For example, drank slowly or refused the end": "For example, drank slowly or refused the end.",
+  "Breastfeeding timer": "Breastfeeding timer",
+  "Tap a side to start or pause the timer": "Tap a side to start or pause the timer",
+  "Left": "Left",
+  "Right": "Right",
+  "Recording": "Recording",
+  "Tap to resume": "Tap to resume",
+  "Tap to start": "Tap to start",
+  "Manual": "Manual",
+  "Adjust the time with the buttons above": "Adjust the time with the buttons above",
+  "When did this feeding start?": "When did this feeding start?",
+  "Total": "Total"
 }
