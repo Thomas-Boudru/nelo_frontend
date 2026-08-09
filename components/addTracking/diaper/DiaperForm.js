@@ -1,0 +1,433 @@
+import { useMemo, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
+import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
+
+import FeedingTimeRow from "../feeding/FeedingTimeRow.js";
+import DateTimeRow from "../DateTimeRow.js";
+import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+const DIAPER_OPTIONS = [
+  {
+    id: "dry",
+    label: "Dry",
+    icon: "sunny-outline",
+    color: "#8B9BB5",
+    background: "#F3F6FA",
+  },
+  {
+    id: "wet",
+    label: "Wet",
+    icon: "water-outline",
+    color: "#4E83F7",
+    background: "#EEF5FF",
+  },
+  {
+    id: "dirty",
+    label: "Dirty",
+    icon: "cloud-outline",
+    color: "#D4924A",
+    background: "#FFF6EA",
+  },
+  {
+    id: "wetAndDirty",
+    label: "Wet & dirty",
+    icon: "partly-sunny-outline",
+    color: "#8B70D6",
+    background: "#F5F1FF",
+  },
+];
+
+const CONSISTENCIES = [
+  { id: "liquid", label: "Liquid" },
+  { id: "soft", label: "Soft" },
+  { id: "formed", label: "Formed" },
+  { id: "hard", label: "Hard" },
+];
+
+export default function DiaperForm({ value, onChange }) {
+  const { t } = useTranslation();
+
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [showDetails, setShowDetails] = useState(false);
+
+  const includesPoop =
+    value?.content === "dirty" || value?.content === "wetAndDirty";
+
+  const patchEntry = (patch) => {
+    onChange?.({
+      ...value,
+      ...patch,
+    });
+  };
+
+  const handleSelectContent = (content) => {
+    const nextIncludesPoop = content === "dirty" || content === "wetAndDirty";
+
+    patchEntry({
+      content,
+      consistency: nextIncludesPoop ? value?.consistency : null,
+    });
+
+    if (!nextIncludesPoop) {
+      setShowDetails(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View>
+        <Text style={styles.sectionTitle}>{t("What was in the diaper?")}</Text>
+
+        <Text style={styles.sectionDescription}>
+          {t("Choose the option that best describes the diaper")}
+        </Text>
+      </View>
+
+      <View style={styles.optionsGrid}>
+        {DIAPER_OPTIONS.map((option) => {
+          const isSelected = value?.content === option.id;
+
+          return (
+            <Pressable
+              key={option.id}
+              onPress={() => handleSelectContent(option.id)}
+              style={({ pressed }) => [
+                styles.optionCard,
+                {
+                  backgroundColor: option.background,
+                },
+                isSelected && {
+                  borderColor: option.color,
+                  borderWidth: 1.5,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[
+                  styles.optionIcon,
+                  {
+                    backgroundColor: `${option.color}16`,
+                  },
+                ]}
+              >
+                <Ionicons name={option.icon} size={23} color={option.color} />
+              </View>
+
+              <Text
+                style={[
+                  styles.optionLabel,
+                  isSelected && {
+                    color: option.color,
+                  },
+                ]}
+              >
+                {t(option.label)}
+              </Text>
+
+              {isSelected ? (
+                <View
+                  style={[
+                    styles.checkBadge,
+                    {
+                      backgroundColor: option.color,
+                    },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {includesPoop ? (
+        <View>
+          <Pressable
+            onPress={() => setShowDetails((current) => !current)}
+            style={({ pressed }) => [
+              styles.detailsButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.detailsButtonLeft}>
+              <View style={styles.detailsIcon}>
+                <Ionicons
+                  name="options-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+              </View>
+
+              <Text style={styles.detailsButtonLabel}>
+                {showDetails ? t("Hide details") : t("Add details")}
+              </Text>
+            </View>
+
+            <Ionicons
+              name={showDetails ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={colors.textSecondary}
+            />
+          </Pressable>
+
+          {showDetails ? (
+            <View style={styles.detailsContent}>
+              <Text style={styles.detailsTitle}>{t("Consistency")}</Text>
+
+              <View style={styles.chips}>
+                {CONSISTENCIES.map((consistency) => {
+                  const isSelected = value?.consistency === consistency.id;
+
+                  return (
+                    <Pressable
+                      key={consistency.id}
+                      onPress={() =>
+                        patchEntry({
+                          consistency: isSelected ? null : consistency.id,
+                        })
+                      }
+                      style={[styles.chip, isSelected && styles.chipSelected]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipLabel,
+                          isSelected && styles.chipLabelSelected,
+                        ]}
+                      >
+                        {t(consistency.label)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={styles.noteSection}>
+        <Text style={styles.noteLabel}>{t("Note")}</Text>
+
+        <View style={styles.inputContainer}>
+          <BottomSheetTextInput
+            value={value?.note ?? ""}
+            onChangeText={(note) => patchEntry({ note })}
+            placeholder={t("Add an optional note")}
+            placeholderTextColor={colors.textSecondary}
+            multiline
+            maxLength={300}
+            textAlignVertical="top"
+            style={styles.noteInput}
+          />
+
+          <Text style={styles.characterCounter}>
+            {(value?.note ?? "").length}/300
+          </Text>
+        </View>
+      </View>
+
+      <DateTimeRow
+        isNow={!value?.isDateEdited}
+        date={value?.diaperDate ?? new Date()}
+        onDateChange={(nextDate) =>
+          patchEntry({
+            diaperDate: nextDate,
+            isDateEdited: true,
+          })
+        }
+      />
+    </View>
+  );
+}
+
+function createStyles(colors) {
+  return StyleSheet.create({
+    container: {
+      gap: 20,
+    },
+
+    sectionTitle: {
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 17,
+      color: colors.textPrimary,
+    },
+
+    sectionDescription: {
+      marginTop: 5,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.textSecondary,
+    },
+
+    optionsGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+    },
+
+    optionCard: {
+      position: "relative",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "48%",
+      minHeight: 108,
+      paddingHorizontal: 12,
+      paddingVertical: 15,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: "transparent",
+    },
+
+    optionIcon: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 42,
+      height: 42,
+      borderRadius: 15,
+    },
+
+    optionLabel: {
+      marginTop: 9,
+      textAlign: "center",
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+
+    checkBadge: {
+      position: "absolute",
+      top: 10,
+      right: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+    },
+
+    detailsButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      minHeight: 54,
+      paddingHorizontal: 14,
+      borderRadius: 17,
+      backgroundColor: colors.lightBlue,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    detailsButtonLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+
+    detailsIcon: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 32,
+      height: 32,
+      borderRadius: 11,
+      backgroundColor: `${colors.primary}12`,
+    },
+
+    detailsButtonLabel: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+
+    detailsContent: {
+      marginTop: 12,
+    },
+
+    detailsTitle: {
+      marginBottom: 10,
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+
+    chips: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+
+    chip: {
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 13,
+      backgroundColor: colors.lightBlue,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    chipSelected: {
+      backgroundColor: `${colors.primary}12`,
+      borderColor: colors.primary,
+    },
+
+    chipLabel: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+
+    chipLabelSelected: {
+      color: colors.primary,
+    },
+
+    noteSection: {
+      gap: 8,
+    },
+
+    noteLabel: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+
+    inputContainer: {
+      position: "relative",
+    },
+
+    noteInput: {
+      minHeight: 78,
+      maxHeight: 120,
+      paddingHorizontal: 14,
+      paddingTop: 12,
+      paddingBottom: 30,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.lightBlue,
+      textAlignVertical: "top",
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textPrimary,
+    },
+
+    characterCounter: {
+      position: "absolute",
+      right: 12,
+      bottom: 10,
+      color: colors.textSecondary,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 10,
+    },
+
+    pressed: {
+      opacity: 0.78,
+    },
+  });
+}

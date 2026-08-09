@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,14 +28,24 @@ export default function ToastMessage({
   const insets = useSafeAreaInsets();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
-
+  const [shouldRender, setShouldRender] = useState(visible);
   const translateY = useRef(new Animated.Value(-30)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
   const config = TOAST_CONFIG[type] ?? TOAST_CONFIG.info;
 
   useEffect(() => {
+    let hideTimeout;
+
     if (visible) {
+      setShouldRender(true);
+
+      translateY.stopAnimation();
+      opacity.stopAnimation();
+
+      translateY.setValue(-20);
+      opacity.setValue(0);
+
       Animated.parallel([
         Animated.spring(translateY, {
           toValue: 0,
@@ -53,21 +63,38 @@ export default function ToastMessage({
       return;
     }
 
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: -20,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [visible, opacity, translateY]);
+    if (shouldRender) {
+      translateY.stopAnimation();
+      opacity.stopAnimation();
 
-  if (!visible && !title && !message) {
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: -12,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) {
+          hideTimeout = setTimeout(() => {
+            setShouldRender(false);
+          }, 10);
+        }
+      });
+    }
+
+    return () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+    };
+  }, [visible, shouldRender, opacity, translateY]);
+
+  if (!shouldRender) {
     return null;
   }
 
@@ -80,7 +107,7 @@ export default function ToastMessage({
 
   return (
     <View
-      pointerEvents="box-none"
+      pointerEvents={visible ? "box-none" : "none"}
       style={[
         styles.overlay,
         {

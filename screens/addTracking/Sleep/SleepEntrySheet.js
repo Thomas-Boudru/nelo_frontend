@@ -8,8 +8,20 @@ import {
   useRef,
   useState,
 } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { BottomSheetBackdrop, BottomSheetModal } from "@gorhom/bottom-sheet";
+import {
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+} from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import ManualSleepSheet from "./ManualSleepSheet.js";
@@ -20,6 +32,8 @@ import { useThemeColors } from "../../../theme/useThemeColors.js";
 const awakeIllustration = require("../../../assets/illustrations/tracking/sleep/wake.png");
 
 const sleepingIllustration = require("../../../assets/illustrations/tracking/sleep/sleep.png");
+
+const MAX_NOTE_LENGTH = 300;
 
 const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   {
@@ -40,10 +54,15 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const snapPoints = useMemo(() => ["92%"], []);
+  const [sleepTags, setSleepTags] = useState([]);
 
   const [sleepType, setSleepType] = useState("nap");
   const [activeSleep, setActiveSleep] = useState(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [view, setView] = useState("main");
+  const [completedSleep, setCompletedSleep] = useState(null);
+  const [wakeNote, setWakeNote] = useState("");
+  const [isSavingWake, setIsSavingWake] = useState(false);
 
   /*
    * Le chronomètre ne stocke pas chaque seconde.
@@ -67,6 +86,10 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
 
   useImperativeHandle(ref, () => ({
     present(currentActiveSleep = null) {
+      setCompletedSleep(null);
+      setWakeNote("");
+      setView("main");
+
       if (currentActiveSleep?.startedAt) {
         setActiveSleep({
           ...currentActiveSleep,
@@ -81,6 +104,9 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     },
 
     dismiss() {
+      setCompletedSleep(null);
+      setWakeNote("");
+      setView("main");
       modalRef.current?.dismiss();
     },
 
@@ -105,14 +131,27 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     manualSleepSheetRef.current?.present(type);
   };
 
-  const handleSaveManualSleep = (sleep) => {
-    onSaveManualSleep?.(sleep);
+  const toggleSleepTag = (tag) => {
+    setSleepTags((currentTags) =>
+      currentTags.includes(tag)
+        ? currentTags.filter((currentTag) => currentTag !== tag)
+        : [...currentTags, tag],
+    );
+  };
 
-    /*
-     * On ferme également la sheet principale une fois
-     * le sommeil manuel enregistré.
-     */
+  const handleSaveManualSleep = async (sleep) => {
+    await onSaveManualSleep?.(sleep);
+
+    manualSleepSheetRef.current?.dismiss();
     modalRef.current?.dismiss();
+  };
+
+  const handleDismiss = () => {
+    setCompletedSleep(null);
+    setWakeNote("");
+    setSleepTags([]);
+    setView("main");
+    setIsSavingWake(false);
   };
   const renderBackdrop = useCallback(
     (props) => (
@@ -127,17 +166,19 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     [],
   );
 
-  const handleStartSleep = () => {
+  const handleStartSleep = async () => {
     const sleep = {
       type: sleepType,
       startedAt: new Date(),
       note: "",
+      entryMode: "timer",
     };
+
+    await onStartSleep?.(sleep);
 
     setActiveSleep(sleep);
     setCurrentTime(Date.now());
-
-    onStartSleep?.(sleep);
+    modalRef.current?.dismiss();
   };
 
   const handleWakeUp = () => {
@@ -158,14 +199,54 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       ),
     };
 
-    onWakeUp?.(completedSleep);
-
-    setActiveSleep(null);
-    setCurrentTime(Date.now());
-
-    modalRef.current?.dismiss();
+    /*
+     * L'heure de fin est provisoire : rien n'est encore enregistré.
+     */
+    setCompletedSleep(completedSleep);
+    setWakeNote("");
+    setView("wakeConfirmation");
+    setSleepTags([]);
   };
 
+  const handleContinueTracking = () => {
+    setCompletedSleep(null);
+    setWakeNote("");
+    setSleepTags([]);
+    setCurrentTime(Date.now());
+    setView("main");
+  };
+  const handleSaveCompletedSleep = async () => {
+    if (!completedSleep || isSavingWake) {
+      return;
+    }
+
+    try {
+      setIsSavingWake(true);
+
+      await onWakeUp?.({
+        ...completedSleep,
+        note: wakeNote.trim(),
+        tags: sleepTags,
+      });
+
+      setActiveSleep(null);
+      setCompletedSleep(null);
+      setWakeNote("");
+      setSleepTags([]);
+      setView("main");
+
+      modalRef.current?.dismiss();
+    } catch (error) {
+      console.error("Unable to save sleep:", error);
+
+      /*
+       * En cas d’erreur, la sheet reste ouverte.
+       * On ajoutera le toast d’erreur plus tard.
+       */
+    } finally {
+      setIsSavingWake(false);
+    }
+  };
   const durationSeconds = activeSleep?.startedAt
     ? Math.max(
         0,
@@ -191,20 +272,45 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
         backgroundStyle={styles.sheetBackground}
         handleStyle={styles.handleContainer}
         handleIndicatorStyle={styles.handleIndicator}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={handleDismiss}
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>{t("Track sleep")}</Text>
+            <Text style={styles.title}>
+              {view === "wakeConfirmation"
+                ? t("Finish sleep")
+                : t("Track sleep")}
+            </Text>
 
             <Text style={styles.subtitle}>
-              {activeSleep
-                ? t("Sleep tracking is currently running")
-                : t("Record a nap or a night sleep")}
+              {view === "wakeConfirmation"
+                ? t("Review the sleep before saving it")
+                : activeSleep
+                  ? t("Sleep tracking is currently running")
+                  : t("Record a nap or a night sleep")}
             </Text>
           </View>
 
           <View style={styles.stateContainer}>
-            {activeSleep ? (
+            {view === "wakeConfirmation" && completedSleep ? (
+              <WakeConfirmationState
+                childName={childName}
+                sleep={completedSleep}
+                note={wakeNote}
+                tags={sleepTags}
+                isSaving={isSavingWake}
+                onChangeNote={setWakeNote}
+                onToggleTag={toggleSleepTag}
+                onContinue={handleContinueTracking}
+                onSave={handleSaveCompletedSleep}
+                colors={colors}
+                styles={styles}
+                t={t}
+              />
+            ) : activeSleep ? (
               <SleepActiveState
                 childName={childName}
                 activeSleep={activeSleep}
@@ -360,6 +466,169 @@ function SleepActiveState({
 
       <View style={styles.activeActions}>
         <PrimaryButton title={t("Wake up")} onPress={onWakeUp} />
+      </View>
+    </View>
+  );
+}
+
+function WakeConfirmationState({
+  childName,
+  sleep,
+  note,
+  tags,
+  isSaving,
+  onChangeNote,
+  onToggleTag,
+  onContinue,
+  onSave,
+  colors,
+  styles,
+  t,
+}) {
+  const isNightSleep = sleep?.type === "night";
+
+  const sleepTagOptions = [
+    {
+      id: "peaceful",
+      label: t("Peaceful"),
+    },
+    {
+      id: "restless",
+      label: t("Restless"),
+    },
+    {
+      id: "severalWakeUps",
+      label: t("Several wake-ups"),
+    },
+  ];
+
+  return (
+    <View style={styles.wakeConfirmationContainer}>
+      <BottomSheetScrollView
+        style={styles.confirmationScroll}
+        contentContainerStyle={styles.confirmationScrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.sleepSummaryCard}>
+          <View style={styles.sleepSummaryIconContainer}>
+            <Ionicons
+              name={isNightSleep ? "moon-outline" : "partly-sunny-outline"}
+              size={24}
+              color={colors.primary}
+            />
+          </View>
+
+          <View style={styles.sleepSummaryContent}>
+            <View style={styles.sleepSummaryHeader}>
+              <Text style={styles.sleepSummaryType}>
+                {isNightSleep ? t("Night sleep") : t("Nap")}
+              </Text>
+
+              <Text style={styles.sleepSummaryDuration}>
+                {formatSleepDuration(sleep?.durationSeconds, t)}
+              </Text>
+            </View>
+
+            <View style={styles.sleepSummaryPeriod}>
+              <Text style={styles.sleepSummaryTime}>
+                {formatTime(sleep?.startedAt)}
+              </Text>
+
+              <Ionicons
+                name="arrow-forward"
+                size={14}
+                color={colors.textSecondary}
+              />
+
+              <Text style={styles.sleepSummaryTime}>
+                {formatTime(sleep?.endedAt)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.noteSection}>
+          <View style={styles.noteHeader}>
+            <Text style={styles.noteLabel}>{t("How was the sleep?")}</Text>
+
+            <Text
+              style={[
+                styles.noteCounter,
+                note.length >= MAX_NOTE_LENGTH && styles.noteCounterLimit,
+              ]}
+            >
+              {note.length}/{MAX_NOTE_LENGTH}
+            </Text>
+          </View>
+
+          <View style={styles.sleepTags}>
+            {sleepTagOptions.map((tag) => {
+              const selected = tags.includes(tag.id);
+
+              return (
+                <Pressable
+                  key={tag.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  disabled={isSaving}
+                  onPress={() => onToggleTag(tag.id)}
+                  style={({ pressed }) => [
+                    styles.sleepTag,
+                    selected && styles.sleepTagSelected,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sleepTagText,
+                      selected && styles.sleepTagTextSelected,
+                    ]}
+                  >
+                    {tag.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <TextInput
+            value={note}
+            onChangeText={onChangeNote}
+            editable={!isSaving}
+            placeholder={t("Add an optional note")}
+            placeholderTextColor={`${colors.textSecondary}90`}
+            multiline
+            maxLength={MAX_NOTE_LENGTH}
+            textAlignVertical="top"
+            style={styles.noteInput}
+          />
+        </View>
+      </BottomSheetScrollView>
+
+      <View style={styles.confirmationActions}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isSaving}
+          onPress={onContinue}
+          style={({ pressed }) => [
+            styles.continueSleepButton,
+            isSaving && styles.disabledButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="play-outline" size={19} color={colors.primary} />
+
+          <Text style={styles.continueSleepButtonText}>
+            {t("Continue sleep")}
+          </Text>
+        </Pressable>
+
+        <PrimaryButton
+          title={isSaving ? t("Saving...") : t("Save sleep")}
+          disabled={isSaving}
+          onPress={onSave}
+        />
       </View>
     </View>
   );
@@ -521,6 +790,23 @@ function formatDuration(totalSeconds) {
 function formatShortDuration(totalSeconds, t) {
   const safeSeconds = Math.max(0, totalSeconds ?? 0);
 
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+  if (hours > 0) {
+    return t("hours and minutes short", {
+      hours,
+      minutes,
+    });
+  }
+
+  return t("minutes short", {
+    minutes,
+  });
+}
+
+function formatSleepDuration(totalSeconds, t) {
+  const safeSeconds = Math.max(0, totalSeconds ?? 0);
   const hours = Math.floor(safeSeconds / 3600);
   const minutes = Math.floor((safeSeconds % 3600) / 60);
 
@@ -836,14 +1122,124 @@ function createStyles(colors) {
       paddingTop: 20,
     },
 
+    confirmationScrollContent: {
+      alignItems: "center",
+      paddingBottom: 24,
+    },
+
+    sleepSummaryCard: {
+      width: "100%",
+      marginTop: 22,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: `${colors.primary}30`,
+      borderRadius: 20,
+      backgroundColor: `${colors.primary}08`,
+    },
+
+    sleepSummaryDuration: {
+      marginLeft: 10,
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 14,
+      color: colors.primary,
+    },
+
+    noteSection: {
+      width: "100%",
+      marginTop: 20,
+    },
+
+    noteHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 9,
+    },
+
+    noteLabel: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+
+    noteCounter: {
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      color: colors.textSecondary,
+    },
+
+    noteCounterLimit: {
+      color: colors.error,
+    },
+
+    noteInputContainer: {
+      minHeight: 116,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      paddingHorizontal: 13,
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 18,
+      backgroundColor: colors.white,
+    },
+
+    noteIcon: {
+      marginTop: 1,
+      marginRight: 9,
+    },
+
+    noteInput: {
+      minHeight: 92,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 16,
+      backgroundColor: colors.white,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textPrimary,
+    },
+
+    sleepTags: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 10,
+    },
+
+    sleepTag: {
+      minHeight: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: colors.lightBackground,
+    },
+
+    sleepTagSelected: {
+      borderColor: `${colors.primary}55`,
+      backgroundColor: `${colors.primary}10`,
+    },
+
+    sleepTagText: {
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      color: colors.textSecondary,
+    },
+
+    sleepTagTextSelected: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      color: colors.primary,
+    },
+
     pressed: {
       opacity: 0.68,
       transform: [{ scale: 0.98 }],
-    },
-    idleActions: {
-      width: "100%",
-      marginTop: "auto",
-      paddingTop: 14,
     },
 
     addManuallyButton: {
@@ -862,6 +1258,203 @@ function createStyles(colors) {
       fontSize: 16,
       lineHeight: 19,
       color: colors.textPrimary,
+    },
+    wakeConfirmationContainer: {
+      flex: 1,
+      width: "100%",
+    },
+
+    confirmationScroll: {
+      flex: 1,
+    },
+
+    confirmationScrollContent: {
+      paddingTop: 4,
+      paddingBottom: 28,
+    },
+
+    wakeIntroduction: {
+      marginBottom: 20,
+    },
+
+    wakeTitle: {
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 20,
+      lineHeight: 27,
+      color: colors.textPrimary,
+    },
+
+    wakeDescription: {
+      marginTop: 5,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textSecondary,
+    },
+
+    sleepSummaryCard: {
+      width: "100%",
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 16,
+      borderWidth: 1,
+      borderColor: `${colors.primary}22`,
+      borderRadius: 20,
+      backgroundColor: `${colors.primary}08`,
+    },
+
+    sleepSummaryIconContainer: {
+      width: 48,
+      height: 48,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 14,
+      borderRadius: 16,
+      backgroundColor: `${colors.primary}12`,
+    },
+
+    sleepSummaryContent: {
+      flex: 1,
+    },
+
+    sleepSummaryHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+
+    sleepSummaryType: {
+      flex: 1,
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 14,
+      color: colors.textPrimary,
+    },
+
+    sleepSummaryDuration: {
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 15,
+      color: colors.primary,
+    },
+
+    sleepSummaryPeriod: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      marginTop: 7,
+    },
+
+    sleepSummaryTime: {
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
+
+    noteSection: {
+      width: "100%",
+      marginTop: 24,
+    },
+
+    noteHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+
+    noteLabel: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+
+    noteCounter: {
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      color: colors.textSecondary,
+    },
+
+    noteCounterLimit: {
+      color: colors.error,
+    },
+
+    sleepTags: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 11,
+    },
+
+    sleepTag: {
+      minHeight: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: colors.lightBackground,
+    },
+
+    sleepTagSelected: {
+      borderColor: `${colors.primary}50`,
+      backgroundColor: `${colors.primary}10`,
+    },
+
+    sleepTagText: {
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      color: colors.textSecondary,
+    },
+
+    sleepTagTextSelected: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      color: colors.primary,
+    },
+
+    noteInput: {
+      minHeight: 96,
+      marginTop: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 16,
+      backgroundColor: colors.white,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textPrimary,
+    },
+
+    confirmationActions: {
+      width: "100%",
+      gap: 12,
+      paddingTop: 14,
+      paddingBottom: Platform.OS === "ios" ? 6 : 2,
+
+      backgroundColor: colors.white,
+    },
+
+    continueSleepButton: {
+      minHeight: 48,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      borderWidth: 1,
+      borderColor: `${colors.primary}35`,
+      borderRadius: 16,
+      backgroundColor: `${colors.primary}07`,
+    },
+
+    continueSleepButtonText: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.primary,
+    },
+
+    disabledButton: {
+      opacity: 0.5,
     },
   });
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import {
   BottomTabBar,
@@ -13,6 +13,10 @@ import MomentsScreen from "../screens/moments/MomentsScreen.js";
 import ChildProfileScreen from "../screens/child/ChildProfileScreen.js";
 import FeedingEntrySheet from "../screens/addTracking/Feeding/FeedingEntrySheet.js";
 import SleepEntrySheet from "../screens/addTracking/Sleep/SleepEntrySheet.js";
+import DiaperEntrySheet from "../screens/addTracking/Diaper/DiaperEntrySheet.js";
+import MoodEntrySheet from "../screens/addTracking/Mood/MoodEntrySheet.js";
+
+import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
 import AddTrackingSheet from "../screens/addTracking/AddTrackingSheet.js";
 
@@ -76,6 +80,17 @@ export default function MainTabNavigator() {
   const addTrackingSheetRef = useRef(null);
   const feedingSheetRef = useRef(null);
   const sleepSheetRef = useRef(null);
+  const diaperSheetRef = useRef(null);
+  const moodSheetRef = useRef(null);
+
+  const toastTimeoutRef = useRef(null);
+
+  const [toast, setToast] = useState({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+  });
 
   // Plus tard, ces informations viendront du store Redux.
   const childName = "Emma";
@@ -96,6 +111,43 @@ export default function MainTabNavigator() {
     // Plus tard :
     // ouvrir l'écran ou le mode d'enregistrement vocal.
   };
+
+  const hideToast = useCallback(() => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+
+    setToast((currentToast) => ({
+      ...currentToast,
+      visible: false,
+    }));
+  }, []);
+
+  const showToast = useCallback(
+    ({ type = "info", title, message, duration = 3500 }) => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+
+      setToast({
+        visible: true,
+        type,
+        title,
+        message,
+      });
+
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast((currentToast) => ({
+          ...currentToast,
+          visible: false,
+        }));
+
+        toastTimeoutRef.current = null;
+      }, duration);
+    },
+    [],
+  );
 
   const handlePressTrackingItem = (itemId) => {
     console.log("Tracking sélectionné :", itemId);
@@ -118,8 +170,30 @@ export default function MainTabNavigator() {
       return;
     }
 
-    // Les autres formulaires viendront ici ensuite.
+    if (itemId === "diaper") {
+      setTimeout(() => {
+        diaperSheetRef.current?.present("diaper");
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "mood") {
+      setTimeout(() => {
+        moodSheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
   };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <>
@@ -248,28 +322,106 @@ export default function MainTabNavigator() {
           startedAt: "2026-08-08T20:42:00",
           endedAt: "2026-08-09T06:51:00",
         }}
-        onStartSleep={(sleep) => {
+        onStartSleep={async (sleep) => {
           console.log("Sommeil commencé :", sleep);
 
           /*
-           * Plus tard, sauvegarder startedAt et type dans le store
-           * ou dans la base de données.
+           * Plus tard :
+           * await saveActiveSleep(sleep);
            */
+
+          showToast({
+            type: "success",
+            title: t("Sleep tracking started"),
+            message: t("Child's sleep is now being tracked", {
+              childName,
+            }),
+          });
         }}
-        onWakeUp={(completedSleep) => {
+        onWakeUp={async (completedSleep) => {
           console.log("Sommeil terminé :", completedSleep);
 
           /*
-           * Plus tard, enregistrer définitivement la session.
+           * Plus tard :
+           * await saveCompletedSleep(completedSleep);
            */
+
+          showToast({
+            type: "success",
+            title: t("Sleep saved"),
+            message: t("Child's sleep was saved successfully", {
+              childName,
+            }),
+          });
         }}
         onPressAddManually={({ type }) => {
           console.log("Ouvrir l’ajout manuel :", type);
+        }}
+      />
+
+      <DiaperEntrySheet
+        ref={diaperSheetRef}
+        childName={childName}
+        onSaveDiaper={async (diaper) => {
+          console.log("Couche enregistrée :", diaper);
 
           /*
-           * On connectera ici ManualSleepSheet.
+           * Plus tard :
+           * await saveDiaper(diaper);
            */
+
+          showToast({
+            type: "success",
+            title: t("Diaper saved"),
+            message: t("Child's diaper change was saved successfully", {
+              childName,
+            }),
+          });
         }}
+        onSavePotty={async (potty) => {
+          console.log("Passage au pot enregistré :", potty);
+
+          /*
+           * Plus tard :
+           * await savePotty(potty);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Potty time saved"),
+            message: t("Child's potty time was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+
+      <MoodEntrySheet
+        ref={moodSheetRef}
+        childName={childName}
+        onSave={async (mood) => {
+          console.log("Humeur enregistrée :", mood);
+
+          /*
+           * Plus tard :
+           * await saveMood(mood);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Mood saved"),
+            message: t("Child's mood was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+      <ToastMessage
+        visible={toast.visible}
+        type={toast.type}
+        title={toast.title}
+        message={toast.message}
+        onClose={hideToast}
       />
     </>
   );
