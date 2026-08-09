@@ -12,7 +12,9 @@ import {
   Keyboard,
   Pressable,
   StyleSheet,
+  ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import {
@@ -21,7 +23,6 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
   BottomSheetTextInput,
-  BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -32,6 +33,7 @@ import {
 } from "../../../data/foods.js";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 
 const UNIT_OPTIONS = [
   {
@@ -93,6 +95,18 @@ const AddFoodSheet = forwardRef(function AddFoodSheet({ onAddFood }, ref) {
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const { height: windowHeight } = useWindowDimensions();
+
+  /**
+   * The search step is a single scrollable, so the sheet hugs its content.
+   * This caps how tall it may grow, which keeps roughly five results visible
+   * and lets the rest scroll instead of taking over the screen.
+   */
+  const searchMaxContentHeight = useMemo(
+    () => Math.min(430, Math.round(windowHeight * 0.55)),
+    [windowHeight],
+  );
 
   const modalRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -336,6 +350,9 @@ const AddFoodSheet = forwardRef(function AddFoodSheet({ onAddFood }, ref) {
       ref={modalRef}
       index={0}
       enableDynamicSizing
+      maxDynamicContentSize={
+        step === "search" ? searchMaxContentHeight : undefined
+      }
       stackBehavior="push"
       enablePanDownToClose
       backdropComponent={renderBackdrop}
@@ -347,127 +364,102 @@ const AddFoodSheet = forwardRef(function AddFoodSheet({ onAddFood }, ref) {
       handleIndicatorStyle={styles.handleIndicator}
     >
       {step === "search" ? (
-        <BottomSheetView style={styles.searchContent}>
-          <View style={styles.header}>
-            <View style={styles.headerText}>
-              <Text style={styles.title}>{t("Add a food")}</Text>
-
-              <Text style={styles.subtitle}>
-                {t("Search for the food baby ate")}
-              </Text>
-            </View>
-
-            <Pressable
-              hitSlop={10}
-              onPress={() => modalRef.current?.dismiss()}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="close" size={20} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-
-          <View style={styles.searchBar}>
-            <Ionicons
-              name="search-outline"
-              size={21}
-              color={colors.textSecondary}
+        <BottomSheetFlatList
+          data={filteredFoods}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={[0]}
+          contentContainerStyle={styles.searchContent}
+          renderItem={({ item }) => (
+            <FoodResultRow
+              food={item}
+              onPress={() => handleSelectFood(item)}
+              styles={styles}
+              colors={colors}
             />
+          )}
+          ListHeaderComponent={
+            <View style={styles.searchHeader}>
+              <View style={styles.header}>
+                <View style={styles.headerText}>
+                  <Text style={styles.title}>{t("Add a food")}</Text>
 
-            <BottomSheetTextInput
-              ref={searchInputRef}
-              value={search}
-              onChangeText={setSearch}
-              placeholder={t("Search for a food")}
-              placeholderTextColor={colors.textSecondary}
-              returnKeyType="search"
-              autoCapitalize="sentences"
-              style={styles.searchInput}
-            />
+                  <Text style={styles.subtitle}>
+                    {t("Search for the food baby ate")}
+                  </Text>
+                </View>
+              </View>
 
-            {search.length > 0 ? (
-              <Pressable
-                hitSlop={8}
-                onPress={() => setSearch("")}
-                style={({ pressed }) => pressed && styles.pressed}
-              >
+              <View style={styles.searchBar}>
                 <Ionicons
-                  name="close-circle"
-                  size={20}
+                  name="search-outline"
+                  size={21}
+                  color={colors.textSecondary}
+                />
+
+                <BottomSheetTextInput
+                  ref={searchInputRef}
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder={t("Search for a food")}
+                  placeholderTextColor={colors.textSecondary}
+                  returnKeyType="search"
+                  autoCapitalize="sentences"
+                  style={styles.searchInput}
+                />
+
+                {search.length > 0 ? (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => setSearch("")}
+                    style={({ pressed }) => pressed && styles.pressed}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          }
+          ListFooterComponent={
+            search.trim() && filteredFoods.length === 0 ? (
+              <Pressable
+                onPress={handleCreateFood}
+                style={({ pressed }) => [
+                  styles.createFoodCard,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.createFoodIcon}>
+                  <Ionicons name="add" size={21} color={colors.primary} />
+                </View>
+
+                <View style={styles.createFoodText}>
+                  <Text style={styles.createFoodTitle}>
+                    {t('Add "{{foodName}}"', {
+                      foodName: search.trim(),
+                    })}
+                  </Text>
+
+                  <Text style={styles.createFoodDescription}>
+                    {t("Create a custom food")}
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
                   color={colors.textSecondary}
                 />
               </Pressable>
-            ) : null}
-          </View>
-
-          <BottomSheetFlatList
-            data={filteredFoods}
-            keyExtractor={(item) => item.id}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.resultsList}
-            style={styles.results}
-            renderItem={({ item }) => (
-              <FoodResultRow
-                food={item}
-                onPress={() => handleSelectFood(item)}
-                styles={styles}
-                colors={colors}
-              />
-            )}
-            ListEmptyComponent={
-              <View style={styles.noResults}>
-                <View style={styles.noResultsIcon}>
-                  <Ionicons
-                    name="search-outline"
-                    size={22}
-                    color={colors.textSecondary}
-                  />
-                </View>
-
-                <Text style={styles.noResultsTitle}>{t("No food found")}</Text>
-
-                <Text style={styles.noResultsDescription}>
-                  {t("You can add this food yourself")}
-                </Text>
-              </View>
-            }
-          />
-
-          {search.trim() ? (
-            <Pressable
-              onPress={handleCreateFood}
-              style={({ pressed }) => [
-                styles.createFoodCard,
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={styles.createFoodIcon}>
-                <Ionicons name="add" size={21} color={colors.primary} />
-              </View>
-
-              <View style={styles.createFoodText}>
-                <Text style={styles.createFoodTitle}>
-                  {t('Add "{{foodName}}"', {
-                    foodName: search.trim(),
-                  })}
-                </Text>
-
-                <Text style={styles.createFoodDescription}>
-                  {t("Create a custom food")}
-                </Text>
-              </View>
-
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textSecondary}
-              />
-            </Pressable>
-          ) : null}
-        </BottomSheetView>
+            ) : null
+          }
+        />
       ) : (
         <BottomSheetScrollView
           keyboardShouldPersistTaps="handled"
@@ -571,7 +563,12 @@ const AddFoodSheet = forwardRef(function AddFoodSheet({ onAddFood }, ref) {
                 />
               </View>
 
-              <View style={styles.unitOptions}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.unitOptions}
+              >
                 {UNIT_OPTIONS.map((option) => {
                   const isSelected = unit === option.id;
 
@@ -596,21 +593,11 @@ const AddFoodSheet = forwardRef(function AddFoodSheet({ onAddFood }, ref) {
                     </Pressable>
                   );
                 })}
-              </View>
+              </ScrollView>
             </View>
           </View>
 
-          <Pressable
-            onPress={handleAddFood}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.addButtonPressed,
-            ]}
-          >
-            <Ionicons name="add" size={20} color={colors.white} />
-
-            <Text style={styles.addButtonLabel}>{t("Add this food")}</Text>
-          </Pressable>
+          <PrimaryButton title={t("Add this food")} onPress={handleAddFood} />
         </BottomSheetScrollView>
       )}
     </BottomSheetModal>
@@ -668,8 +655,18 @@ const createStyles = (colors) =>
     },
 
     searchContent: {
+      paddingBottom: 6,
+      paddingHorizontal: 20,
+    },
+
+    /**
+     * Sticky list header: it needs an opaque background and to bleed over the
+     * list padding so results scroll behind it instead of next to it.
+     */
+    searchHeader: {
+      backgroundColor: colors.white,
       gap: 14,
-      maxHeight: 430,
+      marginHorizontal: -20,
       paddingBottom: 14,
       paddingHorizontal: 20,
     },
@@ -728,15 +725,6 @@ const createStyles = (colors) =>
       paddingVertical: 0,
     },
 
-    results: {
-      maxHeight: 205,
-    },
-
-    resultsList: {
-      gap: 8,
-      paddingBottom: 2,
-    },
-
     foodResult: {
       alignItems: "center",
       backgroundColor: colors.white,
@@ -744,6 +732,7 @@ const createStyles = (colors) =>
       borderRadius: 15,
       borderWidth: 1,
       flexDirection: "row",
+      marginBottom: 8,
       minHeight: 60,
       paddingHorizontal: 10,
     },
@@ -790,17 +779,19 @@ const createStyles = (colors) =>
       borderRadius: 16,
       borderWidth: 1,
       flexDirection: "row",
-      minHeight: 62,
+      marginBottom: 8,
+      marginTop: 6,
+      minHeight: 54,
       paddingHorizontal: 12,
     },
 
     createFoodIcon: {
       alignItems: "center",
       backgroundColor: colors.white,
-      borderRadius: 12,
-      height: 38,
+      borderRadius: 11,
+      height: 34,
       justifyContent: "center",
-      width: 38,
+      width: 34,
     },
 
     createFoodText: {
@@ -989,9 +980,8 @@ const createStyles = (colors) =>
     },
 
     unitOptions: {
-      flexDirection: "row",
-      flexWrap: "wrap",
       gap: 7,
+      paddingRight: 10,
     },
 
     unitOption: {

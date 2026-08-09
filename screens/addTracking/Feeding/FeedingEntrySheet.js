@@ -109,7 +109,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 
   const [solidsEntry, setSolidsEntry] = useState({
     foods: [],
-    amountEaten: null,
+    amountEaten: "tasted",
     appreciation: null,
     note: "",
     photo: null,
@@ -239,9 +239,13 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 
   const handleSaveFeeding = () => {
     if (selectedType === "bottle") {
-      if (!bottleAmountMl) return;
+      if (bottleAmountMl <= 0) return;
 
-      onSaveBottle?.({ ...bottleEntry, amountMl: bottleAmountMl });
+      onSaveBottle?.({
+        ...bottleEntry,
+        amountMl: bottleAmountMl,
+      });
+
       modalRef.current?.dismiss();
       return;
     }
@@ -265,17 +269,26 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
       });
 
       modalRef.current?.dismiss();
+      return;
+    }
+
+    if (selectedType === "solids") {
+      if (!Array.isArray(solidsEntry.foods) || solidsEntry.foods.length === 0) {
+        return;
+      }
+
+      onSaveSolids?.(solidsEntry);
+
+      modalRef.current?.dismiss();
+      return;
     }
 
     if (selectedType === "pumping") {
-      const totalAmountMl =
-        (pumpingEntry.leftAmountMl ?? 0) + (pumpingEntry.rightAmountMl ?? 0);
-
-      if (totalAmountMl <= 0) return;
+      if (pumpingAmountMl <= 0) return;
 
       onSavePumping?.({
         ...pumpingEntry,
-        totalAmountMl,
+        totalAmountMl: pumpingAmountMl,
         activeSide: null,
         activeStartedAt: null,
       });
@@ -287,11 +300,15 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const pumpingAmountMl =
     (pumpingEntry.leftAmountMl ?? 0) + (pumpingEntry.rightAmountMl ?? 0);
 
+  const canSaveSolids =
+    selectedType === "solids" &&
+    Array.isArray(solidsEntry.foods) &&
+    solidsEntry.foods.length > 0;
+
   const canSavePumping = selectedType === "pumping" && pumpingAmountMl > 0;
 
   const canSaveFeeding =
-    canSaveBottle || canSaveBreastfeeding || canSavePumping;
-
+    canSaveBottle || canSaveBreastfeeding || canSaveSolids || canSavePumping;
   return (
     <BottomSheetModal
       ref={modalRef}

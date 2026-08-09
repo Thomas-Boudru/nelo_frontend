@@ -12,6 +12,7 @@ import TrackingScreen from "../screens/tracking/TrackingScreen.js";
 import MomentsScreen from "../screens/moments/MomentsScreen.js";
 import ChildProfileScreen from "../screens/child/ChildProfileScreen.js";
 import FeedingEntrySheet from "../screens/addTracking/Feeding/FeedingEntrySheet.js";
+import SleepEntrySheet from "../screens/addTracking/Sleep/SleepEntrySheet.js";
 
 import AddTrackingSheet from "../screens/addTracking/AddTrackingSheet.js";
 
@@ -74,6 +75,7 @@ export default function MainTabNavigator() {
 
   const addTrackingSheetRef = useRef(null);
   const feedingSheetRef = useRef(null);
+  const sleepSheetRef = useRef(null);
 
   // Plus tard, ces informations viendront du store Redux.
   const childName = "Emma";
@@ -103,6 +105,14 @@ export default function MainTabNavigator() {
     if (itemId === "feeding") {
       setTimeout(() => {
         feedingSheetRef.current?.present("bottle");
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "sleep") {
+      setTimeout(() => {
+        sleepSheetRef.current?.present();
       }, 220);
 
       return;
@@ -229,6 +239,33 @@ export default function MainTabNavigator() {
       />
 
       <FeedingEntrySheet ref={feedingSheetRef} childName={childName} />
+
+      <SleepEntrySheet
+        ref={sleepSheetRef}
+        childName={childName}
+        onStartSleep={(sleep) => {
+          console.log("Sommeil commencé :", sleep);
+
+          /*
+           * Plus tard, sauvegarder startedAt et type dans le store
+           * ou dans la base de données.
+           */
+        }}
+        onWakeUp={(completedSleep) => {
+          console.log("Sommeil terminé :", completedSleep);
+
+          /*
+           * Plus tard, enregistrer définitivement la session.
+           */
+        }}
+        onPressAddManually={({ type }) => {
+          console.log("Ouvrir l’ajout manuel :", type);
+
+          /*
+           * On connectera ici ManualSleepSheet.
+           */
+        }}
+      />
     </>
   );
 }

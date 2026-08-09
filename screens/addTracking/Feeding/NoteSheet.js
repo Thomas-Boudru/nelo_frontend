@@ -114,17 +114,19 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
           </View>
         </View>
 
-        <BottomSheetTextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder={t("For example, drank slowly or refused the end")}
-          placeholderTextColor={colors.textSecondary}
-          multiline
-          maxLength={300}
-          textAlignVertical="top"
-          style={styles.input}
-        />
-
+        <View style={styles.inputContainer}>
+          <BottomSheetTextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder={t("For example, drank slowly or refused the end")}
+            placeholderTextColor={colors.textSecondary}
+            multiline
+            maxLength={300}
+            textAlignVertical="top"
+            style={styles.input}
+          />
+          <Text style={styles.characterCounter}>{note.length}/300</Text>
+        </View>
         <View style={styles.footer}>
           {note.trim() ? (
             <View style={styles.footerButton}>
@@ -202,11 +204,15 @@ function createStyles(colors) {
       borderRadius: 18,
       backgroundColor: colors.lightBlue,
     },
+    inputContainer: {
+      position: "relative",
+    },
 
     input: {
       minHeight: 104,
       paddingHorizontal: 14,
-      paddingVertical: 13,
+      paddingTop: 13,
+      paddingBottom: 30,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 16,
@@ -215,6 +221,15 @@ function createStyles(colors) {
       lineHeight: 21,
       color: colors.textPrimary,
       backgroundColor: colors.lightBlue,
+    },
+
+    characterCounter: {
+      position: "absolute",
+      right: 12,
+      bottom: 10,
+      color: colors.textSecondary,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 10,
     },
 
     footer: {

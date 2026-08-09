@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   Image,
   Pressable,
@@ -12,47 +12,59 @@ import { useTranslation } from "react-i18next";
 
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+import FeedingDetailsSheet from "../../../screens/addTracking/Feeding/FeedingDetailSheet.js";
+
+const HAPPY_REACTION_IMAGE = require("../../../assets/illustrations/tracking/happyFace.png");
+const NEUTRAL_REACTION_IMAGE = require("../../../assets/illustrations/tracking/neutralFace.png");
+const UNHAPPY_REACTION_IMAGE = require("../../../assets/illustrations/tracking/angryFace.png");
 
 const AMOUNT_OPTIONS = [
-  {
-    id: "tasted",
-    label: "Just tasted",
-  },
-  {
-    id: "little",
-    label: "A little",
-  },
-  {
-    id: "half",
-    label: "About half",
-  },
-  {
-    id: "most",
-    label: "Almost all",
-  },
+  { id: "tasted", label: "Just tasted" },
+  { id: "little", label: "A little" },
+  { id: "half", label: "About half" },
+  { id: "almost_all", label: "Almost all" },
+  { id: "all", label: "All" },
 ];
 
 const REACTION_OPTIONS = [
   {
     id: "liked",
     label: "Liked it",
-    icon: "happy-outline",
-    color: "#4E83F7",
-    backgroundColor: "#EDF4FF",
+    image: HAPPY_REACTION_IMAGE,
+
+    backgroundColor: "#F1FAF5",
+    selectedBackgroundColor: "#E7F7EE",
+
+    borderColor: "#CBEBD8",
+    selectedBorderColor: "#69C893",
+
+    labelColor: "#39865C",
   },
   {
     id: "neutral",
     label: "Neutral",
-    icon: "remove-outline",
-    color: "#E4AD38",
-    backgroundColor: "#FFF6D9",
+    image: NEUTRAL_REACTION_IMAGE,
+
+    backgroundColor: "#FFF9EB",
+    selectedBackgroundColor: "#FFF3D4",
+
+    borderColor: "#F1DCA8",
+    selectedBorderColor: "#E5AE42",
+
+    labelColor: "#A6741F",
   },
   {
     id: "disliked",
     label: "Did not like it",
-    icon: "sad-outline",
-    color: "#E97878",
-    backgroundColor: "#FFF0F0",
+    image: UNHAPPY_REACTION_IMAGE,
+
+    backgroundColor: "#FFF3F2",
+    selectedBackgroundColor: "#FFE9E7",
+
+    borderColor: "#F2CBC7",
+    selectedBorderColor: "#E9776E",
+
+    labelColor: "#B8544D",
   },
 ];
 
@@ -62,17 +74,32 @@ export default function SolidsFeedForm({
   childName,
   onPressAddFoods,
   onPressEditFood,
-  onPressNote,
-  onPressPhoto,
 }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const feedingDetailsSheetRef = useRef(null);
 
   const foods = value?.foods ?? [];
+  const amountEaten = value?.amountEaten ?? "tasted";
   const hasNote = Boolean(value?.note?.trim());
-  const hasPhoto = Boolean(value?.photo);
+  const hasPhotos = Array.isArray(value?.photos) && value.photos.length > 0;
+  const hasDetails = hasNote || hasPhotos;
+
+  const handleOpenDetails = () => {
+    feedingDetailsSheetRef.current?.present({
+      note: value?.note ?? "",
+      photos: value?.photos ?? [],
+    });
+  };
+
+  const handleAddNote = () => {
+    feedingDetailsSheetRef.current?.present({
+      note: value?.note ?? "",
+      photos: value?.photos ?? [],
+    });
+  };
 
   const patchEntry = (patch) => {
     onChange?.({
@@ -139,20 +166,6 @@ export default function SolidsFeedForm({
                 styles={styles}
               />
             ))}
-
-            <Pressable
-              onPress={onPressAddFoods}
-              style={({ pressed }) => [
-                styles.addMoreCard,
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={styles.addMoreIcon}>
-                <Ionicons name="add" size={22} color={colors.primary} />
-              </View>
-
-              <Text style={styles.addMoreLabel}>{t("Add more")}</Text>
-            </Pressable>
           </ScrollView>
         ) : (
           <ScrollView
@@ -161,9 +174,9 @@ export default function SolidsFeedForm({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.foodsList}
           >
-            <FoodPlaceholder styles={styles} width={112} />
-            <FoodPlaceholder styles={styles} width={100} />
-            <FoodPlaceholder styles={styles} width={108} />
+            <FoodPlaceholder styles={styles} />
+            <FoodPlaceholder styles={styles} />
+            <FoodPlaceholder styles={styles} />
           </ScrollView>
         )}
       </View>
@@ -171,29 +184,25 @@ export default function SolidsFeedForm({
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t("Amount eaten")}</Text>
 
-        <View style={styles.amountSelector}>
-          {AMOUNT_OPTIONS.map((option, index) => {
-            const isSelected = value?.amountEaten === option.id;
-            const isLast = index === AMOUNT_OPTIONS.length - 1;
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.amountSelector}
+        >
+          {AMOUNT_OPTIONS.map((option) => {
+            const isSelected = amountEaten === option.id;
 
             return (
               <Pressable
                 key={option.id}
-                onPress={() =>
-                  patchEntry({
-                    amountEaten: isSelected ? null : option.id,
-                  })
-                }
+                onPress={() => patchEntry({ amountEaten: option.id })}
                 style={({ pressed }) => [
                   styles.amountOption,
-                  !isLast && styles.amountOptionBorder,
                   isSelected && styles.amountOptionSelected,
                   pressed && styles.pressed,
                 ]}
               >
                 <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
                   style={[
                     styles.amountOptionLabel,
                     isSelected && styles.amountOptionLabelSelected,
@@ -204,7 +213,7 @@ export default function SolidsFeedForm({
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
       </View>
 
       <View style={styles.section}>
@@ -228,30 +237,53 @@ export default function SolidsFeedForm({
                 }
                 style={({ pressed }) => [
                   styles.reactionOption,
+                  {
+                    backgroundColor: isSelected
+                      ? option.selectedBackgroundColor
+                      : "transparent",
+                    borderColor: isSelected
+                      ? option.selectedBorderColor
+                      : colors.border,
+                  },
                   isSelected && styles.reactionOptionSelected,
                   pressed && styles.pressed,
                 ]}
               >
-                <View
+                <Image
+                  source={option.image}
+                  resizeMode="contain"
                   style={[
-                    styles.reactionIllustration,
-                    {
-                      backgroundColor: option.backgroundColor,
-                      borderColor: `${option.color}45`,
-                    },
+                    styles.reactionImage,
+                    isSelected && styles.reactionImageSelected,
                   ]}
-                >
-                  <Ionicons name={option.icon} size={30} color={option.color} />
-                </View>
+                />
 
                 <Text
                   style={[
                     styles.reactionLabel,
+                    {
+                      color: isSelected
+                        ? option.labelColor
+                        : colors.textPrimary,
+                    },
                     isSelected && styles.reactionLabelSelected,
                   ]}
                 >
                   {t(option.label)}
                 </Text>
+
+                {isSelected ? (
+                  <View
+                    style={[
+                      styles.reactionSelectedBadge,
+                      {
+                        backgroundColor: option.selectedBorderColor,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                  </View>
+                ) : null}
               </Pressable>
             );
           })}
@@ -259,88 +291,38 @@ export default function SolidsFeedForm({
       </View>
 
       <View style={styles.section}>
-        <View
-          style={[
-            styles.notePhotoCard,
-            (hasNote || hasPhoto) && styles.notePhotoCardActive,
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("Add a note or photos")}
+          onPress={handleOpenDetails}
+          style={({ pressed }) => [
+            styles.detailsCard,
+            hasDetails && styles.detailsCardActive,
+            pressed && styles.pressed,
           ]}
         >
-          <Pressable
-            onPress={onPressNote}
-            style={({ pressed }) => [
-              styles.noteAction,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View
-              style={[
-                styles.notePhotoIcon,
-                hasNote && styles.notePhotoIconActive,
-              ]}
-            >
-              <Ionicons
-                name={hasNote ? "document-text" : "document-text-outline"}
-                size={21}
-                color={hasNote ? colors.primary : colors.textSecondary}
-              />
-            </View>
+          <View style={styles.detailsIcon}>
+            <Ionicons
+              name="document-text-outline"
+              size={21}
+              color={colors.primary}
+            />
+          </View>
 
-            <View style={styles.noteTextContent}>
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.notePhotoTitle,
-                  hasNote && styles.notePhotoTitleActive,
-                ]}
-              >
-                {hasNote
-                  ? t("Edit note or add a photo")
-                  : t("Add a note or a photo")}
-              </Text>
+          <Text numberOfLines={1} style={styles.detailsTitle}>
+            {hasDetails ? t("Edit note or photos") : t("Add a note or photos")}
+          </Text>
 
-              {hasNote ? (
-                <Text numberOfLines={1} style={styles.notePreview}>
-                  {value.note}
-                </Text>
-              ) : null}
-            </View>
-          </Pressable>
-
-          <View style={styles.actionDivider} />
-
-          <Pressable
-            hitSlop={8}
-            onPress={onPressPhoto}
-            style={({ pressed }) => [
-              styles.photoAction,
-              pressed && styles.pressed,
-            ]}
-          >
-            {hasPhoto ? (
-              <View style={styles.photoPreviewContainer}>
-                <Image
-                  source={
-                    typeof value.photo === "string"
-                      ? { uri: value.photo }
-                      : value.photo
-                  }
-                  resizeMode="cover"
-                  style={styles.photoPreview}
-                />
-
-                <View style={styles.photoEditBadge}>
-                  <Ionicons name="camera" size={12} color={colors.primary} />
-                </View>
-              </View>
-            ) : (
-              <Ionicons
-                name="camera-outline"
-                size={25}
-                color={colors.primary}
-              />
-            )}
-          </Pressable>
-        </View>
+          {hasDetails ? (
+            <View style={styles.detailsActiveDot} />
+          ) : (
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={colors.textSecondary}
+            />
+          )}
+        </Pressable>
       </View>
 
       <View style={styles.timeSection}>
@@ -351,6 +333,16 @@ export default function SolidsFeedForm({
           maximumDate={new Date()}
         />
       </View>
+
+      <FeedingDetailsSheet
+        ref={feedingDetailsSheetRef}
+        onSave={({ note, photos }) => {
+          patchEntry({
+            note,
+            photos,
+          });
+        }}
+      />
     </View>
   );
 }
@@ -400,15 +392,13 @@ function FoodCard({ food, onPress, onRemove, colors, styles }) {
   );
 }
 
-function FoodPlaceholder({ styles, width }) {
+function FoodPlaceholder({ styles }) {
   return (
-    <View style={[styles.foodPlaceholder, { width }]}>
+    <View style={styles.foodPlaceholder}>
       <View style={styles.placeholderIllustration} />
 
-      <View style={styles.placeholderContent}>
-        <View style={styles.placeholderName} />
-        <View style={styles.placeholderQuantity} />
-      </View>
+      <View style={styles.placeholderName} />
+      <View style={styles.placeholderQuantity} />
     </View>
   );
 }
@@ -536,113 +526,68 @@ const createStyles = (colors) =>
       maxWidth: "100%",
     },
 
-    addMoreCard: {
-      alignItems: "center",
-      backgroundColor: colors.white,
-      borderColor: colors.border,
-      borderRadius: 17,
-      borderStyle: "dashed",
-      borderWidth: 1,
-      justifyContent: "center",
-      minHeight: 112,
-      width: 88,
-    },
-
-    addMoreIcon: {
-      alignItems: "center",
-      backgroundColor: `${colors.primary}12`,
-      borderRadius: 999,
-      height: 36,
-      justifyContent: "center",
-      width: 36,
-    },
-
-    addMoreLabel: {
-      color: colors.primary,
-      fontFamily: "PlusJakartaSans_600SemiBold",
-      fontSize: 10,
-      marginTop: 8,
-    },
-
     foodPlaceholder: {
       alignItems: "center",
       backgroundColor: colors.lightBlue,
       borderColor: colors.border,
       borderRadius: 17,
       borderWidth: 1,
-      flexDirection: "row",
-      minHeight: 65,
-      opacity: 0.66,
-      paddingHorizontal: 10,
+      minHeight: 112,
+      opacity: 0.55,
+      paddingBottom: 9,
+      paddingHorizontal: 8,
+      paddingTop: 8,
+      width: 100,
     },
 
     placeholderIllustration: {
       backgroundColor: colors.border,
-      borderRadius: 12,
-      height: 39,
-      width: 39,
-    },
-
-    placeholderContent: {
-      flex: 1,
-      gap: 6,
-      marginLeft: 8,
+      borderRadius: 15,
+      height: 52,
+      width: 56,
     },
 
     placeholderName: {
       backgroundColor: colors.border,
       borderRadius: 999,
       height: 8,
-      width: "85%",
+      marginTop: 7,
+      width: 62,
     },
 
     placeholderQuantity: {
       backgroundColor: colors.border,
       borderRadius: 999,
       height: 6,
-      width: "58%",
+      marginTop: 6,
+      width: 39,
     },
 
     amountSelector: {
-      backgroundColor: colors.white,
-      borderColor: colors.border,
-      borderRadius: 16,
-      borderWidth: 1,
-      flexDirection: "row",
-      minHeight: 54,
-      overflow: "hidden",
-
-      elevation: 1,
-      shadowColor: colors.textPrimary,
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.04,
-      shadowRadius: 5,
+      gap: 8,
+      paddingRight: 16,
     },
 
     amountOption: {
       alignItems: "center",
-      flex: 1,
-      justifyContent: "center",
-      paddingHorizontal: 4,
-    },
-
-    amountOptionBorder: {
+      backgroundColor: "transparent",
       borderColor: colors.border,
-      borderRightWidth: 1,
+      borderRadius: 13,
+      borderWidth: 1,
+      justifyContent: "center",
+      minHeight: 40,
+      paddingHorizontal: 14,
     },
 
     amountOptionSelected: {
       backgroundColor: colors.selectedBackground,
+      borderColor: colors.primary,
     },
 
     amountOptionLabel: {
       color: colors.textSecondary,
       fontFamily: "PlusJakartaSans_600SemiBold",
-      fontSize: 10,
-      textAlign: "center",
+      fontSize: 11,
     },
 
     amountOptionLabelSelected: {
@@ -652,51 +597,71 @@ const createStyles = (colors) =>
 
     reactionOptions: {
       flexDirection: "row",
-      gap: 10,
+      gap: 9,
     },
 
     reactionOption: {
       alignItems: "center",
-      backgroundColor: colors.white,
+      backgroundColor: "transparent",
       borderColor: colors.border,
-      borderRadius: 17,
+      borderRadius: 16,
       borderWidth: 1,
       flex: 1,
       justifyContent: "center",
-      minHeight: 104,
-      paddingHorizontal: 5,
-      paddingVertical: 11,
+      minHeight: 96,
+      paddingHorizontal: 4,
+      paddingVertical: 8,
+      position: "relative",
     },
 
     reactionOptionSelected: {
-      backgroundColor: colors.selectedBackground,
-      borderColor: colors.primary,
+      borderWidth: 1.5,
     },
 
-    reactionIllustration: {
-      alignItems: "center",
-      borderRadius: 999,
-      borderWidth: 1,
-      height: 48,
-      justifyContent: "center",
-      width: 48,
+    reactionImage: {
+      height: 66,
+      width: 66,
+    },
+
+    reactionImageSelected: {
+      transform: [{ scale: 1.03 }],
     },
 
     reactionLabel: {
-      color: colors.textPrimary,
+      color: colors.textSecondary,
       fontFamily: "PlusJakartaSans_600SemiBold",
-      fontSize: 10,
-      marginTop: 8,
+      fontSize: 9,
+      marginTop: 2,
       textAlign: "center",
     },
 
     reactionLabelSelected: {
-      color: colors.primary,
       fontFamily: "PlusJakartaSans_700Bold",
     },
 
-    notePhotoCard: {
-      alignItems: "stretch",
+    reactionSelectedBadge: {
+      alignItems: "center",
+      borderColor: "#FFFFFF",
+      borderRadius: 999,
+      borderWidth: 2,
+      height: 19,
+      justifyContent: "center",
+      position: "absolute",
+      right: 5,
+      top: 5,
+      width: 19,
+    },
+
+    timeSection: {
+      marginTop: "auto",
+    },
+
+    pressed: {
+      opacity: 0.7,
+    },
+
+    detailsCard: {
+      alignItems: "center",
       backgroundColor: colors.lightBlue,
       borderColor: colors.border,
       borderRadius: 18,
@@ -706,93 +671,38 @@ const createStyles = (colors) =>
       paddingHorizontal: 14,
     },
 
-    notePhotoCardActive: {
+    detailsCardActive: {
       borderColor: `${colors.primary}50`,
     },
 
-    noteAction: {
+    detailsIcon: {
       alignItems: "center",
-      flex: 1,
-      flexDirection: "row",
-    },
-
-    notePhotoIcon: {
-      alignItems: "center",
-      backgroundColor: `${colors.textSecondary}0D`,
+      backgroundColor: `${colors.primary}14`,
       borderRadius: 13,
       height: 40,
       justifyContent: "center",
       width: 40,
     },
 
-    notePhotoIconActive: {
-      backgroundColor: `${colors.primary}12`,
-    },
-
-    noteTextContent: {
+    detailsTitle: {
+      color: colors.textPrimary,
       flex: 1,
-      marginLeft: 11,
-    },
-
-    notePhotoTitle: {
-      color: colors.textSecondary,
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 12,
+      marginLeft: 11,
+      marginRight: 12,
     },
 
-    notePhotoTitleActive: {
-      color: colors.textPrimary,
-    },
-
-    notePreview: {
-      color: colors.textSecondary,
-      fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 10,
-      marginTop: 3,
-    },
-
-    actionDivider: {
-      backgroundColor: colors.border,
-      marginVertical: 14,
-      width: 1,
-    },
-
-    photoAction: {
-      alignItems: "center",
-      justifyContent: "center",
-      paddingLeft: 14,
-      width: 52,
-    },
-
-    photoPreviewContainer: {
-      position: "relative",
-    },
-
-    photoPreview: {
-      borderRadius: 10,
-      height: 39,
-      width: 39,
-    },
-
-    photoEditBadge: {
-      alignItems: "center",
-      backgroundColor: colors.white,
-      borderColor: colors.border,
+    detailsActiveDot: {
+      backgroundColor: colors.primary,
+      borderColor: colors.white,
       borderRadius: 999,
-      borderWidth: 1,
-      bottom: -4,
-      height: 20,
-      justifyContent: "center",
-      position: "absolute",
-      right: -4,
-      width: 20,
-    },
-
-    timeSection: {
-      marginTop: "auto",
+      borderWidth: 2,
+      height: 12,
+      width: 12,
     },
 
     pressed: {
-      opacity: 0.7,
+      opacity: 0.72,
     },
   });
