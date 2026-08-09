@@ -243,6 +243,11 @@ export default function MainTabNavigator() {
       <SleepEntrySheet
         ref={sleepSheetRef}
         childName={childName}
+        lastSleep={{
+          type: "night",
+          startedAt: "2026-08-08T20:42:00",
+          endedAt: "2026-08-09T06:51:00",
+        }}
         onStartSleep={(sleep) => {
           console.log("Sommeil commencé :", sleep);
 

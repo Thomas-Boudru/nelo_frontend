@@ -1,4 +1,5 @@
 import {
+  Fragment,
   forwardRef,
   useCallback,
   useEffect,
@@ -11,6 +12,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { BottomSheetBackdrop, BottomSheetModal } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import ManualSleepSheet from "./ManualSleepSheet.js";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
@@ -20,12 +22,20 @@ const awakeIllustration = require("../../../assets/illustrations/tracking/sleep/
 const sleepingIllustration = require("../../../assets/illustrations/tracking/sleep/sleep.png");
 
 const SleepEntrySheet = forwardRef(function SleepEntrySheet(
-  { childName, lastSleep = null, onStartSleep, onWakeUp },
+  {
+    childName,
+    lastSleep = null,
+    onStartSleep,
+    onWakeUp,
+    onAddManually,
+    onSaveManualSleep,
+  },
   ref,
 ) {
   const { t } = useTranslation();
 
   const modalRef = useRef(null);
+  const manualSleepSheetRef = useRef(null);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -91,6 +101,19 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     },
   }));
 
+  const handleOpenManualSleep = (type) => {
+    manualSleepSheetRef.current?.present(type);
+  };
+
+  const handleSaveManualSleep = (sleep) => {
+    onSaveManualSleep?.(sleep);
+
+    /*
+     * On ferme également la sheet principale une fois
+     * le sommeil manuel enregistré.
+     */
+    modalRef.current?.dismiss();
+  };
   const renderBackdrop = useCallback(
     (props) => (
       <BottomSheetBackdrop
@@ -153,57 +176,64 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     : 0;
 
   return (
-    <BottomSheetModal
-      ref={modalRef}
-      index={0}
-      snapPoints={snapPoints}
-      enableDynamicSizing={false}
-      enablePanDownToClose
-      enableHandlePanningGesture
-      enableContentPanningGesture
-      enableOverDrag
-      overDragResistanceFactor={1.8}
-      backdropComponent={renderBackdrop}
-      backgroundStyle={styles.sheetBackground}
-      handleStyle={styles.handleContainer}
-      handleIndicatorStyle={styles.handleIndicator}
-    >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t("Track sleep")}</Text>
+    <Fragment>
+      <BottomSheetModal
+        ref={modalRef}
+        index={0}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose
+        enableHandlePanningGesture
+        enableContentPanningGesture
+        enableOverDrag
+        overDragResistanceFactor={1.8}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleStyle={styles.handleContainer}
+        handleIndicatorStyle={styles.handleIndicator}
+      >
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{t("Track sleep")}</Text>
 
-          <Text style={styles.subtitle}>
-            {activeSleep
-              ? t("Sleep tracking is currently running")
-              : t("Record a nap or a night sleep")}
-          </Text>
-        </View>
+            <Text style={styles.subtitle}>
+              {activeSleep
+                ? t("Sleep tracking is currently running")
+                : t("Record a nap or a night sleep")}
+            </Text>
+          </View>
 
-        <View style={styles.stateContainer}>
-          {activeSleep ? (
-            <SleepActiveState
-              childName={childName}
-              activeSleep={activeSleep}
-              durationSeconds={durationSeconds}
-              onWakeUp={handleWakeUp}
-              styles={styles}
-              t={t}
-            />
-          ) : (
-            <SleepIdleState
-              childName={childName}
-              sleepType={sleepType}
-              lastSleep={lastSleep}
-              onChangeSleepType={setSleepType}
-              onStartSleep={handleStartSleep}
-              colors={colors}
-              styles={styles}
-              t={t}
-            />
-          )}
+          <View style={styles.stateContainer}>
+            {activeSleep ? (
+              <SleepActiveState
+                childName={childName}
+                activeSleep={activeSleep}
+                durationSeconds={durationSeconds}
+                onWakeUp={handleWakeUp}
+                styles={styles}
+                t={t}
+              />
+            ) : (
+              <SleepIdleState
+                childName={childName}
+                sleepType={sleepType}
+                lastSleep={lastSleep}
+                onChangeSleepType={setSleepType}
+                onStartSleep={handleStartSleep}
+                onAddManually={handleOpenManualSleep}
+                colors={colors}
+                styles={styles}
+                t={t}
+              />
+            )}
+          </View>
         </View>
-      </View>
-    </BottomSheetModal>
+      </BottomSheetModal>
+      <ManualSleepSheet
+        ref={manualSleepSheetRef}
+        onSave={handleSaveManualSleep}
+      />
+    </Fragment>
   );
 });
 
@@ -215,6 +245,7 @@ function SleepIdleState({
   lastSleep,
   onChangeSleepType,
   onStartSleep,
+  onAddManually,
   colors,
   styles,
   t,
@@ -248,10 +279,27 @@ function SleepIdleState({
       />
 
       {lastSleep ? (
-        <LastSleepCard sleep={lastSleep} styles={styles} t={t} />
+        <LastSleepCard
+          sleep={lastSleep}
+          colors={colors}
+          styles={styles}
+          t={t}
+        />
       ) : null}
 
       <View style={styles.idleActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("Add sleep manually")}
+          onPress={() => onAddManually?.(sleepType)}
+          style={({ pressed }) => [
+            styles.addManuallyButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.addManuallyText}>{t("Add manually")}</Text>
+        </Pressable>
+
         <PrimaryButton
           variant="wake"
           title={
@@ -388,7 +436,7 @@ function SleepTypeOption({ icon, label, selected, onPress, colors, styles }) {
   );
 }
 
-function LastSleepCard({ sleep, styles, t }) {
+function LastSleepCard({ sleep, colors, styles, t }) {
   const isNight = sleep.type === "night";
 
   const durationSeconds =
@@ -402,7 +450,7 @@ function LastSleepCard({ sleep, styles, t }) {
           <Ionicons
             name={isNight ? "moon-outline" : "cloud-outline"}
             size={18}
-            color="#756BD8"
+            color={colors.primary}
           />
         </View>
 
@@ -681,20 +729,20 @@ function createStyles(colors) {
       backgroundColor: colors.primary,
     },
 
+    lastSleepHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+
     lastSleepCard: {
       width: "100%",
       marginTop: 16,
       paddingHorizontal: 14,
       paddingVertical: 13,
       borderWidth: 1,
-      borderColor: "#E5E1FA",
+      borderColor: `${colors.primary}30`,
       borderRadius: 20,
-      backgroundColor: "#FAF9FF",
-    },
-
-    lastSleepHeader: {
-      flexDirection: "row",
-      alignItems: "center",
+      backgroundColor: `${colors.primary}08`,
     },
 
     lastSleepIconContainer: {
@@ -703,9 +751,15 @@ function createStyles(colors) {
       alignItems: "center",
       justifyContent: "center",
       borderRadius: 13,
-      backgroundColor: "#EFEDFF",
+      backgroundColor: `${colors.primary}14`,
     },
 
+    lastSleepDuration: {
+      marginLeft: 10,
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 13,
+      color: colors.primary,
+    },
     lastSleepTitleContainer: {
       flex: 1,
       marginLeft: 11,
@@ -724,13 +778,6 @@ function createStyles(colors) {
       fontSize: 11,
       lineHeight: 16,
       color: colors.textSecondary,
-    },
-
-    lastSleepDuration: {
-      marginLeft: 10,
-      fontFamily: "PlusJakartaSans_700Bold",
-      fontSize: 13,
-      color: "#645BBB",
     },
 
     idleActions: {
@@ -792,6 +839,29 @@ function createStyles(colors) {
     pressed: {
       opacity: 0.68,
       transform: [{ scale: 0.98 }],
+    },
+    idleActions: {
+      width: "100%",
+      marginTop: "auto",
+      paddingTop: 14,
+    },
+
+    addManuallyButton: {
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 7,
+      marginBottom: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+
+    addManuallyText: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 16,
+      lineHeight: 19,
+      color: colors.textPrimary,
     },
   });
 }
