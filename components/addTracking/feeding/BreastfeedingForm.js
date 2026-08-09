@@ -190,10 +190,6 @@ export default function BreastfeedingForm({
         </Pressable>
       </View>
 
-      <Text style={styles.helperText}>
-        {t("Tap a side to start or pause the timer")}
-      </Text>
-
       <View style={styles.sidesRow}>
         <BreastSideCard
           title={t("Left")}

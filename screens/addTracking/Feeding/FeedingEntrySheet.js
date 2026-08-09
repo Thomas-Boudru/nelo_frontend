@@ -17,10 +17,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import NoteSheet from "./NoteSheet.js";
+import AddFoodSheet from "./AddFoodSheet.js";
 
 import FeedingTypeTabs from "../../../components/addTracking/feeding/FeedingTypeTabs.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import BottleFeedForm from "../../../components/addTracking/feeding/BottleFeedForm.js";
+import SolidsFeedForm from "../../../components/addTracking/feeding/SolidFeedForm.js";
 
 import BottleCapacitySheet from "./BottleCapacitySheet.js";
 import MilkTypeSheet from "../../../components/addTracking/feeding/MilkyTypeSheet.js";
@@ -47,6 +49,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const noteSheetRef = useRef(null);
   const exactAmountSheetRef = useRef(null);
   const manualBreastfeedingSheetRef = useRef(null);
+  const addFoodSheetRef = useRef(null);
 
   const [noteTarget, setNoteTarget] = useState(null);
   const colors = useThemeColors();
@@ -102,6 +105,16 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     activeStartedAt: null,
     isDateEdited: false,
     note: "",
+  });
+
+  const [solidsEntry, setSolidsEntry] = useState({
+    foods: [],
+    amountEaten: null,
+    appreciation: null,
+    note: "",
+    photo: null,
+    feedingDate: new Date(),
+    isDateEdited: false,
   });
 
   const bottleAmountMl = getBottleEntryAmountMl(bottleEntry);
@@ -171,13 +184,29 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
             }}
           />
         );
-
       case "solids":
         return (
-          <EmptyForm
-            icon="restaurant-outline"
-            title={t("Solids")}
-            description={t("Record a meal for child", { childName })}
+          <SolidsFeedForm
+            value={solidsEntry}
+            onChange={setSolidsEntry}
+            childName={childName}
+            onPressAddFoods={() => {
+              addFoodSheetRef.current?.present();
+            }}
+            onPressEditFood={(food) => {
+              /*
+               * Nous pourrons ajouter l’édition ensuite.
+               * Pour l’instant, toucher une card ne fait rien.
+               */
+            }}
+            onPressNote={() => {
+              openNoteSheet("solids", solidsEntry.note);
+            }}
+            onPressPhoto={() => {
+              /*
+               * Connexion à expo-image-picker ensuite.
+               */
+            }}
           />
         );
 
@@ -380,6 +409,16 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
             isExactAmountMode: true,
             portionId: null,
             exactAmount,
+          }));
+        }}
+      />
+
+      <AddFoodSheet
+        ref={addFoodSheetRef}
+        onAddFood={(food) => {
+          setSolidsEntry((current) => ({
+            ...current,
+            foods: [...current.foods, food],
           }));
         }}
       />
