@@ -15,6 +15,7 @@ import FeedingEntrySheet from "../screens/addTracking/Feeding/FeedingEntrySheet.
 import SleepEntrySheet from "../screens/addTracking/Sleep/SleepEntrySheet.js";
 import DiaperEntrySheet from "../screens/addTracking/Diaper/DiaperEntrySheet.js";
 import MoodEntrySheet from "../screens/addTracking/Mood/MoodEntrySheet.js";
+import MedicationEntrySheet from "../screens/medication/MedicationEntrySheet.js";
 
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
@@ -82,6 +83,7 @@ export default function MainTabNavigator() {
   const sleepSheetRef = useRef(null);
   const diaperSheetRef = useRef(null);
   const moodSheetRef = useRef(null);
+  const medicationSheetRef = useRef(null);
 
   const toastTimeoutRef = useRef(null);
 
@@ -181,6 +183,14 @@ export default function MainTabNavigator() {
     if (itemId === "mood") {
       setTimeout(() => {
         moodSheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "medication") {
+      setTimeout(() => {
+        medicationSheetRef.current?.present("medication");
       }, 220);
 
       return;
@@ -414,6 +424,50 @@ export default function MainTabNavigator() {
               childName,
             }),
           });
+        }}
+      />
+
+      <MedicationEntrySheet
+        ref={medicationSheetRef}
+        childName={childName}
+        recentMedications={[
+          { id: "dafalgan", name: "Dafalgan" },
+          { id: "nurofen", name: "Nurofen" },
+        ]}
+        onSaveMedication={async (medication) => {
+          console.log("Médicament enregistré :", medication);
+
+          /*
+           * Plus tard :
+           * await saveMedication(medication);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Medication saved"),
+            message: t("Child's medication was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+        onSaveVaccine={async (vaccine) => {
+          console.log("Vaccin enregistré :", vaccine);
+
+          /*
+           * Plus tard :
+           * await saveVaccine(vaccine);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Vaccine saved"),
+            message: t("Child's vaccine was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+        onPressVaccinePhoto={() => {
+          console.log("Ouvrir le sélecteur de photo");
         }}
       />
       <ToastMessage

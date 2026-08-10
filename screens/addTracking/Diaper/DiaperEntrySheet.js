@@ -13,7 +13,7 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { useTranslation } from "react-i18next";
-
+import NoteSheet from "../Feeding/NoteSheet.js";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DiaperTypeTabs from "../../../components/addTracking/diaper/DiaperHypeTabs.js";
 import DiaperForm from "../../../components/addTracking/diaper/DiaperForm.js";
@@ -27,10 +27,12 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
   const { t } = useTranslation();
 
   const modalRef = useRef(null);
+  const noteSheetRef = useRef(null);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const snapPoints = useMemo(() => ["92%"], []);
+  const [noteTarget, setNoteTarget] = useState("diaper");
 
   const [selectedType, setSelectedType] = useState("diaper");
 
@@ -49,6 +51,16 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
     pottyDate: new Date(),
     isDateEdited: false,
   });
+
+  const handleOpenDiaperNote = () => {
+    setNoteTarget("diaper");
+    noteSheetRef.current?.present(diaperEntry.note);
+  };
+
+  const handleOpenPottyNote = () => {
+    setNoteTarget("potty");
+    noteSheetRef.current?.present(pottyEntry.note);
+  };
 
   useImperativeHandle(ref, () => ({
     present(type = "diaper") {
@@ -100,57 +112,95 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
   };
 
   return (
-    <BottomSheetModal
-      ref={modalRef}
-      index={0}
-      snapPoints={snapPoints}
-      enableDynamicSizing={false}
-      enablePanDownToClose
-      backdropComponent={renderBackdrop}
-      backgroundStyle={styles.sheetBackground}
-      handleIndicatorStyle={styles.handle}
-      keyboardBehavior="interactive"
-      keyboardBlurBehavior="restore"
-    >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t("Add a diaper change")}</Text>
+    <>
+      <BottomSheetModal
+        ref={modalRef}
+        index={0}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.handle}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+      >
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{t("Add a diaper change")}</Text>
 
-          <Text style={styles.subtitle}>
-            {t("Keep track of child diaper changes", {
-              childName,
-            })}
-          </Text>
+            <Text style={styles.subtitle}>
+              {t("Keep track of child diaper changes", {
+                childName,
+              })}
+            </Text>
+          </View>
+
+          <DiaperTypeTabs value={selectedType} onChange={setSelectedType} />
+
+          <View style={styles.formArea}>
+            <BottomSheetScrollView
+              style={styles.formScroll}
+              contentContainerStyle={styles.formScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {selectedType === "diaper" ? (
+                <DiaperForm
+                  value={diaperEntry}
+                  onChange={setDiaperEntry}
+                  onPressNote={handleOpenDiaperNote}
+                />
+              ) : (
+                <PottyForm
+                  value={pottyEntry}
+                  onChange={setPottyEntry}
+                  onPressNote={handleOpenPottyNote}
+                />
+              )}
+            </BottomSheetScrollView>
+          </View>
+
+          <View style={styles.footerContainer}>
+            <PrimaryButton
+              title={
+                selectedType === "diaper" ? t("Save diaper") : t("Save potty")
+              }
+              onPress={handleSave}
+              disabled={!canSave}
+            />
+          </View>
         </View>
+      </BottomSheetModal>
+      <NoteSheet
+        ref={noteSheetRef}
+        title={noteTarget === "diaper" ? "Diaper note" : "Potty note"}
+        description={
+          noteTarget === "diaper"
+            ? "Add an optional detail about this diaper"
+            : "Add an optional detail about this potty time"
+        }
+        placeholder={
+          noteTarget === "diaper"
+            ? "For example, unusual color, irritation or discomfort"
+            : "For example, urgency, discomfort or difficulty"
+        }
+        onSave={(note) => {
+          if (noteTarget === "diaper") {
+            setDiaperEntry((current) => ({
+              ...current,
+              note,
+            }));
+            return;
+          }
 
-        <DiaperTypeTabs value={selectedType} onChange={setSelectedType} />
-
-        <View style={styles.formArea}>
-          <BottomSheetScrollView
-            style={styles.formScroll}
-            contentContainerStyle={styles.formScrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {selectedType === "diaper" ? (
-              <DiaperForm value={diaperEntry} onChange={setDiaperEntry} />
-            ) : (
-              <PottyForm value={pottyEntry} onChange={setPottyEntry} />
-            )}
-          </BottomSheetScrollView>
-        </View>
-
-        <View style={styles.footerContainer}>
-          <PrimaryButton
-            title={
-              selectedType === "diaper" ? t("Save diaper") : t("Save potty")
-            }
-            onPress={handleSave}
-            disabled={!canSave}
-          />
-        </View>
-      </View>
-    </BottomSheetModal>
+          setPottyEntry((current) => ({
+            ...current,
+            note,
+          }));
+        }}
+      />
+    </>
   );
 });
 

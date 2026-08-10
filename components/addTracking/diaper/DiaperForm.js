@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
+
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import FeedingTimeRow from "../feeding/FeedingTimeRow.js";
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
@@ -46,7 +45,7 @@ const CONSISTENCIES = [
   { id: "hard", label: "Hard" },
 ];
 
-export default function DiaperForm({ value, onChange }) {
+export default function DiaperForm({ value, onChange, onPressNote }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
@@ -211,26 +210,13 @@ export default function DiaperForm({ value, onChange }) {
         </View>
       ) : null}
 
-      <View style={styles.noteSection}>
-        <Text style={styles.noteLabel}>{t("Note")}</Text>
-
-        <View style={styles.inputContainer}>
-          <BottomSheetTextInput
-            value={value?.note ?? ""}
-            onChangeText={(note) => patchEntry({ note })}
-            placeholder={t("Add an optional note")}
-            placeholderTextColor={colors.textSecondary}
-            multiline
-            maxLength={300}
-            textAlignVertical="top"
-            style={styles.noteInput}
-          />
-
-          <Text style={styles.characterCounter}>
-            {(value?.note ?? "").length}/300
-          </Text>
-        </View>
-      </View>
+      <DiaperNoteButton
+        note={value?.note}
+        onPress={onPressNote}
+        colors={colors}
+        styles={styles}
+        t={t}
+      />
 
       <DateTimeRow
         isNow={!value?.isDateEdited}
@@ -243,6 +229,52 @@ export default function DiaperForm({ value, onChange }) {
         }
       />
     </View>
+  );
+}
+
+function DiaperNoteButton({ note, onPress, colors, styles, t }) {
+  const cleanedNote = note?.trim() ?? "";
+  const hasNote = cleanedNote.length > 0;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={hasNote ? t("Edit note") : t("Add a note")}
+      onPress={onPress}
+      style={({ pressed }) => [styles.noteButton, pressed && styles.pressed]}
+    >
+      <View style={styles.noteIcon}>
+        <Ionicons
+          name="document-text-outline"
+          size={19}
+          color={hasNote ? colors.primary : colors.textSecondary}
+        />
+      </View>
+
+      <View style={styles.noteTextContainer}>
+        <Text style={styles.noteTitle}>
+          {hasNote ? t("Edit note") : t("Add a note")}
+        </Text>
+
+        <Text numberOfLines={1} style={styles.noteDescription}>
+          {hasNote
+            ? cleanedNote
+            : t("Add an optional detail about this diaper")}
+        </Text>
+      </View>
+
+      <View style={styles.noteRightContent}>
+        {hasNote ? (
+          <View style={styles.noteIndicator} />
+        ) : (
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={colors.textSecondary}
+          />
+        )}
+      </View>
+    </Pressable>
   );
 }
 
@@ -386,48 +418,61 @@ function createStyles(colors) {
       color: colors.primary,
     },
 
-    noteSection: {
-      gap: 8,
+    pressed: {
+      opacity: 0.78,
     },
 
-    noteLabel: {
-      fontFamily: "PlusJakartaSans_600SemiBold",
-      fontSize: 12,
-      color: colors.textSecondary,
-    },
-
-    inputContainer: {
-      position: "relative",
-    },
-
-    noteInput: {
-      minHeight: 78,
-      maxHeight: 120,
-      paddingHorizontal: 14,
-      paddingTop: 12,
-      paddingBottom: 30,
-      borderRadius: 17,
+    noteButton: {
+      minHeight: 66,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 13,
+      paddingVertical: 10,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.lightBlue,
-      textAlignVertical: "top",
-      fontFamily: "PlusJakartaSans_500Medium",
+      gap: 11,
+    },
+
+    noteIcon: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 40,
+      height: 40,
+      borderRadius: 13,
+      backgroundColor: colors.white,
+    },
+
+    noteTextContainer: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    noteTitle: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 13,
-      lineHeight: 19,
       color: colors.textPrimary,
     },
 
-    characterCounter: {
-      position: "absolute",
-      right: 12,
-      bottom: 10,
-      color: colors.textSecondary,
+    noteDescription: {
+      marginTop: 3,
       fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 10,
+      fontSize: 11,
+      color: colors.textSecondary,
     },
 
-    pressed: {
-      opacity: 0.78,
+    noteRightContent: {
+      width: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    noteIndicator: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: colors.primary,
     },
   });
 }

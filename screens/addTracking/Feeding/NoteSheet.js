@@ -20,7 +20,15 @@ import { useTranslation } from "react-i18next";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
-const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
+const NoteSheet = forwardRef(function NoteSheet(
+  {
+    onSave,
+    title = "Add a note",
+    description = "Add an optional detail",
+    placeholder = "Write your note here",
+  },
+  ref,
+) {
   const { t } = useTranslation();
   const modalRef = useRef(null);
   const [note, setNote] = useState("");
@@ -107,10 +115,9 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>{t("Add a note")}</Text>
-            <Text style={styles.description}>
-              {t("Add an optional detail about this feeding")}
-            </Text>
+            <Text style={styles.title}>{t(title)}</Text>
+
+            <Text style={styles.description}>{t(description)}</Text>
           </View>
         </View>
 
@@ -118,7 +125,7 @@ const NoteSheet = forwardRef(function NoteSheet({ onSave }, ref) {
           <BottomSheetTextInput
             value={note}
             onChangeText={setNote}
-            placeholder={t("For example, drank slowly or refused the end")}
+            placeholder={t(placeholder)}
             placeholderTextColor={colors.textSecondary}
             multiline
             maxLength={300}
