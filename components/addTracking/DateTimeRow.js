@@ -13,12 +13,22 @@ import { useTranslation } from "react-i18next";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
+/**
+ * `title`, `mode`, `emptyLabel` et `onClear` sont optionnels et conservent le
+ * comportement d’origine par défaut : la ligne sert aussi bien à l’heure d’une
+ * prise (date + heure, plafonnée à maintenant) qu’à une date future comme la
+ * prochaine dose d’un vaccin, sans dupliquer le picker.
+ */
 export default function DateTimeRow({
   value = new Date(),
   isNow = true,
   onChange,
+  onClear,
   minimumDate,
   maximumDate = new Date(),
+  title = "Time",
+  mode = "datetime",
+  emptyLabel = "Now",
 }) {
   const { t, i18n } = useTranslation();
   const colors = useThemeColors();
@@ -28,16 +38,28 @@ export default function DateTimeRow({
   const [androidPickerMode, setAndroidPickerMode] = useState(null);
   const [draftDate, setDraftDate] = useState(value);
 
+  const isDateOnly = mode === "date";
+
   const formattedDateTime = useMemo(
     () =>
-      new Intl.DateTimeFormat(i18n.language, {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(value),
-    [i18n.language, value],
+      new Intl.DateTimeFormat(
+        i18n.language,
+        isDateOnly
+          ? {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            }
+          : {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            },
+      ).format(value),
+    [i18n.language, isDateOnly, value],
   );
 
   const openPicker = () => {
@@ -65,6 +87,15 @@ export default function DateTimeRow({
         selectedValue.getMonth(),
         selectedValue.getDate(),
       );
+
+      /*
+       * En mode date seule, on ne chaîne pas le sélecteur d’heure.
+       */
+      if (isDateOnly) {
+        onChange?.(nextDate);
+        setAndroidPickerMode(null);
+        return;
+      }
 
       setDraftDate(nextDate);
       setAndroidPickerMode("time");
@@ -108,19 +139,33 @@ export default function DateTimeRow({
           </View>
 
           <View style={styles.textContent}>
-            <Text style={styles.title}>{t("Time")}</Text>
-            <Text style={styles.value}>
-              {isNow ? t("Now") : formattedDateTime}
+            <Text style={styles.title}>{t(title)}</Text>
+            <Text numberOfLines={1} style={styles.value}>
+              {isNow ? t(emptyLabel) : formattedDateTime}
             </Text>
           </View>
         </View>
 
         <View style={styles.changeAction}>
-          <Ionicons
-            name="chevron-forward"
-            size={18}
-            color={colors.textPrimary}
-          />
+          {onClear && !isNow ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("Clear")}
+              hitSlop={10}
+              onPress={(event) => {
+                event.stopPropagation();
+                onClear();
+              }}
+              style={({ pressed }) => [
+                styles.clearButton,
+                pressed && styles.containerPressed,
+              ]}
+            >
+              <Ionicons name="close" size={16} color={colors.textSecondary} />
+            </Pressable>
+          ) : null}
+
+          <Ionicons name="chevron-forward" size={18} color="#91A0B5" />
         </View>
       </Pressable>
 
@@ -130,7 +175,7 @@ export default function DateTimeRow({
           mode={androidPickerMode}
           display="default"
           minimumDate={minimumDate}
-          maximumDate={maximumDate}
+          maximumDate={maximumDate ?? undefined}
           onChange={handleAndroidChange}
         />
       ) : null}
@@ -151,7 +196,9 @@ export default function DateTimeRow({
                 <Text style={styles.cancelLabel}>{t("Cancel")}</Text>
               </Pressable>
 
-              <Text style={styles.pickerTitle}>{t("Date and time")}</Text>
+              <Text style={styles.pickerTitle}>
+                {isDateOnly ? t(title) : t("Date and time")}
+              </Text>
 
               <Pressable onPress={handleConfirmIos}>
                 <Text style={styles.confirmLabel}>{t("Done")}</Text>
@@ -160,10 +207,10 @@ export default function DateTimeRow({
 
             <DateTimePicker
               value={draftDate}
-              mode="datetime"
+              mode={mode}
               display="spinner"
               minimumDate={minimumDate}
-              maximumDate={maximumDate}
+              maximumDate={maximumDate ?? undefined}
               onChange={(_, selectedValue) => {
                 if (selectedValue) {
                   setDraftDate(selectedValue);
@@ -225,9 +272,17 @@ const createStyles = (colors) =>
     changeAction: {
       alignItems: "center",
       flexDirection: "row",
-      gap: 3,
+      gap: 8,
       paddingLeft: 10,
       paddingVertical: 8,
+    },
+    clearButton: {
+      alignItems: "center",
+      backgroundColor: colors.white,
+      borderRadius: 14,
+      height: 28,
+      justifyContent: "center",
+      width: 28,
     },
     changeActionLabel: {
       color: colors.primary,

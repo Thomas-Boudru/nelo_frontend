@@ -22,16 +22,16 @@ import {
   BottomSheetTextInput,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { Ionicons } from "@expo/vector-icons";
+import { FontAwesome6, Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import PrimaryButton from "../../components/ui/PrimaryButton.js";
-import { useThemeColors } from "../../theme/useThemeColors.js";
+import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import { useThemeColors } from "../../../theme/useThemeColors.js";
 import {
   MEDICATIONS,
   normalizeMedicationSearch,
   searchMedications,
-} from "../../data/medications.js";
+} from "../../../data/medications.js";
 
 function createCustomMedicationId() {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -54,8 +54,13 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
 
   const { height: windowHeight } = useWindowDimensions();
 
-  const maxContentHeight = useMemo(
-    () => Math.min(500, Math.round(windowHeight * 0.62)),
+  /**
+   * L’étape de recherche est un seul scrollable, la sheet épouse donc son
+   * contenu. Ce plafond limite sa hauteur pour garder environ cinq résultats
+   * visibles et laisser le reste défiler au lieu de couvrir tout l’écran.
+   */
+  const searchMaxContentHeight = useMemo(
+    () => Math.min(430, Math.round(windowHeight * 0.55)),
     [windowHeight],
   );
 
@@ -462,25 +467,21 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
             </Text>
           ) : null}
         </View>
-
         {item.isCustom ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("Edit custom medication")}
-            accessibilityHint={t("Rename or delete this medication")}
-            hitSlop={8}
+            hitSlop={10}
             onPress={(event) => {
               event.stopPropagation();
               openCustomMedicationForm(item);
             }}
             style={({ pressed }) => [
-              styles.editCustomButton,
-              pressed && styles.pressed,
+              styles.editMedicationButton,
+              pressed && styles.editMedicationButtonPressed,
             ]}
           >
-            <Ionicons name="pencil-outline" size={15} color={colors.primary} />
-
-            <Text style={styles.editCustomButtonText}>{t("Custom")}</Text>
+            <FontAwesome6 name="pen" size={15} color={colors.primary} />
           </Pressable>
         ) : (
           <Ionicons
@@ -506,7 +507,9 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
       ref={modalRef}
       index={0}
       enableDynamicSizing
-      maxDynamicContentSize={maxContentHeight}
+      maxDynamicContentSize={
+        step === "search" ? searchMaxContentHeight : undefined
+      }
       stackBehavior="push"
       enablePanDownToClose
       backdropComponent={renderBackdrop}
@@ -646,8 +649,8 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
               ]}
             >
               <Ionicons
-                name="arrow-back-outline"
-                size={20}
+                name="chevron-back"
+                size={19}
                 color={colors.textPrimary}
               />
             </Pressable>
@@ -722,33 +725,33 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
             ) : null}
           </View>
 
-          {editingMedication ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("Delete custom medication")}
-              onPress={handleDeleteCustomMedication}
-              style={({ pressed }) => [
-                styles.deleteButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="trash-outline" size={17} color={colors.error} />
+          <View style={styles.formActions}>
+            {editingMedication ? (
+              <>
+                <PrimaryButton
+                  title={t("Delete")}
+                  variant="destructive"
+                  disabled={isSaving}
+                  onPress={handleDeleteCustomMedication}
+                  style={styles.formActionButton}
+                />
 
-              <Text style={styles.deleteButtonText}>
-                {t("Delete this medication")}
-              </Text>
-            </Pressable>
-          ) : null}
-
-          <View style={styles.primaryButtonContainer}>
-            <PrimaryButton
-              title={
-                editingMedication ? t("Save changes") : t("Add this medication")
-              }
-              disabled={!canSaveCustomMedication}
-              loading={isSaving}
-              onPress={handleSaveCustomMedication}
-            />
+                <PrimaryButton
+                  title={t("Save")}
+                  disabled={!canSaveCustomMedication}
+                  loading={isSaving}
+                  onPress={handleSaveCustomMedication}
+                  style={styles.formActionButton}
+                />
+              </>
+            ) : (
+              <PrimaryButton
+                title={t("Add this medication")}
+                disabled={!canSaveCustomMedication}
+                loading={isSaving}
+                onPress={handleSaveCustomMedication}
+              />
+            )}
           </View>
         </BottomSheetView>
       )}
@@ -774,7 +777,6 @@ function createStyles(colors) {
     },
 
     listContent: {
-      flexGrow: 1,
       paddingHorizontal: 20,
       paddingBottom: 24,
       backgroundColor: colors.white,
@@ -912,6 +914,7 @@ function createStyles(colors) {
       minHeight: 68,
       flexDirection: "row",
       alignItems: "center",
+      marginTop: 8,
       paddingHorizontal: 14,
       paddingVertical: 11,
       borderRadius: 17,
@@ -965,13 +968,11 @@ function createStyles(colors) {
     },
 
     backButton: {
-      width: 38,
-      height: 38,
+      width: 34,
+      height: 34,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: 17,
       backgroundColor: colors.lightBlue,
     },
 
@@ -1012,31 +1013,54 @@ function createStyles(colors) {
       fontSize: 11,
       color: colors.error,
     },
-
-    deleteButton: {
-      alignSelf: "flex-start",
+    formActions: {
       flexDirection: "row",
       alignItems: "center",
-      marginTop: 16,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-      borderRadius: 12,
-      backgroundColor: `${colors.error}0D`,
-      gap: 7,
-    },
-
-    deleteButtonText: {
-      fontFamily: "PlusJakartaSans_700Bold",
-      fontSize: 11,
-      color: colors.error,
-    },
-
-    primaryButtonContainer: {
+      gap: 10,
       marginTop: 22,
+    },
+
+    formActionButton: {
+      flex: 1,
+      width: undefined,
+    },
+    deletePrimaryButton: {
+      minHeight: 54,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 18,
+      borderRadius: 17,
+      backgroundColor: colors.error,
+      gap: 8,
+    },
+
+    deletePrimaryButtonText: {
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 14,
+      color: colors.white,
+    },
+
+    disabledButton: {
+      opacity: 0.5,
     },
 
     pressed: {
       opacity: 0.72,
+    },
+
+    editMedicationButton: {
+      width: 42,
+      height: 42,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 21,
+      backgroundColor: `${colors.primary}18`,
+    },
+
+    editMedicationButtonPressed: {
+      opacity: 0.75,
+      transform: [{ scale: 0.94 }],
     },
   });
 }

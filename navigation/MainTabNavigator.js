@@ -15,7 +15,10 @@ import FeedingEntrySheet from "../screens/addTracking/Feeding/FeedingEntrySheet.
 import SleepEntrySheet from "../screens/addTracking/Sleep/SleepEntrySheet.js";
 import DiaperEntrySheet from "../screens/addTracking/Diaper/DiaperEntrySheet.js";
 import MoodEntrySheet from "../screens/addTracking/Mood/MoodEntrySheet.js";
-import MedicationEntrySheet from "../screens/medication/MedicationEntrySheet.js";
+import MedicationEntrySheet from "../screens/addTracking/medication/MedicationEntrySheet.js";
+import TemperatureEntrySheet from "../screens/addTracking/Temperature/TemperatureEntrySheet.js";
+import SymptomsEntrySheet from "../screens/addTracking/Symptoms/SymptomsEntrySheet.js";
+import TeethingEntrySheet from "../components/addTracking/teething/teethingEntrySheet.js";
 
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
@@ -84,8 +87,10 @@ export default function MainTabNavigator() {
   const diaperSheetRef = useRef(null);
   const moodSheetRef = useRef(null);
   const medicationSheetRef = useRef(null);
-
+  const temperatureSheetRef = useRef(null);
   const toastTimeoutRef = useRef(null);
+  const symptomsEntrySheetRef = useRef(null);
+  const teethingSheetRef = useRef(null);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -191,6 +196,30 @@ export default function MainTabNavigator() {
     if (itemId === "medication") {
       setTimeout(() => {
         medicationSheetRef.current?.present("medication");
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "temperature") {
+      setTimeout(() => {
+        temperatureSheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "symptoms") {
+      setTimeout(() => {
+        symptomsEntrySheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "teething") {
+      setTimeout(() => {
+        teethingSheetRef.current?.present();
       }, 220);
 
       return;
@@ -466,8 +495,67 @@ export default function MainTabNavigator() {
             }),
           });
         }}
-        onPressVaccinePhoto={() => {
-          console.log("Ouvrir le sélecteur de photo");
+      />
+
+      <TemperatureEntrySheet
+        ref={temperatureSheetRef}
+        childName={childName}
+        childAgeInMonths={2}
+        initialLocation="forehead"
+        onSave={async (temperatureEntry) => {
+          console.log("Température enregistrée :", temperatureEntry);
+
+          /*
+           * Plus tard :
+           * await saveTemperature(temperatureEntry);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Temperature saved"),
+            message: t("Child's temperature was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+
+      <SymptomsEntrySheet
+        ref={symptomsEntrySheetRef}
+        childName={childName}
+        onSave={async (symptomsData) => {
+          console.log("Symptoms saved:", symptomsData);
+
+          showToast({
+            type: "success",
+            title: t("Symptoms saved"),
+            message: t("Child's symptoms were saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+
+      <TeethingEntrySheet
+        ref={teethingSheetRef}
+        childName={childName}
+        eruptedTeeth={
+          [
+            // Exemples de dents déjà enregistrées :
+            // "upperLeftCentralIncisor",
+            // "upperRightCentralIncisor",
+          ]
+        }
+        onSave={async (teethingEntry) => {
+          console.log("Dentition enregistrée :", teethingEntry);
+
+          showToast({
+            type: "success",
+            title: t("Teething saved"),
+            message: t("Child's teething was saved successfully", {
+              childName,
+            }),
+          });
         }}
       />
       <ToastMessage

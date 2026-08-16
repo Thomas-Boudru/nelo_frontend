@@ -581,7 +581,7 @@ const createStyles = (colors) =>
 
     amountOptionSelected: {
       backgroundColor: colors.selectedBackground,
-      borderColor: colors.primary,
+      borderColor: `${colors.primary}30`,
     },
 
     amountOptionLabel: {

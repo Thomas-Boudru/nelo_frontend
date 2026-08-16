@@ -130,8 +130,6 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const snapPoints = useMemo(() => ["72%"], []);
-
   const [draftMethods, setDraftMethods] = useState(() =>
     normalizeSelectedMethods(selectedMethods),
   );
@@ -181,9 +179,7 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
   return (
     <BottomSheetModal
       ref={ref}
-      index={0}
-      snapPoints={snapPoints}
-      enableDynamicSizing={false}
+      enableDynamicSizing
       enablePanDownToClose
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
@@ -274,8 +270,6 @@ const createStyles = (colors) =>
     },
 
     container: {
-      flex: 1,
-
       paddingHorizontal: 18,
       paddingBottom: 18,
     },

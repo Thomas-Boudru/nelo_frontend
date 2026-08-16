@@ -13,14 +13,16 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { useTranslation } from "react-i18next";
-import NoteSheet from "../addTracking/Feeding/NoteSheet.js";
+import NoteSheet from "../Feeding/NoteSheet.js";
 import MedicationPickerSheet from "./MedicationPickerSheet.js";
+import VaccinePickerSheet from "./VaccinePickerSheet.js";
 
-import PrimaryButton from "../../components/ui/PrimaryButton.js";
-import MedicationTypeTabs from "../../components/addTracking/medication/MedicationTypeTabs.js";
-import MedicationForm from "../../components/addTracking/medication/MedicationForm.js";
-import VaccineForm from "../../components/addTracking/medication/VaccineForm.js";
-import { useThemeColors } from "../../theme/useThemeColors.js";
+import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import MedicationTypeTabs from "../../../components/addTracking/medication/MedicationTypeTabs.js";
+import MedicationForm from "../../../components/addTracking/medication/MedicationForm.js";
+import VaccineForm from "../../../components/addTracking/medication/VaccineForm.js";
+import { useThemeColors } from "../../../theme/useThemeColors.js";
+import VaccineDetailsSheet from "./VaccineDetailsSheet.js";
 
 const createMedicationEntry = () => ({
   medicationName: "",
@@ -45,21 +47,28 @@ const EMPTY_MEDICATION_ENTRY = {
 };
 
 const createVaccineEntry = () => ({
+  vaccineId: null,
   vaccineName: "",
+  vaccineTranslationKey: null,
+  vaccineCategory: null,
+  isCustomVaccine: false,
+
   dose: null,
   vaccineDate: new Date(),
   isDateEdited: false,
+
   hasNextDose: false,
-  nextDoseDate: new Date(),
+  nextDoseDate: null,
+
   note: "",
-  photo: null,
+  photos: [],
 });
 
 const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   {
     childName,
     recentMedications = [],
-    onPressVaccinePhoto,
+    recentVaccines = [],
     onSaveMedication,
     onSaveVaccine,
   },
@@ -77,6 +86,8 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   const [selectedType, setSelectedType] = useState("medication");
   const [medicationEntry, setMedicationEntry] = useState(createMedicationEntry);
   const [vaccineEntry, setVaccineEntry] = useState(createVaccineEntry);
+  const vaccineDetailsSheetRef = useRef(null);
+  const vaccinePickerRef = useRef(null);
   const noteSheetRef = useRef(null);
 
   useImperativeHandle(ref, () => ({
@@ -112,22 +123,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     Number.isFinite(medicationAmount) &&
     medicationAmount > 0;
 
-  const canSaveVaccine =
-    vaccineEntry.vaccineName.trim().length > 0 && Boolean(vaccineEntry.dose);
+  const canSaveVaccine = vaccineEntry.vaccineName.trim().length > 0;
 
   const canSave =
     selectedType === "medication" ? canSaveMedication : canSaveVaccine;
-
-  const handleVaccinePhoto = async () => {
-    const photo = await onPressVaccinePhoto?.(vaccineEntry.photo);
-
-    if (photo) {
-      setVaccineEntry((current) => ({
-        ...current,
-        photo,
-      }));
-    }
-  };
 
   const handleSave = async () => {
     if (!canSave) {
@@ -177,6 +176,32 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     setCustomMedications((current) =>
       current.map((item) =>
         item.id === deletedMedication.id ? deletedMedication : item,
+      ),
+    );
+  };
+
+  const [customVaccines, setCustomVaccines] = useState([]);
+
+  const handleSaveCustomVaccine = (vaccine) => {
+    setCustomVaccines((current) => {
+      const alreadyExists = current.some((item) => item.id === vaccine.id);
+
+      if (alreadyExists) {
+        return current.map((item) => (item.id === vaccine.id ? vaccine : item));
+      }
+
+      return [vaccine, ...current];
+    });
+  };
+
+  /*
+   * La suppression est logique : on conserve l’entrée marquée
+   * pour ne pas perdre les vaccins déjà enregistrés.
+   */
+  const handleDeleteCustomVaccine = (deletedVaccine) => {
+    setCustomVaccines((current) =>
+      current.map((item) =>
+        item.id === deletedVaccine.id ? deletedVaccine : item,
       ),
     );
   };
@@ -240,7 +265,15 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
                 <VaccineForm
                   value={vaccineEntry}
                   onChange={setVaccineEntry}
-                  onPressPhoto={handleVaccinePhoto}
+                  onPressVaccine={() => {
+                    vaccinePickerRef.current?.present();
+                  }}
+                  onPressDetails={() => {
+                    vaccineDetailsSheetRef.current?.present({
+                      note: vaccineEntry.note,
+                      photos: vaccineEntry.photos,
+                    });
+                  }}
                 />
               )}
             </BottomSheetScrollView>
@@ -272,6 +305,17 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
         }}
       />
 
+      <VaccineDetailsSheet
+        ref={vaccineDetailsSheetRef}
+        onSave={({ note, photos }) => {
+          setVaccineEntry((current) => ({
+            ...current,
+            note,
+            photos,
+          }));
+        }}
+      />
+
       <MedicationPickerSheet
         ref={medicationPickerRef}
         recentMedications={recentMedications}
@@ -286,6 +330,24 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
             medicationTranslationKey: medication.translationKey,
             medicationCategory: medication.category,
             isCustomMedication: medication.isCustom,
+          }));
+        }}
+      />
+
+      <VaccinePickerSheet
+        ref={vaccinePickerRef}
+        recentVaccines={recentVaccines}
+        customVaccines={customVaccines}
+        onSaveCustomVaccine={handleSaveCustomVaccine}
+        onDeleteCustomVaccine={handleDeleteCustomVaccine}
+        onSelectVaccine={(vaccine) => {
+          setVaccineEntry((current) => ({
+            ...current,
+            vaccineId: vaccine.id,
+            vaccineName: vaccine.name,
+            vaccineTranslationKey: vaccine.translationKey,
+            vaccineCategory: vaccine.category,
+            isCustomVaccine: vaccine.isCustom,
           }));
         }}
       />

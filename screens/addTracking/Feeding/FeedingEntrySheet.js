@@ -49,6 +49,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const noteSheetRef = useRef(null);
   const exactAmountSheetRef = useRef(null);
   const manualBreastfeedingSheetRef = useRef(null);
+  const [customFoods, setCustomFoods] = useState([]);
   const addFoodSheetRef = useRef(null);
 
   const [noteTarget, setNoteTarget] = useState(null);
@@ -305,6 +306,41 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     Array.isArray(solidsEntry.foods) &&
     solidsEntry.foods.length > 0;
 
+  const handleAddFood = useCallback((foodToAdd) => {
+    if (!foodToAdd) {
+      return;
+    }
+
+    setSolidsEntry((current) => ({
+      ...current,
+      foods: [...(current.foods ?? []), foodToAdd],
+    }));
+  }, []);
+
+  const handleSaveCustomFood = useCallback((foodToSave) => {
+    setCustomFoods((currentFoods) => {
+      const alreadyExists = currentFoods.some(
+        (food) => food.id === foodToSave.id,
+      );
+
+      if (alreadyExists) {
+        return currentFoods.map((food) =>
+          food.id === foodToSave.id ? foodToSave : food,
+        );
+      }
+
+      return [foodToSave, ...currentFoods];
+    });
+  }, []);
+
+  const handleDeleteCustomFood = useCallback((deletedFood) => {
+    setCustomFoods((currentFoods) =>
+      currentFoods.map((food) =>
+        food.id === deletedFood.id ? deletedFood : food,
+      ),
+    );
+  }, []);
+
   const canSavePumping = selectedType === "pumping" && pumpingAmountMl > 0;
 
   const canSaveFeeding =
@@ -432,12 +468,10 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 
       <AddFoodSheet
         ref={addFoodSheetRef}
-        onAddFood={(food) => {
-          setSolidsEntry((current) => ({
-            ...current,
-            foods: [...current.foods, food],
-          }));
-        }}
+        customFoods={customFoods}
+        onSaveCustomFood={handleSaveCustomFood}
+        onDeleteCustomFood={handleDeleteCustomFood}
+        onAddFood={handleAddFood}
       />
     </BottomSheetModal>
   );
