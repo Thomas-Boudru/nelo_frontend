@@ -14,6 +14,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import {
@@ -41,267 +42,288 @@ const TOOTH_ILLUSTRATIONS = {
   secondMolar: require("../../../assets/illustrations/tracking/teething/secondMolar.png"),
 };
 
-const BASE_CANVAS_SIZE = 1000;
+const TOOTH_ALPHA_BOUNDS = {
+  centralIncisor: {
+    x: 119,
+    y: 70,
+    width: 261,
+    height: 337,
+  },
 
-/*
- * Les positions utilisent le même canevas logique que l’image de la bouche :
- * 1000 × 1000.
- *
- * Il faudra éventuellement ajuster légèrement x, y, width et height après
- * avoir rogné définitivement tes PNG.
- *
- */
+  lateralIncisor: {
+    x: 140,
+    y: 65,
+    width: 214,
+    height: 367,
+  },
 
-const MOUTH_LAYOUT = {
-  widthPercent: "65%",
-  maxWidth: 250,
-  marginTop: 4,
-  marginBottom: 18,
+  canine: {
+    x: 150,
+    y: 63,
+    width: 199,
+    height: 348,
+  },
+
+  firstMolar: {
+    x: 88,
+    y: 103,
+    width: 326,
+    height: 298,
+  },
+
+  secondMolar: {
+    x: 60,
+    y: 41,
+    width: 382,
+    height: 410,
+  },
 };
 
+const BASE_CANVAS_SIZE = 1000;
+const TOOTH_ASSET_SIZE = 500;
+
+const TOOTH_OUTLINE_PATHS = {
+  centralIncisor:
+    "M243 69.8 L300 73.5 L328 80.4 L346 88.4 L359.2 99 L369.7 115 L374.5 129 L378.5 154 L378.5 195 L371.2 253 L356.7 316 L341.7 361 L331 379.6 L314 393.5 L294 401.2 L270 405.2 L232 405.6 L203 401.2 L181 392.2 L163.4 376 L151.8 352 L137.5 305 L124.5 243 L119.8 205 L120.5 143 L126.8 118 L137.8 100 L153 87.8 L175 78.8 L205 72.4 Z",
+
+  lateralIncisor:
+    "M259 64.8 L287 65.8 L309 71.4 L324 79.4 L335 90.2 L342.6 103 L348.5 121 L352.5 149 L353.6 183 L350.5 232 L342.5 284 L325.6 357 L311.5 398 L300 414.6 L289 423.5 L274 429.5 L252 431.6 L230 428.5 L214 422.2 L197.4 408 L186.8 390 L168.8 333 L153.8 269 L141.5 196 L139.8 160 L142.5 136 L148.5 117 L155.4 105 L166 93.8 L187 80.8 L209 72.8 Z",
+
+  canine:
+    "M252 62.8 L298 68.5 L312 73.2 L327 82.8 L335.2 93 L342.6 110 L347.8 151 L345.2 201 L339.2 248 L331.5 281 L315.5 330 L300.5 364 L279.5 395 L262 407.6 L247 410.5 L231 405.6 L212.4 388 L197.5 364 L181.8 328 L168.8 289 L158.4 245 L151.8 192 L149.4 150 L151.8 126 L157.4 104 L163.8 91 L172.2 82 L184 74.5 L198 69.8 L226 64.5 Z",
+
+  firstMolar:
+    "M162 103.8 L187 103.5 L255 111.4 L314 104.4 L347 104.4 L376 113.2 L387 120.8 L396.2 131 L405.6 150 L412.2 184 L412.6 224 L408.8 259 L398.2 311 L385.5 349 L373.5 371 L356 388.5 L347 393.5 L333 396.6 L322 396.5 L301 389.8 L292 389.6 L260 400.5 L242 399.5 L212 389.5 L181 396.5 L166 396.5 L146 389.5 L136 382.2 L125.4 370 L110.8 341 L95.8 286 L88.5 233 L88.5 185 L97.8 147 L111.8 125 L133 110.4 Z",
+
+  secondMolar:
+    "M164 41.8 L197 42.5 L254 54.2 L281 52.7 L330 44.8 L362 46.8 L379 52.4 L396 62.8 L410.2 76 L423.2 95 L434.5 123 L440.8 154 L440.6 194 L433.6 242 L410.5 363 L401.6 396 L386.6 422 L376 432.6 L364 440.2 L348 445.5 L336 445.5 L305 433.8 L297 433.6 L286 436.8 L267 447.2 L248 450.2 L234 447.5 L213 436.6 L203 434.2 L171 445.5 L155 445.5 L142 441.2 L130.2 434 L117.7 422 L108.2 408 L96.5 377 L66.8 243 L59.8 185 L61.8 150 L72.5 112 L81.8 93 L92.4 78 L105.7 65 L123 53.5 L144 45.5 Z",
+};
+
+/*
+ * Les positions sont exprimées dans un canevas logique de 1000 × 1000.
+ *
+ * Ce sont uniquement ces valeurs qu’il faudra ajuster :
+ * - x : horizontal ;
+ * - y : vertical ;
+ * - width : largeur ;
+ * - height : hauteur ;
+ * - rotation : inclinaison.
+ */
 const TEETH = [
-  // DENTS SUPÉRIEURES — CÔTÉ GAUCHE
+  // Supérieures gauches
 
   {
     id: "upperLeftSecondMolar",
     type: "secondMolar",
-    x: 187,
-    y: 360,
-    width: 113,
+    x: 199,
+    y: 366,
+    width: 120,
     height: 111,
-    rotation: "-16deg",
+    rotation: "-75deg",
     mirrored: false,
   },
   {
     id: "upperLeftFirstMolar",
     type: "firstMolar",
-    x: 214,
-    y: 265,
-    width: 108,
-    height: 105,
-    rotation: "-20deg",
+    x: 210,
+    y: 255,
+    width: 160,
+    height: 140,
+    rotation: "-70deg",
     mirrored: false,
   },
   {
     id: "upperLeftCanine",
     type: "canine",
-    x: 267,
-    y: 179,
-    width: 95,
-    height: 111,
-    rotation: "-23deg",
+    x: 260,
+    y: 168,
+    width: 150,
+    height: 150,
+    rotation: "-45deg",
     mirrored: false,
   },
   {
     id: "upperLeftLateralIncisor",
     type: "lateralIncisor",
-    x: 338,
+    x: 320,
     y: 121,
-    width: 91,
-    height: 105,
-    rotation: "-13deg",
+    width: 140,
+    height: 140,
+    rotation: "-18deg",
     mirrored: false,
   },
   {
     id: "upperLeftCentralIncisor",
     type: "centralIncisor",
-    x: 418,
-    y: 101,
-    width: 89,
-    height: 102,
+    x: 390,
+    y: 90,
+    width: 140,
+    height: 140,
     rotation: "-2deg",
     mirrored: false,
   },
 
-  // DENTS SUPÉRIEURES — CÔTÉ DROIT
+  // Supérieures droites
 
   {
     id: "upperRightCentralIncisor",
     type: "centralIncisor",
-    x: 503,
-    y: 101,
-    width: 89,
-    height: 102,
+    x: 470,
+    y: 90,
+    width: 140,
+    height: 140,
     rotation: "2deg",
     mirrored: true,
   },
   {
     id: "upperRightLateralIncisor",
     type: "lateralIncisor",
-    x: 581,
+    x: 545,
     y: 121,
-    width: 91,
-    height: 105,
-    rotation: "13deg",
+    width: 140,
+    height: 140,
+    rotation: "18deg",
     mirrored: true,
   },
   {
     id: "upperRightCanine",
     type: "canine",
-    x: 647,
-    y: 179,
-    width: 95,
-    height: 111,
-    rotation: "23deg",
+    x: 590,
+    y: 165,
+    width: 150,
+    height: 150,
+    rotation: "45deg",
     mirrored: true,
   },
   {
     id: "upperRightFirstMolar",
     type: "firstMolar",
-    x: 690,
-    y: 265,
-    width: 108,
-    height: 105,
-    rotation: "20deg",
+    x: 637,
+    y: 250,
+    width: 160,
+    height: 140,
+    rotation: "70deg",
     mirrored: true,
   },
   {
     id: "upperRightSecondMolar",
     type: "secondMolar",
-    x: 713,
-    y: 360,
-    width: 113,
+    x: 685,
+    y: 370,
+    width: 120,
     height: 111,
-    rotation: "16deg",
+    rotation: "75deg",
     mirrored: true,
   },
 
-  // DENTS INFÉRIEURES — CÔTÉ GAUCHE
+  // Inférieures gauches
 
   {
     id: "lowerLeftSecondMolar",
     type: "secondMolar",
-    x: 195,
-    y: 570,
-    width: 112,
-    height: 112,
-    rotation: "9deg",
+    x: 200,
+    y: 565,
+    width: 120,
+    height: 111,
+    rotation: "-100deg",
     mirrored: false,
   },
   {
     id: "lowerLeftFirstMolar",
     type: "firstMolar",
-    x: 226,
-    y: 663,
-    width: 106,
-    height: 108,
-    rotation: "18deg",
+    x: 215,
+    y: 650,
+    width: 160,
+    height: 140,
+    rotation: "-120deg",
     mirrored: false,
   },
   {
     id: "lowerLeftCanine",
     type: "canine",
-    x: 287,
-    y: 742,
-    width: 91,
-    height: 107,
-    rotation: "24deg",
+    x: 285,
+    y: 705,
+    width: 150,
+    height: 150,
+    rotation: "-130deg",
     mirrored: false,
   },
   {
     id: "lowerLeftLateralIncisor",
     type: "lateralIncisor",
-    x: 357,
-    y: 790,
-    width: 84,
-    height: 103,
-    rotation: "13deg",
+    x: 330,
+    y: 760,
+    width: 140,
+    height: 140,
+    rotation: "-150deg",
     mirrored: false,
   },
   {
     id: "lowerLeftCentralIncisor",
     type: "centralIncisor",
-    x: 424,
-    y: 808,
-    width: 78,
-    height: 99,
-    rotation: "2deg",
+    x: 395,
+    y: 780,
+    width: 135,
+    height: 135,
+    rotation: "184deg",
     mirrored: false,
   },
 
-  // DENTS INFÉRIEURES — CÔTÉ DROIT
+  // Inférieures droites
 
   {
     id: "lowerRightCentralIncisor",
     type: "centralIncisor",
-    x: 502,
-    y: 808,
-    width: 78,
-    height: 99,
-    rotation: "-2deg",
+    x: 470,
+    y: 780,
+    width: 135,
+    height: 135,
+    rotation: "-184deg",
     mirrored: true,
   },
   {
     id: "lowerRightLateralIncisor",
     type: "lateralIncisor",
-    x: 563,
-    y: 790,
-    width: 84,
-    height: 103,
-    rotation: "-13deg",
+    x: 525,
+    y: 760,
+    width: 140,
+    height: 140,
+    rotation: "160deg",
     mirrored: true,
   },
   {
     id: "lowerRightCanine",
     type: "canine",
-    x: 626,
-    y: 742,
-    width: 91,
-    height: 107,
-    rotation: "-24deg",
+    x: 565,
+    y: 705,
+    width: 150,
+    height: 150,
+    rotation: "130deg",
     mirrored: true,
   },
   {
     id: "lowerRightFirstMolar",
     type: "firstMolar",
-    x: 676,
-    y: 663,
-    width: 106,
-    height: 108,
-    rotation: "-18deg",
+    x: 630,
+    y: 650,
+    width: 160,
+    height: 140,
+    rotation: "120deg",
     mirrored: true,
   },
   {
     id: "lowerRightSecondMolar",
     type: "secondMolar",
-    x: 703,
-    y: 570,
-    width: 112,
-    height: 112,
-    rotation: "-9deg",
+    x: 675,
+    y: 565,
+    width: 120,
+    height: 111,
+    rotation: "100deg",
     mirrored: true,
   },
 ];
 
-/*
- * Ces chemins servent uniquement à créer le contour coloré de sélection.
- * Chaque chemin est dessiné dans un viewBox 100 × 120.
- */
-const TOOTH_OUTLINE_PATHS = {
-  centralIncisor:
-    "M18 8 Q50 1 82 8 Q91 12 89 35 L84 88 Q81 109 50 114 Q19 109 16 88 L11 35 Q9 12 18 8 Z",
-
-  lateralIncisor:
-    "M24 7 Q51 1 77 10 Q86 17 83 39 L78 88 Q75 108 51 114 Q26 109 22 88 L16 39 Q13 16 24 7 Z",
-
-  canine:
-    "M25 8 Q51 1 75 10 Q84 18 80 42 Q76 73 68 92 Q60 107 50 115 Q39 106 31 92 Q23 73 19 42 Q16 18 25 8 Z",
-
-  firstMolar:
-    "M13 16 Q24 4 40 10 Q50 3 61 10 Q76 3 87 16 Q93 25 89 49 L85 88 Q82 104 68 109 Q58 115 49 108 Q38 115 28 109 Q15 104 12 88 L8 49 Q5 25 13 16 Z",
-
-  secondMolar:
-    "M10 16 Q22 3 37 10 Q49 2 61 10 Q76 2 90 16 Q96 26 92 51 L89 87 Q86 103 74 109 Q64 115 52 109 Q42 116 31 109 Q16 104 12 87 L8 51 Q4 26 10 16 Z",
-};
-
-function ToothSlot({
-  tooth,
-  scale,
-  isErupted,
-  isSelected,
-  selectedColor,
-  onPress,
-}) {
+function ToothSlot({ tooth, scale, isErupted, isSelected, selectedColor }) {
   const animatedScale = useRef(new Animated.Value(isErupted ? 1 : 0)).current;
 
   const animatedOpacity = useRef(new Animated.Value(isErupted ? 1 : 0)).current;
@@ -310,6 +332,7 @@ function ToothSlot({
 
   useEffect(() => {
     if (isErupted) {
+      setRenderSelectedTooth(false);
       animatedScale.setValue(1);
       animatedOpacity.setValue(1);
       return;
@@ -321,14 +344,14 @@ function ToothSlot({
       animatedScale.stopAnimation();
       animatedOpacity.stopAnimation();
 
-      animatedScale.setValue(0.72);
+      animatedScale.setValue(0.74);
       animatedOpacity.setValue(0);
 
       Animated.parallel([
         Animated.spring(animatedScale, {
           toValue: 1,
-          damping: 11,
-          stiffness: 220,
+          damping: 12,
+          stiffness: 230,
           mass: 0.7,
           useNativeDriver: true,
         }),
@@ -345,9 +368,12 @@ function ToothSlot({
     }
 
     if (renderSelectedTooth) {
+      animatedScale.stopAnimation();
+      animatedOpacity.stopAnimation();
+
       Animated.parallel([
         Animated.timing(animatedScale, {
-          toValue: 0.72,
+          toValue: 0.74,
           duration: 140,
           easing: Easing.in(Easing.ease),
           useNativeDriver: true,
@@ -366,29 +392,25 @@ function ToothSlot({
       });
     }
   }, [
-    isSelected,
-    isErupted,
-    renderSelectedTooth,
     animatedOpacity,
     animatedScale,
+    isErupted,
+    isSelected,
+    renderSelectedTooth,
   ]);
 
   const shouldRenderTooth = isErupted || renderSelectedTooth;
+
+  if (!shouldRenderTooth) {
+    return null;
+  }
 
   const width = tooth.width * scale;
   const height = tooth.height * scale;
 
   return (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityLabel={tooth.id}
-      accessibilityState={{
-        checked: isErupted || isSelected,
-        disabled: isErupted,
-      }}
-      disabled={isErupted}
-      hitSlop={6}
-      onPress={() => onPress(tooth.id)}
+    <View
+      pointerEvents="none"
       style={{
         position: "absolute",
         left: tooth.x * scale,
@@ -399,62 +421,115 @@ function ToothSlot({
         zIndex: isSelected ? 5 : isErupted ? 3 : 2,
       }}
     >
-      {shouldRenderTooth && (
-        <Animated.View
-          style={{
-            width: "100%",
-            height: "100%",
+      <Animated.View
+        style={[
+          styles.animatedTooth,
+          {
             opacity: animatedOpacity,
             transform: [{ scale: animatedScale }],
-          }}
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.toothVisual,
+            tooth.mirrored && styles.toothVisualMirrored,
+          ]}
         >
           <Image
             source={TOOTH_ILLUSTRATIONS[tooth.type]}
             resizeMode="contain"
-            style={[styles.toothImage, tooth.mirrored && styles.mirroredTooth]}
+            style={styles.toothImage}
           />
 
-          {renderSelectedTooth && !isErupted && (
-            <>
-              <Svg
-                pointerEvents="none"
-                viewBox="0 0 100 120"
-                preserveAspectRatio="none"
-                style={StyleSheet.absoluteFill}
-              >
-                <Path
-                  d={TOOTH_OUTLINE_PATHS[tooth.type]}
-                  fill="transparent"
-                  stroke={selectedColor}
-                  strokeWidth={3}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              </Svg>
-
-              <View
-                style={[
-                  styles.checkBadge,
-                  {
-                    width: Math.max(19, 23 * scale),
-                    height: Math.max(19, 23 * scale),
-                    borderRadius: Math.max(10, 12 * scale),
-                    backgroundColor: selectedColor,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="checkmark"
-                  size={Math.max(12, 14 * scale)}
-                  color="#FFFFFF"
-                />
-              </View>
-            </>
-          )}
-        </Animated.View>
-      )}
-    </Pressable>
+          {renderSelectedTooth && !isErupted ? (
+            <Svg
+              pointerEvents="none"
+              viewBox="0 0 500 500"
+              preserveAspectRatio="xMidYMid meet"
+              style={StyleSheet.absoluteFillObject}
+            >
+              <Path
+                d={TOOTH_OUTLINE_PATHS[tooth.type]}
+                fill="none"
+                stroke={selectedColor}
+                strokeWidth={7}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </Svg>
+          ) : null}
+        </View>
+      </Animated.View>
+    </View>
   );
+}
+
+function findClosestTooth({ locationX, locationY, scale }) {
+  let closestTooth = null;
+  let closestScore = Number.POSITIVE_INFINITY;
+
+  TEETH.forEach((tooth) => {
+    const bounds = TOOTH_ALPHA_BOUNDS[tooth.type];
+
+    /*
+     * Centre réel de la matière visible à l’intérieur du PNG.
+     */
+    const centerX =
+      (tooth.x +
+        tooth.width * ((bounds.x + bounds.width / 2) / TOOTH_ASSET_SIZE)) *
+      scale;
+
+    const centerY =
+      (tooth.y +
+        tooth.height * ((bounds.y + bounds.height / 2) / TOOTH_ASSET_SIZE)) *
+      scale;
+
+    /*
+     * Dimensions visibles de la dent à l’écran.
+     */
+    const visibleWidth =
+      tooth.width * (bounds.width / TOOTH_ASSET_SIZE) * scale;
+
+    const visibleHeight =
+      tooth.height * (bounds.height / TOOTH_ASSET_SIZE) * scale;
+
+    /*
+     * Zone tactile minimale d’environ 40 px.
+     * Les zones peuvent se croiser, mais ce n’est plus un problème :
+     * la dent mathématiquement la plus proche sera retenue.
+     */
+    const radiusX = Math.max(20, visibleWidth / 2 + 9);
+
+    const radiusY = Math.max(20, visibleHeight / 2 + 9);
+
+    const distanceX = locationX - centerX;
+    const distanceY = locationY - centerY;
+
+    /*
+     * Distance elliptique normalisée.
+     * Une valeur inférieure à 1 signifie que le toucher est
+     * à l’intérieur de la zone estimée de la dent.
+     */
+    const score =
+      (distanceX * distanceX) / (radiusX * radiusX) +
+      (distanceY * distanceY) / (radiusY * radiusY);
+
+    if (score < closestScore) {
+      closestScore = score;
+      closestTooth = tooth;
+    }
+  });
+
+  /*
+   * Évite qu’un toucher au centre de la langue sélectionne une dent.
+   * 1.35 permet une légère tolérance autour de chaque illustration.
+   */
+  if (closestScore > 1.35) {
+    return null;
+  }
+
+  return closestTooth;
 }
 
 function ResponsiveTeethingMouth({
@@ -463,43 +538,70 @@ function ResponsiveTeethingMouth({
   onToggleTooth,
   selectedColor,
 }) {
-  const [canvasSize, setCanvasSize] = useState(0);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const scale = canvasSize > 0 ? canvasSize / BASE_CANVAS_SIZE : 0;
+  const canvasSize = Math.round(
+    Math.min(screenWidth * 1.05, screenHeight * 1.0, 450),
+  );
+
+  const scale = canvasSize / BASE_CANVAS_SIZE;
+
+  const handleMouthPress = useCallback(
+    (event) => {
+      const { locationX, locationY } = event.nativeEvent;
+
+      const touchedTooth = findClosestTooth({
+        locationX,
+        locationY,
+        scale,
+      });
+
+      if (!touchedTooth) {
+        return;
+      }
+
+      onToggleTooth(touchedTooth.id);
+    },
+    [onToggleTooth, scale],
+  );
 
   return (
-    <View
-      onLayout={(event) => {
-        const nextWidth = event.nativeEvent.layout.width;
-
-        setCanvasSize((currentWidth) =>
-          Math.abs(currentWidth - nextWidth) > 1 ? nextWidth : currentWidth,
-        );
-      }}
-      style={styles.mouthCanvas}
+    <Pressable
+      accessibilityRole="group"
+      accessibilityLabel="Select a tooth"
+      onPress={handleMouthPress}
+      style={[
+        styles.mouthCanvas,
+        {
+          width: canvasSize,
+          height: canvasSize,
+        },
+      ]}
     >
-      {canvasSize > 0 && (
-        <>
-          <Image
-            source={mouthBackground}
-            resizeMode="contain"
-            style={StyleSheet.absoluteFill}
-          />
+      <Image
+        pointerEvents="none"
+        source={mouthBackground}
+        resizeMode="contain"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: canvasSize,
+          height: canvasSize,
+        }}
+      />
 
-          {TEETH.map((tooth) => (
-            <ToothSlot
-              key={tooth.id}
-              tooth={tooth}
-              scale={scale}
-              isErupted={eruptedTeeth.includes(tooth.id)}
-              isSelected={selectedTeeth.includes(tooth.id)}
-              selectedColor={selectedColor}
-              onPress={onToggleTooth}
-            />
-          ))}
-        </>
-      )}
-    </View>
+      {TEETH.map((tooth) => (
+        <ToothSlot
+          key={tooth.id}
+          tooth={tooth}
+          scale={scale}
+          isErupted={eruptedTeeth.includes(tooth.id)}
+          isSelected={selectedTeeth.includes(tooth.id)}
+          selectedColor={selectedColor}
+        />
+      ))}
+    </Pressable>
   );
 }
 
@@ -530,6 +632,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
     setIsTeethingDateToday(true);
     setNote("");
   }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -598,7 +701,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
     });
 
     modalRef.current?.dismiss();
-  }, [canSave, selectedTeeth, teethingDate, note, onSave]);
+  }, [canSave, note, onSave, selectedTeeth, teethingDate]);
 
   return (
     <>
@@ -632,12 +735,14 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
             >
-              <ResponsiveTeethingMouth
-                eruptedTeeth={eruptedTeeth}
-                selectedTeeth={selectedTeeth}
-                onToggleTooth={handleToggleTooth}
-                selectedColor={colors.primary}
-              />
+              <View style={dynamicStyles.mouthSection}>
+                <ResponsiveTeethingMouth
+                  eruptedTeeth={eruptedTeeth}
+                  selectedTeeth={selectedTeeth}
+                  onToggleTooth={handleToggleTooth}
+                  selectedColor={colors.primary}
+                />
+              </View>
 
               <View style={dynamicStyles.fields}>
                 <DateTimeRow
@@ -722,30 +827,27 @@ export default TeethingEntrySheet;
 const styles = StyleSheet.create({
   mouthCanvas: {
     position: "relative",
-    width: MOUTH_LAYOUT.widthPercent,
-    maxWidth: MOUTH_LAYOUT.maxWidth,
-    aspectRatio: 1,
     alignSelf: "center",
-    marginTop: MOUTH_LAYOUT.marginTop,
-    marginBottom: MOUTH_LAYOUT.marginBottom,
+    overflow: "visible",
   },
-  toothImage: {
+
+  animatedTooth: {
     width: "100%",
     height: "100%",
   },
 
-  mirroredTooth: {
+  toothVisual: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  toothVisualMirrored: {
     transform: [{ scaleX: -1 }],
   },
 
-  checkBadge: {
-    position: "absolute",
-    right: -4,
-    bottom: -4,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
+  toothImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
 });
 
@@ -808,9 +910,17 @@ function createDynamicStyles(colors) {
       paddingBottom: 24,
     },
 
+    mouthSection: {
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingTop: 4,
+      paddingBottom: 18,
+    },
+
     fields: {
+      width: "100%",
       gap: 12,
-      marginTop: 4,
     },
 
     noteRow: {

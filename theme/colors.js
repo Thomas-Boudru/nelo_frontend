@@ -15,6 +15,7 @@ export const colorThemes = {
     primary: "#4E83F7",
     primaryPressed: "#3F72E5",
     primaryDisabled: "#C9D7F5",
+    primarySoft: "#DCE8FF",
 
     textPrimary: "#092B56",
     textSecondary: "#637396",
@@ -30,6 +31,7 @@ export const colorThemes = {
     primary: "#F05C9A",
     primaryPressed: "#DB4D88",
     primaryDisabled: "#F5C8DA",
+    primarySoft: "#FCE2ED",
 
     textPrimary: "#2E2540",
     textSecondary: "#756A80",
@@ -48,6 +50,7 @@ export const colorThemes = {
     primary: "#4FB982",
     primaryPressed: "#3CA371",
     primaryDisabled: "#BFE5D2",
+    primarySoft: "#DDF2E7",
 
     textPrimary: "#123E32",
     textSecondary: "#617E75",

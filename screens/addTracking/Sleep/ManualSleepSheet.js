@@ -6,14 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -25,13 +18,66 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+import NoteSheet from "../Feeding/NoteSheet.js";
 
-const MAX_NOTE_LENGTH = 300;
+function getSleepTypeFromEntry(entry) {
+  const storedType =
+    entry?.sleepType ??
+    entry?.details?.sleepType ??
+    entry?.sleepKind ??
+    entry?.details?.sleepKind;
 
-const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
+  if (storedType === "nap" || storedType === "night") {
+    return storedType;
+  }
+
+  /*
+   * Compatibilité avec les anciennes entrées qui
+   * utilisaient directement type: "nap" ou "night".
+   */
+  if (entry?.type === "nap" || entry?.type === "night") {
+    return entry.type;
+  }
+
+  return "nap";
+}
+
+function createManualSleepFromTrackingEntry(entry) {
+  const sleepType = getSleepTypeFromEntry(entry);
+
+  const parsedStartedAt = new Date(
+    entry?.startedAt ?? entry?.details?.startedAt ?? Date.now(),
+  );
+
+  const parsedEndedAt = new Date(
+    entry?.endedAt ?? entry?.details?.endedAt ?? Date.now(),
+  );
+
+  const startedAt = Number.isNaN(parsedStartedAt.getTime())
+    ? createDefaultDates(sleepType).startedAt
+    : parsedStartedAt;
+
+  const endedAt = Number.isNaN(parsedEndedAt.getTime())
+    ? createDefaultDates(sleepType).endedAt
+    : parsedEndedAt;
+
+  return {
+    sleepType,
+    startedAt,
+    endedAt,
+
+    note: entry?.note ?? entry?.details?.note ?? "",
+  };
+}
+
+const ManualSleepSheet = forwardRef(function ManualSleepSheet(
+  { onSave, onRequestDelete },
+  ref,
+) {
   const { t } = useTranslation();
 
   const modalRef = useRef(null);
+  const noteSheetRef = useRef(null);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -48,31 +94,85 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
     () => createDefaultDates("nap").startedAt,
   );
 
+  const handleOpenNote = () => {
+    noteSheetRef.current?.present(note);
+  };
   const [endedAt, setEndedAt] = useState(
     () => createDefaultDates("nap").endedAt,
   );
 
   const [note, setNote] = useState("");
 
-  /*
-   * pickerTarget : "start" | "end"
-   * pickerMode   : "date" | "time"
-   */
+  const [sheetMode, setSheetMode] = useState("create");
+
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
+
   const [pickerTarget, setPickerTarget] = useState(null);
   const [pickerMode, setPickerMode] = useState("date");
 
   useImperativeHandle(ref, () => ({
-    present(initialSleepType = "nap") {
+    present(options = {}) {
+      /*
+       * Compatibilité avec l’ancien appel :
+       * present("nap")
+       * present("night")
+       */
+      if (typeof options === "string") {
+        const safeType = options === "night" ? "night" : "nap";
+
+        const defaultDates = createDefaultDates(safeType);
+
+        setSheetMode("create");
+        setEditingEntry(null);
+
+        setSleepType(safeType);
+        setStartedAt(defaultDates.startedAt);
+        setEndedAt(defaultDates.endedAt);
+        setNote("");
+
+        setPickerTarget(null);
+        setPickerMode("date");
+
+        modalRef.current?.present();
+        return;
+      }
+
+      const {
+        mode = "create",
+        sleepType: initialSleepType = "nap",
+        entry = null,
+      } = options;
+
+      setSheetMode(mode);
+      setPickerTarget(null);
+      setPickerMode("date");
+
+      if (mode === "edit" && entry) {
+        const existingSleep = createManualSleepFromTrackingEntry(entry);
+
+        setEditingEntry(entry);
+
+        setSleepType(existingSleep.sleepType);
+        setStartedAt(existingSleep.startedAt);
+        setEndedAt(existingSleep.endedAt);
+        setNote(existingSleep.note);
+
+        modalRef.current?.present();
+        return;
+      }
+
       const safeType = initialSleepType === "night" ? "night" : "nap";
 
       const defaultDates = createDefaultDates(safeType);
+
+      setEditingEntry(null);
 
       setSleepType(safeType);
       setStartedAt(defaultDates.startedAt);
       setEndedAt(defaultDates.endedAt);
       setNote("");
-      setPickerTarget(null);
-      setPickerMode("date");
 
       modalRef.current?.present();
     },
@@ -134,9 +234,18 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
       return;
     }
 
+    setSleepType(nextType);
+
+    /*
+     * En édition, changer Nap/Night ne doit pas
+     * effacer les heures enregistrées.
+     */
+    if (isEditMode) {
+      return;
+    }
+
     const defaultDates = createDefaultDates(nextType);
 
-    setSleepType(nextType);
     setStartedAt(defaultDates.startedAt);
     setEndedAt(defaultDates.endedAt);
     setPickerTarget(null);
@@ -173,21 +282,45 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
     handleClosePicker();
   };
 
-  const handleSave = () => {
+  const handleRequestDelete = () => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  };
+
+  const handleSave = async () => {
     if (!canSave) {
       return;
     }
 
     const sleep = {
+      ...editingEntry,
+
+      id: editingEntry?.id,
+
+      /*
+       * On conserve le contrat actuel de tes formulaires :
+       * type contient nap ou night.
+       * sleepType est aussi ajouté explicitement pour que
+       * la timeline puisse le retrouver sans ambiguïté.
+       */
       type: sleepType,
+      sleepType,
+
       startedAt,
       endedAt,
       durationSeconds,
+
       note: note.trim(),
-      entryMode: "manual",
+
+      entryMode: editingEntry?.entryMode ?? "manual",
+
+      mode: sheetMode,
     };
 
-    onSave?.(sleep);
+    await onSave?.(sleep);
 
     setPickerTarget(null);
     modalRef.current?.dismiss();
@@ -219,10 +352,14 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
           >
             <View style={styles.header}>
               <View style={styles.headerText}>
-                <Text style={styles.title}>{t("Add sleep manually")}</Text>
+                <Text style={styles.title}>
+                  {isEditMode ? t("Edit sleep") : t("Add sleep manually")}
+                </Text>
 
                 <Text style={styles.subtitle}>
-                  {t("Enter when the sleep started and ended")}
+                  {isEditMode
+                    ? t("Update the sleep period and details")
+                    : t("Enter when the sleep started and ended")}
                 </Text>
               </View>
             </View>
@@ -311,52 +448,84 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet({ onSave }, ref) {
               </View>
             ) : null}
 
-            <View style={styles.noteSection}>
-              <View style={styles.noteHeader}>
-                <Text style={styles.sectionLabel}>{t("Note")}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={note ? t("Edit note") : t("Add a note")}
+              onPress={handleOpenNote}
+              style={({ pressed }) => [
+                styles.noteButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.noteIconContainer}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={20}
+                  color={colors.primary}
+                />
+              </View>
+
+              <View style={styles.noteButtonContent}>
+                <Text style={styles.noteButtonTitle}>{t("Note")}</Text>
 
                 <Text
+                  numberOfLines={1}
                   style={[
-                    styles.noteCounter,
-                    note.length >= MAX_NOTE_LENGTH && styles.noteCounterLimit,
+                    styles.noteButtonDescription,
+                    note && styles.noteButtonDescriptionAdded,
                   ]}
                 >
-                  {note.length}/{MAX_NOTE_LENGTH}
+                  {note ? note : t("Add an optional note")}
                 </Text>
               </View>
 
-              <View style={styles.noteInputContainer}>
-                <Ionicons
-                  name="document-text-outline"
-                  size={19}
-                  color={colors.textSecondary}
-                  style={styles.noteIcon}
-                />
-
-                <TextInput
-                  value={note}
-                  onChangeText={setNote}
-                  placeholder={t("Add an optional note")}
-                  placeholderTextColor={`${colors.textSecondary}90`}
-                  multiline
-                  maxLength={MAX_NOTE_LENGTH}
-                  textAlignVertical="top"
-                  returnKeyType="default"
-                  style={styles.noteInput}
-                />
-              </View>
-            </View>
+              <Ionicons
+                name="chevron-forward"
+                size={19}
+                color={colors.textSecondary}
+              />
+            </Pressable>
           </BottomSheetScrollView>
 
           <View style={styles.footer}>
-            <PrimaryButton
-              title={t("Save sleep")}
-              disabled={!canSave}
-              onPress={handleSave}
-            />
+            {isEditMode ? (
+              <View style={styles.editFooterRow}>
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                  />
+                </View>
+
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    disabled={!canSave}
+                    onPress={handleSave}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={t("Save sleep")}
+                disabled={!canSave}
+                onPress={handleSave}
+              />
+            )}
           </View>
         </View>
       </BottomSheetModal>
+
+      <NoteSheet
+        ref={noteSheetRef}
+        title="Sleep note"
+        description="Add an optional detail about this sleep"
+        placeholder="For example, wake-ups, restlessness or unusual sleep"
+        onSave={(savedNote) => {
+          setNote(savedNote);
+        }}
+      />
 
       <DateTimePickerModal
         isVisible={pickerTarget !== null}
@@ -631,6 +800,20 @@ function createStyles(colors) {
       marginBottom: 18,
     },
 
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
+    },
+
     headerText: {
       flex: 1,
     },
@@ -860,54 +1043,6 @@ function createStyles(colors) {
       color: colors.error,
     },
 
-    noteSection: {
-      marginTop: 15,
-    },
-
-    noteHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-
-    noteCounter: {
-      marginBottom: 9,
-      fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 11,
-      color: colors.textSecondary,
-    },
-
-    noteCounterLimit: {
-      color: colors.error,
-    },
-
-    noteInputContainer: {
-      minHeight: 96,
-      flexDirection: "row",
-      alignItems: "flex-start",
-      paddingHorizontal: 13,
-      paddingVertical: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 16,
-      backgroundColor: colors.white,
-    },
-
-    noteIcon: {
-      marginTop: 1,
-      marginRight: 9,
-    },
-
-    noteInput: {
-      flex: 1,
-      minHeight: 70,
-      padding: 0,
-      fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 13,
-      lineHeight: 19,
-      color: colors.textPrimary,
-    },
-
     footer: {
       paddingHorizontal: 20,
       paddingTop: 12,
@@ -920,6 +1055,64 @@ function createStyles(colors) {
     pressed: {
       opacity: 0.68,
       transform: [{ scale: 0.98 }],
+    },
+
+    noteButton: {
+      minHeight: 64,
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 11,
+
+      marginTop: 16,
+      paddingHorizontal: 13,
+      paddingVertical: 10,
+
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 18,
+
+      backgroundColor: colors.white,
+    },
+
+    noteIconContainer: {
+      width: 38,
+      height: 38,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      borderRadius: 13,
+
+      backgroundColor: `${colors.primary}12`,
+    },
+
+    noteButtonContent: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    noteButtonTitle: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      lineHeight: 18,
+
+      color: colors.textPrimary,
+    },
+
+    noteButtonDescription: {
+      marginTop: 2,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      lineHeight: 16,
+
+      color: colors.textSecondary,
+    },
+
+    noteButtonDescriptionAdded: {
+      color: colors.textPrimary,
     },
   });
 }

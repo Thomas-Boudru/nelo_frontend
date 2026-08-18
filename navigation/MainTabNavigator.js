@@ -15,10 +15,13 @@ import FeedingEntrySheet from "../screens/addTracking/Feeding/FeedingEntrySheet.
 import SleepEntrySheet from "../screens/addTracking/Sleep/SleepEntrySheet.js";
 import DiaperEntrySheet from "../screens/addTracking/Diaper/DiaperEntrySheet.js";
 import MoodEntrySheet from "../screens/addTracking/Mood/MoodEntrySheet.js";
-import MedicationEntrySheet from "../screens/addTracking/medication/MedicationEntrySheet.js";
+import MedicationEntrySheet from "../screens/addTracking/Medication/MedicationEntrySheet.js";
 import TemperatureEntrySheet from "../screens/addTracking/Temperature/TemperatureEntrySheet.js";
 import SymptomsEntrySheet from "../screens/addTracking/Symptoms/SymptomsEntrySheet.js";
 import TeethingEntrySheet from "../components/addTracking/teething/teethingEntrySheet.js";
+import GrowthEntrySheet from "../screens/addTracking/Measurement/GrowthEntrySheet.js";
+import NoteEntrySheet from "../screens/addTracking/Note/NoteEntrySheet.js";
+import ConfirmActionSheet from "../screens/ConfirmActionSheet.js";
 
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
@@ -91,6 +94,9 @@ export default function MainTabNavigator() {
   const toastTimeoutRef = useRef(null);
   const symptomsEntrySheetRef = useRef(null);
   const teethingSheetRef = useRef(null);
+  const growthEntrySheetRef = useRef(null);
+  const noteEntrySheetRef = useRef(null);
+  const confirmationSheetRef = useRef(null);
 
   const [toast, setToast] = useState({
     visible: false,
@@ -163,7 +169,10 @@ export default function MainTabNavigator() {
 
     if (itemId === "feeding") {
       setTimeout(() => {
-        feedingSheetRef.current?.present("bottle");
+        feedingSheetRef.current?.present({
+          mode: "create",
+          feedingType: "bottle",
+        });
       }, 220);
 
       return;
@@ -224,6 +233,21 @@ export default function MainTabNavigator() {
 
       return;
     }
+    if (itemId === "growth") {
+      setTimeout(() => {
+        growthEntrySheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
+
+    if (itemId === "note") {
+      setTimeout(() => {
+        noteEntrySheetRef.current?.present();
+      }, 220);
+
+      return;
+    }
   };
 
   useEffect(() => {
@@ -233,6 +257,112 @@ export default function MainTabNavigator() {
       }
     };
   }, []);
+
+  const handleEditTrackingEntry = useCallback((entry) => {
+    if (!entry) {
+      return;
+    }
+
+    const feedingTypes = ["bottle", "breastfeeding", "solids", "pumping"];
+
+    if (feedingTypes.includes(entry.type)) {
+      feedingSheetRef.current?.present({
+        mode: "edit",
+        feedingType: entry.type,
+        entry,
+      });
+
+      return;
+    }
+
+    const diaperTypes = ["diaper", "potty"];
+
+    if (diaperTypes.includes(entry.type)) {
+      diaperSheetRef.current?.present({
+        mode: "edit",
+        diaperType: entry.type,
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "mood") {
+      moodSheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    if (
+      entry.type === "sleep" ||
+      entry.type === "nap" ||
+      entry.type === "night"
+    ) {
+      sleepSheetRef.current?.presentManual({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    console.log(
+      "L’édition de ce type n’est pas encore disponible :",
+      entry.type,
+    );
+  }, []);
+
+  const handleRequestDeleteTrackingEntry = useCallback(
+    (entry) => {
+      if (!entry?.id) {
+        return;
+      }
+
+      confirmationSheetRef.current?.present({
+        title: t("Delete this entry?"),
+
+        description: t("This bottle entry will be permanently deleted."),
+
+        confirmLabel: t("Delete entry"),
+        cancelLabel: t("Cancel"),
+
+        onConfirm: async () => {
+          /*
+           * Plus tard :
+           * await deleteTrackingEntry(entry.id);
+           */
+
+          console.log("Entrée supprimée :", entry.id);
+
+          const diaperTypes = ["diaper", "potty"];
+
+          if (
+            entry.type === "sleep" ||
+            entry.type === "nap" ||
+            entry.type === "night"
+          ) {
+            sleepSheetRef.current?.dismissManual();
+          } else if (entry.type === "mood") {
+            moodSheetRef.current?.dismiss();
+          } else if (entry.type === "diaper" || entry.type === "potty") {
+            diaperSheetRef.current?.dismiss();
+          } else {
+            feedingSheetRef.current?.dismiss();
+          }
+
+          showToast({
+            type: "success",
+            title: t("Entry deleted"),
+            message: t("The entry was deleted successfully."),
+          });
+        },
+      });
+    },
+    [showToast, t],
+  );
 
   return (
     <>
@@ -269,7 +399,6 @@ export default function MainTabNavigator() {
 
         <Tab.Screen
           name="Tracking"
-          component={TrackingScreen}
           options={{
             tabBarLabel: t("Tracking"),
 
@@ -280,7 +409,14 @@ export default function MainTabNavigator() {
               />
             ),
           }}
-        />
+        >
+          {(screenProps) => (
+            <TrackingScreen
+              {...screenProps}
+              onEditTrackingEntry={handleEditTrackingEntry}
+            />
+          )}
+        </Tab.Screen>
 
         <Tab.Screen
           name="Add"
@@ -351,7 +487,11 @@ export default function MainTabNavigator() {
         onPressTrackingItem={handlePressTrackingItem}
       />
 
-      <FeedingEntrySheet ref={feedingSheetRef} childName={childName} />
+      <FeedingEntrySheet
+        ref={feedingSheetRef}
+        childName={childName}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
+      />
 
       <SleepEntrySheet
         ref={sleepSheetRef}
@@ -361,6 +501,7 @@ export default function MainTabNavigator() {
           startedAt: "2026-08-08T20:42:00",
           endedAt: "2026-08-09T06:51:00",
         }}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onStartSleep={async (sleep) => {
           console.log("Sommeil commencé :", sleep);
 
@@ -401,36 +542,39 @@ export default function MainTabNavigator() {
       <DiaperEntrySheet
         ref={diaperSheetRef}
         childName={childName}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSaveDiaper={async (diaper) => {
           console.log("Couche enregistrée :", diaper);
 
-          /*
-           * Plus tard :
-           * await saveDiaper(diaper);
-           */
-
           showToast({
             type: "success",
-            title: t("Diaper saved"),
-            message: t("Child's diaper change was saved successfully", {
-              childName,
-            }),
+            title:
+              diaper.mode === "edit" ? t("Diaper updated") : t("Diaper saved"),
+            message:
+              diaper.mode === "edit"
+                ? t("Child's diaper change was updated successfully", {
+                    childName,
+                  })
+                : t("Child's diaper change was saved successfully", {
+                    childName,
+                  }),
           });
         }}
         onSavePotty={async (potty) => {
           console.log("Passage au pot enregistré :", potty);
 
-          /*
-           * Plus tard :
-           * await savePotty(potty);
-           */
-
           showToast({
             type: "success",
-            title: t("Potty time saved"),
-            message: t("Child's potty time was saved successfully", {
-              childName,
-            }),
+            title:
+              potty.mode === "edit"
+                ? t("Potty time updated")
+                : t("Potty time saved"),
+            message:
+              potty.mode === "edit"
+                ? t("Child's potty time was updated successfully", {
+                    childName,
+                  })
+                : t("Child's potty time was saved successfully", { childName }),
           });
         }}
       />
@@ -438,24 +582,22 @@ export default function MainTabNavigator() {
       <MoodEntrySheet
         ref={moodSheetRef}
         childName={childName}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (mood) => {
           console.log("Humeur enregistrée :", mood);
 
-          /*
-           * Plus tard :
-           * await saveMood(mood);
-           */
-
           showToast({
             type: "success",
-            title: t("Mood saved"),
-            message: t("Child's mood was saved successfully", {
-              childName,
-            }),
+
+            title: mood.mode === "edit" ? t("Mood updated") : t("Mood saved"),
+
+            message:
+              mood.mode === "edit"
+                ? t("Child's mood was updated successfully", { childName })
+                : t("Child's mood was saved successfully", { childName }),
           });
         }}
       />
-
       <MedicationEntrySheet
         ref={medicationSheetRef}
         childName={childName}
@@ -558,6 +700,50 @@ export default function MainTabNavigator() {
           });
         }}
       />
+
+      <GrowthEntrySheet
+        ref={growthEntrySheetRef}
+        childName={childName}
+        previousMeasurements={{
+          weight: 5.18,
+          height: 57.2,
+          headCircumference: 38.7,
+        }}
+        onSave={async (growthEntry) => {
+          console.log("Croissance enregistrée :", growthEntry);
+
+          showToast({
+            type: "success",
+            title: t("Growth saved"),
+            message: t("Child's growth was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+
+      <NoteEntrySheet
+        ref={noteEntrySheetRef}
+        childName={childName}
+        onSave={async (noteEntry) => {
+          console.log("Note enregistrée :", noteEntry);
+
+          /*
+           * Plus tard :
+           * await saveNote(noteEntry);
+           */
+
+          showToast({
+            type: "success",
+            title: t("Note saved"),
+            message: t("Child's note was saved successfully", {
+              childName,
+            }),
+          });
+        }}
+      />
+
+      <ConfirmActionSheet ref={confirmationSheetRef} />
       <ToastMessage
         visible={toast.visible}
         type={toast.type}

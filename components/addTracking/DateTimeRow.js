@@ -229,7 +229,7 @@ const createStyles = (colors) =>
   StyleSheet.create({
     container: {
       alignItems: "center",
-      backgroundColor: colors.lightBlue,
+      backgroundColor: colors.white,
       borderColor: colors.border,
       borderRadius: 18,
       borderWidth: 1,

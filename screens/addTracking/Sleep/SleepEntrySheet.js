@@ -38,11 +38,12 @@ const MAX_NOTE_LENGTH = 300;
 const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   {
     childName,
-    lastSleep = null,
+    lastSleep,
     onStartSleep,
     onWakeUp,
     onAddManually,
     onSaveManualSleep,
+    onRequestDelete,
   },
   ref,
 ) {
@@ -50,6 +51,25 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
 
   const modalRef = useRef(null);
   const manualSleepSheetRef = useRef(null);
+
+  /*
+   * Appeler `dismiss()` sur une modale qui n’a jamais été présentée la laisse
+   * bloquée en statut « DISMISSING » côté librairie : son portail refuse alors
+   * de se rendre et plus aucun `present()` ne la rouvre.
+   *
+   * Le cas arrive avec l’édition depuis le suivi : on n’ouvre que la sheet
+   * manuelle, jamais celle-ci. On ne ferme donc que ce qui est réellement
+   * ouvert.
+   */
+  const isMainSheetPresentedRef = useRef(false);
+
+  const dismissMainSheet = useCallback(() => {
+    if (!isMainSheetPresentedRef.current) {
+      return;
+    }
+
+    modalRef.current?.dismiss();
+  }, []);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -100,14 +120,25 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
         setCurrentTime(Date.now());
       }
 
+      isMainSheetPresentedRef.current = true;
+
       modalRef.current?.present();
+    },
+
+    presentManual(options = {}) {
+      manualSleepSheetRef.current?.present(options);
     },
 
     dismiss() {
       setCompletedSleep(null);
       setWakeNote("");
       setView("main");
-      modalRef.current?.dismiss();
+
+      dismissMainSheet();
+    },
+
+    dismissManual() {
+      manualSleepSheetRef.current?.dismiss();
     },
 
     setActiveSleep(currentActiveSleep) {
@@ -128,9 +159,11 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   }));
 
   const handleOpenManualSleep = (type) => {
-    manualSleepSheetRef.current?.present(type);
+    manualSleepSheetRef.current?.present({
+      mode: "create",
+      sleepType: type,
+    });
   };
-
   const toggleSleepTag = (tag) => {
     setSleepTags((currentTags) =>
       currentTags.includes(tag)
@@ -143,10 +176,13 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     await onSaveManualSleep?.(sleep);
 
     manualSleepSheetRef.current?.dismiss();
-    modalRef.current?.dismiss();
+
+    dismissMainSheet();
   };
 
   const handleDismiss = () => {
+    isMainSheetPresentedRef.current = false;
+
     setCompletedSleep(null);
     setWakeNote("");
     setSleepTags([]);
@@ -178,7 +214,8 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
 
     setActiveSleep(sleep);
     setCurrentTime(Date.now());
-    modalRef.current?.dismiss();
+
+    dismissMainSheet();
   };
 
   const handleWakeUp = () => {
@@ -235,7 +272,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       setSleepTags([]);
       setView("main");
 
-      modalRef.current?.dismiss();
+      dismissMainSheet();
     } catch (error) {
       console.error("Unable to save sleep:", error);
 
@@ -338,6 +375,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       <ManualSleepSheet
         ref={manualSleepSheetRef}
         onSave={handleSaveManualSleep}
+        onRequestDelete={onRequestDelete}
       />
     </Fragment>
   );

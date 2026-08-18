@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
+
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const happyIllustration = require("../../../assets/illustrations/tracking/mood/happy.png");
@@ -63,29 +64,87 @@ const MOOD_OPTIONS = [
   },
 ];
 
-const createInitialEntry = () => ({
-  mood: null,
-  date: new Date(),
-  isDateEdited: false,
-});
+function createInitialEntry() {
+  return {
+    mood: null,
+    date: new Date(),
+    isDateEdited: false,
+  };
+}
+
+function createMoodEntryFromTrackingEntry(trackingEntry) {
+  const dateValue =
+    trackingEntry?.date ??
+    trackingEntry?.moodDate ??
+    trackingEntry?.occurredAt ??
+    trackingEntry?.startedAt;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasRecordedDate = !!parsedDate && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    mood:
+      trackingEntry?.mood ??
+      trackingEntry?.details?.mood ??
+      trackingEntry?.value ??
+      null,
+
+    date: hasRecordedDate ? parsedDate : new Date(),
+
+    isDateEdited: hasRecordedDate,
+  };
+}
 
 const MoodEntrySheet = forwardRef(function MoodEntrySheet(
-  { childName, onSave },
+  { childName, onSave, onRequestDelete },
   ref,
 ) {
   const { t } = useTranslation();
 
-  const modalRef = useRef(null);
-
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const modalRef = useRef(null);
+
   const snapPoints = useMemo(() => ["78%"], []);
+
+  const [sheetMode, setSheetMode] = useState("create");
+
+  const [editingEntry, setEditingEntry] = useState(null);
 
   const [entry, setEntry] = useState(createInitialEntry);
 
+  const isEditMode = sheetMode === "edit";
+
   useImperativeHandle(ref, () => ({
-    present() {
-      setEntry(createInitialEntry());
+    present(options = {}) {
+      /*
+       * Compatibilité avec l’ancien appel :
+       * moodSheetRef.current?.present()
+       */
+      if (!options || typeof options !== "object") {
+        setSheetMode("create");
+        setEditingEntry(null);
+        setEntry(createInitialEntry());
+
+        modalRef.current?.present();
+        return;
+      }
+
+      const { mode = "create", entry: trackingEntry = null } = options;
+
+      setSheetMode(mode);
+
+      if (mode === "edit" && trackingEntry) {
+        setEditingEntry(trackingEntry);
+
+        setEntry(createMoodEntryFromTrackingEntry(trackingEntry));
+      } else {
+        setEditingEntry(null);
+        setEntry(createInitialEntry());
+      }
+
       modalRef.current?.present();
     },
 
@@ -116,13 +175,28 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
 
   const canSave = Boolean(entry.mood);
 
+  const handleRequestDelete = () => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  };
+
   const handleSave = async () => {
     if (!canSave) {
       return;
     }
 
     await onSave?.({
+      ...editingEntry,
+      ...entry,
+
+      id: editingEntry?.id,
+
       type: "mood",
+      mode: sheetMode,
+
       mood: entry.mood,
       date: entry.date,
     });
@@ -144,15 +218,21 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={styles.title}>
-            {t("How is child feeling?", {
-              childName,
-            })}
+            {isEditMode
+              ? t("Edit mood")
+              : t("How is child feeling?", {
+                  childName,
+                })}
           </Text>
 
           <Text style={styles.subtitle}>
-            {t("Choose the mood that best describes child right now", {
-              childName,
-            })}
+            {isEditMode
+              ? t("Update child's mood", {
+                  childName,
+                })
+              : t("Choose the mood that best describes child right now", {
+                  childName,
+                })}
           </Text>
         </View>
 
@@ -169,17 +249,26 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
                 <Pressable
                   key={option.id}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: isSelected }}
+                  accessibilityState={{
+                    selected: isSelected,
+                  }}
                   accessibilityLabel={t(option.label)}
-                  onPress={() => patchEntry({ mood: option.id })}
+                  onPress={() =>
+                    patchEntry({
+                      mood: option.id,
+                    })
+                  }
                   style={({ pressed }) => [
                     styles.moodCard,
+
                     {
                       backgroundColor: option.backgroundColor,
                     },
+
                     isSelected && {
                       borderColor: option.color,
                     },
+
                     pressed && styles.pressed,
                   ]}
                 >
@@ -194,6 +283,7 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
                   <Text
                     style={[
                       styles.moodLabel,
+
                       isSelected && {
                         color: option.color,
                       },
@@ -206,6 +296,7 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
                     <View
                       style={[
                         styles.checkBadge,
+
                         {
                           backgroundColor: option.color,
                         },
@@ -232,11 +323,31 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
         </BottomSheetScrollView>
 
         <View style={styles.footer}>
-          <PrimaryButton
-            title={t("Save mood")}
-            onPress={handleSave}
-            disabled={!canSave}
-          />
+          {isEditMode ? (
+            <View style={styles.editFooterRow}>
+              <View style={styles.footerButton}>
+                <PrimaryButton
+                  title={t("Delete")}
+                  variant="destructive"
+                  onPress={handleRequestDelete}
+                />
+              </View>
+
+              <View style={styles.footerButton}>
+                <PrimaryButton
+                  title={t("Save changes")}
+                  onPress={handleSave}
+                  disabled={!canSave}
+                />
+              </View>
+            </View>
+          ) : (
+            <PrimaryButton
+              title={t("Save mood")}
+              onPress={handleSave}
+              disabled={!canSave}
+            />
+          )}
         </View>
       </View>
     </BottomSheetModal>
@@ -255,7 +366,9 @@ function createStyles(colors) {
     handle: {
       width: 38,
       height: 4,
+
       borderRadius: 999,
+
       backgroundColor: colors.border,
     },
 
@@ -272,14 +385,17 @@ function createStyles(colors) {
     title: {
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 21,
+
       color: colors.textPrimary,
     },
 
     subtitle: {
       marginTop: 6,
+
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 13,
       lineHeight: 19,
+
       color: colors.textSecondary,
     },
 
@@ -288,67 +404,99 @@ function createStyles(colors) {
     },
 
     scrollContent: {
+      gap: 22,
+
       paddingHorizontal: 20,
       paddingBottom: 22,
-      gap: 22,
     },
 
     moodGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
       justifyContent: "center",
+
       gap: 10,
     },
 
     moodCard: {
       position: "relative",
-      alignItems: "center",
-      justifyContent: "center",
+
       width: "48%",
       minHeight: 100,
+
+      alignItems: "center",
+      justifyContent: "center",
+
       paddingHorizontal: 12,
       paddingVertical: 12,
-      borderRadius: 20,
+
       borderWidth: 1.5,
       borderColor: "transparent",
+      borderRadius: 20,
     },
 
     illustrationContainer: {
-      alignItems: "center",
-      justifyContent: "center",
       width: 70,
       height: 64,
+
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     illustration: {
       width: 68,
       height: 68,
     },
+
     moodLabel: {
       marginTop: 2,
+
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 13,
+
       color: colors.textPrimary,
     },
+
     checkBadge: {
       position: "absolute",
+
       top: 10,
       right: 10,
-      alignItems: "center",
-      justifyContent: "center",
+
       width: 21,
       height: 21,
+
+      alignItems: "center",
+      justifyContent: "center",
+
       borderRadius: 11,
     },
 
     footer: {
       flexShrink: 0,
+
       paddingHorizontal: 20,
       paddingTop: 12,
       paddingBottom: 14,
+
       borderTopWidth: 1,
       borderTopColor: colors.border,
+
       backgroundColor: colors.white,
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
 
     pressed: {

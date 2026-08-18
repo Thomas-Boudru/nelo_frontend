@@ -26,11 +26,11 @@ const SYMPTOMS_IMAGE = require("../../assets/illustrations/tracking/symptom.png"
 
 const TEETHING_IMAGE = require("../../assets/illustrations/tracking/tooth.png");
 
-const WEIGHT_IMAGE = require("../../assets/illustrations/tracking/weight.png");
-
-const HEIGHT_IMAGE = require("../../assets/illustrations/tracking/height.png");
-
-const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/head.png");
+/*
+ * On conserve l’ancienne illustration de taille pour représenter
+ * maintenant l’ensemble de la croissance.
+ */
+const GROWTH_IMAGE = require("../../assets/illustrations/tracking/height.png");
 
 const NOTE_IMAGE = require("../../assets/illustrations/tracking/note.png");
 
@@ -96,27 +96,13 @@ const HEALTH_ITEMS = [
   },
 ];
 
-const OTHER_ITEMS = [
+const GROWTH_AND_NOTES_ITEMS = [
   {
-    id: "weight",
-    titleKey: "Weight",
+    id: "growth",
+    titleKey: "Growth",
     type: "image",
-    image: WEIGHT_IMAGE,
-    backgroundColor: "#EAF9F3",
-  },
-  {
-    id: "height",
-    titleKey: "Height",
-    type: "image",
-    image: HEIGHT_IMAGE,
+    image: GROWTH_IMAGE,
     backgroundColor: "#EDF6FF",
-  },
-  {
-    id: "headCircumference",
-    titleKey: "Head circumference",
-    type: "image",
-    image: HEAD_CIRCUMFERENCE_IMAGE,
-    backgroundColor: "#F1F0FF",
   },
   {
     id: "note",
@@ -126,6 +112,8 @@ const OTHER_ITEMS = [
     backgroundColor: "#FFF7E8",
   },
 ];
+
+const WAVE_HEIGHTS = [8, 18, 38, 29, 24, 14, 6];
 
 function TrackingIcon({ item, styles }) {
   if (item.type === "image") {
@@ -176,6 +164,10 @@ function TrackingOption({ item, onPress, styles, t }) {
 }
 
 function TrackingSection({ title, items, onPressItem, styles, t }) {
+  if (items.length === 0) {
+    return null;
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -195,7 +187,6 @@ function TrackingSection({ title, items, onPressItem, styles, t }) {
   );
 }
 
-const WAVE_HEIGHTS = [8, 18, 38, 29, 24, 14, 6];
 function VoiceWave({ styles, reversed = false }) {
   const heights = reversed ? [...WAVE_HEIGHTS].reverse() : WAVE_HEIGHTS;
 
@@ -219,8 +210,13 @@ function VoiceWave({ styles, reversed = false }) {
 const AddTrackingSheet = forwardRef(function AddTrackingSheet(
   {
     childName,
-
     isPremiumUser = false,
+
+    /*
+     * Exemple :
+     * hiddenTrackingItems={["mood", "teething"]}
+     */
+    hiddenTrackingItems = [],
 
     onPressPremium,
     onPressVoiceStart,
@@ -230,14 +226,33 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
   ref,
 ) {
   const { t } = useTranslation();
-
   const colors = useThemeColors();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const snapPoints = useMemo(() => ["92%"], []);
+
   const [isRecording, setIsRecording] = useState(false);
 
-  const snapPoints = useMemo(() => ["92%"], []);
+  const hiddenItemIds = useMemo(
+    () => new Set(hiddenTrackingItems),
+    [hiddenTrackingItems],
+  );
+
+  const visibleDailyItems = useMemo(
+    () => DAILY_TRACKING_ITEMS.filter((item) => !hiddenItemIds.has(item.id)),
+    [hiddenItemIds],
+  );
+
+  const visibleHealthItems = useMemo(
+    () => HEALTH_ITEMS.filter((item) => !hiddenItemIds.has(item.id)),
+    [hiddenItemIds],
+  );
+
+  const visibleGrowthAndNotesItems = useMemo(
+    () => GROWTH_AND_NOTES_ITEMS.filter((item) => !hiddenItemIds.has(item.id)),
+    [hiddenItemIds],
+  );
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -360,7 +375,7 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
 
         <TrackingSection
           title={t("Daily tracking")}
-          items={DAILY_TRACKING_ITEMS}
+          items={visibleDailyItems}
           onPressItem={onPressTrackingItem}
           styles={styles}
           t={t}
@@ -368,15 +383,15 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
 
         <TrackingSection
           title={t("Health")}
-          items={HEALTH_ITEMS}
+          items={visibleHealthItems}
           onPressItem={onPressTrackingItem}
           styles={styles}
           t={t}
         />
 
         <TrackingSection
-          title={t("Growth and memories")}
-          items={OTHER_ITEMS}
+          title={t("Growth and notes")}
+          items={visibleGrowthAndNotesItems}
           onPressItem={onPressTrackingItem}
           styles={styles}
           t={t}
@@ -404,7 +419,6 @@ const createStyles = (colors) =>
   StyleSheet.create({
     sheetBackground: {
       backgroundColor: colors.white,
-
       borderTopLeftRadius: 30,
       borderTopRightRadius: 30,
     },
@@ -417,11 +431,8 @@ const createStyles = (colors) =>
     handleIndicator: {
       width: 46,
       height: 5,
-
       borderRadius: 3,
-
       backgroundColor: colors.textSecondary,
-
       opacity: 0.24,
     },
 
@@ -441,23 +452,43 @@ const createStyles = (colors) =>
       fontSize: 22,
       lineHeight: 32,
       letterSpacing: -0.5,
-
       color: colors.textPrimary,
     },
 
     subtitle: {
       marginTop: 2,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 13,
       lineHeight: 18,
-
       color: colors.textSecondary,
+    },
+
+    voiceCard: {
+      position: "relative",
+      minHeight: 150,
+      marginTop: 10,
+      marginBottom: 10,
+      paddingTop: 20,
+      paddingHorizontal: 18,
+      paddingBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 24,
+      backgroundColor: colors.selectedBackground,
+      overflow: "hidden",
+
+      shadowColor: colors.textPrimary,
+      shadowOffset: {
+        width: 0,
+        height: 5,
+      },
+      shadowOpacity: 0.035,
+      shadowRadius: 14,
+      elevation: 2,
     },
 
     voiceHeader: {
       alignItems: "flex-start",
-
       paddingRight: 82,
     },
 
@@ -465,37 +496,28 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 17,
       lineHeight: 23,
-
       color: colors.textPrimary,
     },
 
     voiceDescription: {
       maxWidth: 260,
       marginTop: 5,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 12,
       lineHeight: 17,
-
       color: colors.textSecondary,
     },
 
     premiumBadge: {
       position: "absolute",
-
       top: 14,
       right: 14,
-
       zIndex: 4,
-
       flexDirection: "row",
       alignItems: "center",
-
       gap: 4,
-
       paddingHorizontal: 9,
       paddingVertical: 5,
-
       borderRadius: 14,
       backgroundColor: colors.white,
 
@@ -506,7 +528,6 @@ const createStyles = (colors) =>
       },
       shadowOpacity: 0.08,
       shadowRadius: 6,
-
       elevation: 2,
     },
 
@@ -521,82 +542,40 @@ const createStyles = (colors) =>
       lineHeight: 12,
       textTransform: "uppercase",
       letterSpacing: 0.4,
-
       color: colors.primary,
     },
 
-    voiceCard: {
-      position: "relative",
-
-      minHeight: 150,
-      marginBottom: 10,
-      marginTop: 10,
-
-      paddingTop: 20,
-      paddingHorizontal: 18,
-      paddingBottom: 10,
-
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 24,
-
-      backgroundColor: colors.selectedBackground,
-
-      overflow: "hidden",
-
-      shadowColor: colors.textPrimary,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
-      shadowOpacity: 0.035,
-      shadowRadius: 14,
-
-      elevation: 2,
-    },
-
     voiceInteraction: {
+      width: "100%",
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-
-      width: "100%",
-
       paddingHorizontal: 8,
     },
 
     voiceWave: {
       width: 92,
       height: 48,
-
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-
       gap: 8,
     },
 
     voiceWaveBar: {
       width: 4,
-
       borderRadius: 2,
-
       backgroundColor: colors.primary,
-
       opacity: 0.15,
     },
 
     voiceButtonOuter: {
       width: 92,
       height: 92,
-
       alignItems: "center",
       justifyContent: "center",
-
       marginHorizontal: 10,
-
       borderRadius: 46,
-
       backgroundColor: colors.selectedBackground,
 
       shadowColor: colors.primary,
@@ -606,34 +585,26 @@ const createStyles = (colors) =>
       },
       shadowOpacity: 0.16,
       shadowRadius: 13,
-
       elevation: 6,
     },
 
     voiceButtonMiddle: {
       width: 78,
       height: 78,
-
       alignItems: "center",
       justifyContent: "center",
-
-      borderRadius: 39,
-
-      backgroundColor: colors.lightBackground,
-
       borderWidth: 6,
       borderColor: colors.selectedBackground,
+      borderRadius: 39,
+      backgroundColor: colors.lightBackground,
     },
 
     voiceButton: {
       width: 64,
       height: 64,
-
       alignItems: "center",
       justifyContent: "center",
-
       borderRadius: 32,
-
       backgroundColor: colors.primary,
 
       shadowColor: colors.primary,
@@ -643,7 +614,6 @@ const createStyles = (colors) =>
       },
       shadowOpacity: 0.22,
       shadowRadius: 8,
-
       elevation: 5,
     },
 
@@ -655,38 +625,6 @@ const createStyles = (colors) =>
       transform: [{ scale: 0.95 }],
     },
 
-    holdInstruction: {
-      alignSelf: "center",
-
-      marginTop: 12,
-
-      paddingHorizontal: 15,
-      paddingVertical: 6,
-
-      borderRadius: 16,
-
-      backgroundColor: colors.lightBackground,
-    },
-
-    holdInstruction: {
-      alignSelf: "center",
-
-      marginTop: 11,
-      paddingHorizontal: 14,
-      paddingVertical: 6,
-
-      borderRadius: 16,
-      backgroundColor: colors.lightBackground,
-    },
-
-    holdInstructionText: {
-      fontFamily: "PlusJakartaSans_600SemiBold",
-      fontSize: 11,
-      lineHeight: 15,
-
-      color: colors.primary,
-    },
-
     section: {
       marginTop: 15,
     },
@@ -694,36 +632,34 @@ const createStyles = (colors) =>
     sectionTitle: {
       marginBottom: 8,
       paddingHorizontal: 3,
-
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 13,
       lineHeight: 18,
-
       color: colors.textPrimary,
     },
 
+    /*
+     * Toutes les lignes incomplètes sont centrées.
+     * La taille des cartes reste identique.
+     */
     optionsGrid: {
       flexDirection: "row",
-      alignItems: "flex-start",
-
-      gap: 8,
+      flexWrap: "wrap",
+      justifyContent: "center",
+      columnGap: 10,
+      rowGap: 12,
     },
 
     optionCard: {
-      flex: 1,
-      minWidth: 0,
-      height: 91,
-
+      width: "22.5%",
+      minHeight: 90,
       alignItems: "center",
       justifyContent: "center",
-
-      paddingHorizontal: 3,
-      paddingVertical: 8,
-
+      paddingHorizontal: 5,
+      paddingVertical: 10,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 20,
-
       backgroundColor: colors.white,
 
       shadowColor: colors.textPrimary,
@@ -733,7 +669,6 @@ const createStyles = (colors) =>
       },
       shadowOpacity: 0.025,
       shadowRadius: 8,
-
       elevation: 1,
     },
 
@@ -745,12 +680,9 @@ const createStyles = (colors) =>
     optionIconContainer: {
       width: 48,
       height: 48,
-
       alignItems: "center",
       justifyContent: "center",
-
       marginBottom: 7,
-
       borderRadius: 24,
     },
 
@@ -761,36 +693,29 @@ const createStyles = (colors) =>
 
     optionTitle: {
       width: "100%",
-
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 10,
       lineHeight: 14,
       textAlign: "center",
-
       color: colors.textPrimary,
     },
 
     informationCard: {
       flexDirection: "row",
       alignItems: "center",
-
       gap: 8,
-
       marginTop: 16,
       paddingHorizontal: 13,
       paddingVertical: 10,
-
       borderRadius: 16,
       backgroundColor: colors.selectedBackground,
     },
 
     informationText: {
       flex: 1,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 10,
       lineHeight: 15,
-
       color: colors.textSecondary,
     },
   });

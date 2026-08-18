@@ -466,58 +466,64 @@ export default function BottleFeedForm({
           </View>
         </View>
       </View>
-      {!value?.isExactAmountMode ? (
-        <View
-          style={[
-            styles.bottleActions,
-            viewMode === "simple"
-              ? styles.bottleActionsForCards
-              : styles.bottleActionsForBottle,
+      {/*
+       * Le type de lait et la note ne dépendent pas de la façon dont la
+       * quantité est saisie : ils restent visibles même en quantité exacte.
+       */}
+      <View
+        style={[
+          styles.bottleActions,
+          // La variante superposée n’a de sens qu’au-dessus du biberon : sans
+          // stage affiché (quantité exacte, grille de cards), la ligne reprend
+          // sa place dans le flux.
+          viewMode === "bottle" && !isExactAmountMode
+            ? styles.bottleActionsForBottle
+            : styles.bottleActionsForCards,
+        ]}
+      >
+        <Pressable
+          onPress={() =>
+            onPressMilkType?.({
+              currentMilkType: value?.milkType ?? "formula",
+            })
+          }
+          style={({ pressed }) => [
+            styles.smallActionButton,
+            pressed && styles.pressed,
           ]}
         >
-          <Pressable
-            onPress={() =>
-              onPressMilkType?.({
-                currentMilkType: value?.milkType ?? "formula",
-              })
-            }
-            style={({ pressed }) => [
-              styles.smallActionButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.smallActionValue}>
-              {t(
-                {
-                  formula: "Formula",
-                  breast_milk: "Breast milk",
-                  mixed: "Mixed milk",
-                  other: "Other milk",
-                }[value?.milkType ?? "formula"],
-              )}
-            </Text>
-            <Ionicons
-              name="chevron-down"
-              size={14}
-              color={colors.textSecondary}
-            />
-          </Pressable>
+          <Text style={styles.smallActionValue}>
+            {t(
+              {
+                formula: "Formula",
+                breast_milk: "Breast milk",
+                mixed: "Mixed milk",
+                other: "Other milk",
+              }[value?.milkType ?? "formula"],
+            )}
+          </Text>
+          <Ionicons
+            name="chevron-down"
+            size={14}
+            color={colors.textSecondary}
+          />
+        </Pressable>
 
-          <Pressable
-            onPress={onPressNote}
-            style={({ pressed }) => [
-              styles.noteActionButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.noteActionLabel}>
-              {value?.note?.trim() ? t("Edit note") : t("Add a note")}
-            </Text>
+        <Pressable
+          onPress={onPressNote}
+          style={({ pressed }) => [
+            styles.noteActionButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.noteActionLabel}>
+            {value?.note?.trim() ? t("Edit note") : t("Add a note")}
+          </Text>
 
-            {value?.note?.trim() ? <View style={styles.noteIndicator} /> : null}
-          </Pressable>
-        </View>
-      ) : null}
+          {value?.note?.trim() ? <View style={styles.noteIndicator} /> : null}
+        </Pressable>
+      </View>
+
       {!value?.isExactAmountMode ? (
         <View style={styles.stage} onLayout={handleStageLayout}>
           {viewMode === "bottle" ? (
