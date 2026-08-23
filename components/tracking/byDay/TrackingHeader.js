@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
 import ChildSelectorButton from "../../home/ChildSelectorButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
-export default function TrackingHeader({ child, onPressChild }) {
+export default function TrackingHeader({ child, onPressChild, onPressShare }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
@@ -15,13 +16,27 @@ export default function TrackingHeader({ child, onPressChild }) {
     <View style={styles.container}>
       <View style={styles.textContainer}>
         <Text style={styles.title}>{t("Tracking")}</Text>
-
-        {/*<Text style={styles.subtitle} numberOfLines={2}>
-          {t("Review your child's day and progress")}
-        </Text>*/}
       </View>
 
-      <ChildSelectorButton child={child} onPress={onPressChild} />
+      <View style={styles.headerActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("Share child data")}
+          accessibilityHint={t(
+            "Create a secure link to share your child's tracking data",
+          )}
+          hitSlop={6}
+          onPress={onPressShare}
+          style={({ pressed }) => [
+            styles.shareButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="share-outline" size={20} color={colors.primary} />
+        </Pressable>
+
+        <ChildSelectorButton child={child} onPress={onPressChild} />
+      </View>
     </View>
   );
 }
@@ -31,12 +46,9 @@ const createStyles = (colors) =>
     container: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-
-      gap: 16,
-
       paddingHorizontal: 20,
       paddingVertical: 10,
+      gap: 12,
     },
 
     textContainer: {
@@ -49,17 +61,27 @@ const createStyles = (colors) =>
       fontSize: 22,
       lineHeight: 30,
       letterSpacing: -0.5,
-
       color: colors.textPrimary,
     },
 
-    subtitle: {
-      marginTop: 2,
+    headerActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
 
-      fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 12,
-      lineHeight: 17,
+    shareButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.lightBackground,
+      borderWidth: 1,
+      borderColor: colors.lightBackground,
+    },
 
-      color: colors.textSecondary,
+    pressed: {
+      opacity: 0.72,
     },
   });

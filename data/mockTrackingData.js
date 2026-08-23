@@ -75,6 +75,14 @@ export const TRACKING_TYPE_CONFIG = {
     backgroundColor: "#FFF6E7",
   },
 
+  vaccine: {
+    trackingId: "medication",
+    category: "health",
+    titleKey: "Vaccine",
+    image: MEDICATION_IMAGE,
+    backgroundColor: "#EEF7FF",
+  },
+
   temperature: {
     trackingId: "temperature",
     category: "health",
@@ -153,7 +161,7 @@ export const mockTrackingDay = {
   childId: "emma",
 
   summary: {
-    entryCount: 8,
+    entryCount: 14,
     feedingCount: 3,
     sleepDurationMinutes: 195,
     diaperCount: 1,
@@ -229,6 +237,99 @@ export const mockTrackingDay = {
         unit: "celsius",
         measurementLocation: "ear",
         note: null,
+      },
+    },
+
+    {
+      id: "medication-1",
+      type: "medication",
+      startedAt: "2026-08-17T14:00:00+02:00",
+      endedAt: null,
+      displayValue: "Doliprane · 2.5 ml",
+
+      data: {
+        medicationId: "doliprane",
+        medicationName: "Doliprane",
+        isCustomMedication: false,
+        dose: 2.5,
+        doseUnit: "ml",
+        note: "Given after the temperature measurement.",
+      },
+    },
+
+    {
+      id: "vaccine-1",
+      type: "vaccine",
+      startedAt: "2026-08-17T13:40:00+02:00",
+      endedAt: null,
+      displayValue: "Infanrix Hexa · Dose 2",
+
+      data: {
+        vaccineId: "infanrix-hexa",
+        vaccineName: "Infanrix Hexa",
+        isCustomVaccine: false,
+        doseNumber: 2,
+        nextDoseAt: "2026-10-17T10:00:00+02:00",
+        note: "No particular reaction.",
+      },
+    },
+
+    {
+      id: "symptoms-1",
+      type: "symptoms",
+      startedAt: "2026-08-17T13:15:00+02:00",
+      endedAt: null,
+      displayValueKey: "Cough",
+
+      data: {
+        symptoms: ["cough", "runny-nose"],
+        note: "Light cough, especially after the nap.",
+      },
+    },
+
+    {
+      id: "teething-1",
+      type: "teething",
+      startedAt: "2026-08-17T11:50:00+02:00",
+      endedAt: null,
+      displayValueKey: "Lower central incisor",
+
+      data: {
+        toothId: "lower-central-incisor-left",
+        toothIds: ["lower-central-incisor-left"],
+        status: "appeared",
+        note: "The tooth is now clearly visible.",
+      },
+    },
+
+    {
+      id: "growth-1",
+      type: "growth",
+      startedAt: "2026-08-17T10:30:00+02:00",
+      endedAt: null,
+      displayValue: "6.42 kg · 61.3 cm",
+
+      data: {
+        weightKg: 6.42,
+        heightCm: 61.3,
+        headCircumferenceCm: 40.2,
+
+        measuredAt: "2026-08-17T10:30:00+02:00",
+        note: "Measured before feeding.",
+      },
+    },
+
+    {
+      id: "note-1",
+      type: "note",
+      startedAt: "2026-08-17T09:45:00+02:00",
+      endedAt: null,
+      displayValue: "Emma slept particularly well...",
+
+      data: {
+        note: "Emma slept particularly well and woke up smiling.",
+        photos: [],
+        notedAt: "2026-08-17T09:45:00+02:00",
       },
     },
 
@@ -338,49 +439,6 @@ export const mockTrackingTypeSections = [
   },
 
   {
-    id: "health",
-    titleKey: "Health",
-
-    items: [
-      {
-        id: "temperature",
-        titleKey: "Temperature",
-        metadataKey: "Last temperature: 37.2 °C on June 18",
-        image: TRACKING_TYPE_CONFIG.temperature.image,
-        backgroundColor: TRACKING_TYPE_CONFIG.temperature.backgroundColor,
-        variant: "compact",
-      },
-
-      {
-        id: "symptoms",
-        titleKey: "Symptoms",
-        metadataKey: "Last symptom: Cough on August 4",
-        image: TRACKING_TYPE_CONFIG.symptoms.image,
-        backgroundColor: TRACKING_TYPE_CONFIG.symptoms.backgroundColor,
-        variant: "compact",
-      },
-
-      {
-        id: "medication",
-        titleKey: "Medication",
-        metadataKey: "3 recorded medications",
-        image: TRACKING_TYPE_CONFIG.medication.image,
-        backgroundColor: TRACKING_TYPE_CONFIG.medication.backgroundColor,
-        variant: "compact",
-      },
-
-      {
-        id: "teething",
-        titleKey: "Teething",
-        metadataKey: "6 teeth have appeared",
-        image: TRACKING_TYPE_CONFIG.teething.image,
-        backgroundColor: TRACKING_TYPE_CONFIG.teething.backgroundColor,
-        variant: "compact",
-      },
-    ],
-  },
-
-  {
     id: "daily-tracking",
     titleKey: "Daily tracking",
 
@@ -412,5 +470,305 @@ export const mockTrackingTypeSections = [
         variant: "compact",
       },
     ],
+  },
+
+  {
+    id: "health",
+    titleKey: "Health",
+
+    items: [
+      {
+        id: "temperature",
+        titleKey: "Temperature",
+        metadataKey: "Last temperature: 37.2 °C on June 18",
+        image: TRACKING_TYPE_CONFIG.temperature.image,
+        backgroundColor: TRACKING_TYPE_CONFIG.temperature.backgroundColor,
+        variant: "compact",
+      },
+
+      {
+        id: "symptoms",
+        titleKey: "Symptoms",
+        metadataKey: "Last symptom: Cough on August 4",
+        image: TRACKING_TYPE_CONFIG.symptoms.image,
+        backgroundColor: TRACKING_TYPE_CONFIG.symptoms.backgroundColor,
+        variant: "compact",
+      },
+
+      {
+        id: "vaccine",
+        titleKey: "Vaccines",
+        metadataKey: "1 recorded vaccine",
+        image: TRACKING_TYPE_CONFIG.vaccine.image,
+        backgroundColor: TRACKING_TYPE_CONFIG.vaccine.backgroundColor,
+        variant: "compact",
+      },
+
+      {
+        id: "medication",
+        titleKey: "Medication",
+        metadataKey: "3 recorded medications",
+        image: TRACKING_TYPE_CONFIG.medication.image,
+        backgroundColor: TRACKING_TYPE_CONFIG.medication.backgroundColor,
+        variant: "compact",
+      },
+
+      {
+        id: "teething",
+        titleKey: "Teething",
+        metadataKey: "6 teeth have appeared",
+        image: TRACKING_TYPE_CONFIG.teething.image,
+        backgroundColor: TRACKING_TYPE_CONFIG.teething.backgroundColor,
+        variant: "compact",
+      },
+    ],
+  },
+];
+
+export const mockSleepHistoryEntries = [
+  /*
+   * La session nocturne commence le soir et se termine
+   * le lendemain matin. Elle reste une seule entrée éditable.
+   */
+  {
+    id: "sleep-history-1",
+    type: "sleep",
+    startedAt: "2026-08-16T20:45:00+02:00",
+    endedAt: "2026-08-17T06:40:00+02:00",
+    displayValue: "9 h 55",
+
+    data: {
+      sleepType: "night",
+      wakeUps: 2,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-2",
+    type: "sleep",
+    startedAt: "2026-08-17T08:30:00+02:00",
+    endedAt: "2026-08-17T09:20:00+02:00",
+    displayValue: "50 min",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-3",
+    type: "sleep",
+    startedAt: "2026-08-17T12:45:00+02:00",
+    endedAt: "2026-08-17T14:05:00+02:00",
+    displayValue: "1 h 20",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-4",
+    type: "sleep",
+    startedAt: "2026-08-17T17:10:00+02:00",
+    endedAt: "2026-08-17T17:45:00+02:00",
+    displayValue: "35 min",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-5",
+    type: "sleep",
+    startedAt: "2026-08-17T20:30:00+02:00",
+    endedAt: "2026-08-18T06:55:00+02:00",
+    displayValue: "10 h 25",
+
+    data: {
+      sleepType: "night",
+      wakeUps: 1,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-6",
+    type: "sleep",
+    startedAt: "2026-08-18T09:05:00+02:00",
+    endedAt: "2026-08-18T09:55:00+02:00",
+    displayValue: "50 min",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-7",
+    type: "sleep",
+    startedAt: "2026-08-18T13:00:00+02:00",
+    endedAt: "2026-08-18T14:30:00+02:00",
+    displayValue: "1 h 30",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-8",
+    type: "sleep",
+    startedAt: "2026-08-18T20:50:00+02:00",
+    endedAt: "2026-08-19T06:35:00+02:00",
+    displayValue: "9 h 45",
+
+    data: {
+      sleepType: "night",
+      wakeUps: 3,
+      restlessNight: true,
+      note: "More restless than usual.",
+    },
+  },
+
+  {
+    id: "sleep-history-9",
+    type: "sleep",
+    startedAt: "2026-08-19T08:45:00+02:00",
+    endedAt: "2026-08-19T09:35:00+02:00",
+    displayValue: "50 min",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+
+  {
+    id: "sleep-history-10",
+    type: "sleep",
+    startedAt: "2026-08-19T12:55:00+02:00",
+    endedAt: "2026-08-19T14:15:00+02:00",
+    displayValue: "1 h 20",
+
+    data: {
+      sleepType: "nap",
+      wakeUps: 0,
+      restlessNight: false,
+      note: null,
+    },
+  },
+];
+
+export const mockGrowthHistoryEntries = [
+  {
+    id: "growth-history-1",
+    type: "growth",
+    startedAt: "2026-03-19T10:30:00+01:00",
+    displayValue: "4.85 kg · 54.2 cm",
+
+    data: {
+      weightKg: 4.85,
+      heightCm: 54.2,
+      headCircumferenceCm: 36.8,
+      measuredAt: "2026-03-19T10:30:00+01:00",
+      note: null,
+    },
+  },
+
+  {
+    id: "growth-history-2",
+    type: "growth",
+    startedAt: "2026-04-19T10:15:00+02:00",
+    displayValue: "5.18 kg · 56.1 cm",
+
+    data: {
+      weightKg: 5.18,
+      heightCm: 56.1,
+      headCircumferenceCm: 37.6,
+      measuredAt: "2026-04-19T10:15:00+02:00",
+      note: null,
+    },
+  },
+
+  {
+    id: "growth-history-3",
+    type: "growth",
+    startedAt: "2026-05-19T09:50:00+02:00",
+    displayValue: "5.54 kg · 57.8 cm",
+
+    data: {
+      weightKg: 5.54,
+      heightCm: 57.8,
+      headCircumferenceCm: 38.4,
+      measuredAt: "2026-05-19T09:50:00+02:00",
+      note: null,
+    },
+  },
+
+  {
+    id: "growth-history-4",
+    type: "growth",
+    startedAt: "2026-06-19T10:05:00+02:00",
+    displayValue: "5.89 kg · 59.1 cm",
+
+    data: {
+      weightKg: 5.89,
+      heightCm: 59.1,
+      headCircumferenceCm: 39.1,
+      measuredAt: "2026-06-19T10:05:00+02:00",
+      note: null,
+    },
+  },
+
+  {
+    id: "growth-history-5",
+    type: "growth",
+    startedAt: "2026-07-19T10:20:00+02:00",
+    displayValue: "6.14 kg · 60.2 cm",
+
+    data: {
+      weightKg: 6.14,
+      heightCm: 60.2,
+      headCircumferenceCm: 39.7,
+      measuredAt: "2026-07-19T10:20:00+02:00",
+      note: null,
+    },
+  },
+
+  {
+    id: "growth-history-6",
+    type: "growth",
+    startedAt: "2026-08-17T10:30:00+02:00",
+    displayValue: "6.42 kg · 61.3 cm",
+
+    data: {
+      weightKg: 6.42,
+      heightCm: 61.3,
+      headCircumferenceCm: 40.2,
+      measuredAt: "2026-08-17T10:30:00+02:00",
+      note: "Measured before feeding.",
+    },
   },
 ];

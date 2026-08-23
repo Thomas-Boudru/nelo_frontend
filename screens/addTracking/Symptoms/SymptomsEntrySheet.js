@@ -84,8 +84,52 @@ const SYMPTOM_OPTIONS = [
   },
 ];
 
+const SYMPTOM_ID_ALIASES = {
+  "skin-rash": "skinRash",
+  "runny-nose": "runnyNose",
+  "unusual-breathing": "unusualBreathing",
+  "low-energy": "lowEnergy",
+  "lack-of-appetite": "lackOfAppetite",
+};
+
+function normalizeSymptomId(symptomId) {
+  return SYMPTOM_ID_ALIASES[symptomId] ?? symptomId;
+}
+
+function createSymptomsStateFromTrackingEntry(entry) {
+  const entryData = entry?.data ?? entry ?? {};
+
+  const symptoms = Array.isArray(entryData.symptoms)
+    ? entryData.symptoms.map(normalizeSymptomId)
+    : [];
+
+  const validSymptomIds = new Set(SYMPTOM_OPTIONS.map((symptom) => symptom.id));
+
+  const dateValue =
+    entryData.observedAt ??
+    entry?.observedAt ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasValidDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    selectedSymptoms: symptoms.filter((symptomId) =>
+      validSymptomIds.has(symptomId),
+    ),
+
+    note: entryData.note ?? "",
+
+    observedAt: hasValidDate ? parsedDate : new Date(),
+  };
+}
+
 const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
-  { childName, onSave },
+  { childName, onSave, onRequestDelete },
   ref,
 ) {
   const { t } = useTranslation();
@@ -101,23 +145,59 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
   const [note, setNote] = useState("");
   const [observedAt, setObservedAt] = useState(new Date());
 
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
+
   const canSave = selectedSymptoms.length > 0;
 
   const resetForm = useCallback(() => {
     setSelectedSymptoms([]);
     setNote("");
     setObservedAt(new Date());
+
+    setSheetMode("create");
+    setEditingEntry(null);
   }, []);
 
   useImperativeHandle(
     ref,
     () => ({
-      present() {
-        resetForm();
+      present(options = {}) {
+        /*
+         * Compatibilité avec l’appel actuel :
+         * symptomsEntrySheetRef.current?.present()
+         */
+        if (!options || typeof options !== "object") {
+          resetForm();
+          modalRef.current?.present();
+          return;
+        }
+
+        const { mode = "create", entry = null } = options;
+
+        setSheetMode(mode);
+
+        if (mode === "edit" && entry) {
+          const nextState = createSymptomsStateFromTrackingEntry(entry);
+
+          setEditingEntry(entry);
+          setSelectedSymptoms(nextState.selectedSymptoms);
+          setNote(nextState.note);
+          setObservedAt(nextState.observedAt);
+        } else {
+          setEditingEntry(null);
+          setSelectedSymptoms([]);
+          setNote("");
+          setObservedAt(new Date());
+        }
+
         modalRef.current?.present();
       },
 
       dismiss() {
+        noteSheetRef.current?.dismiss();
         modalRef.current?.dismiss();
       },
     }),
@@ -155,6 +235,14 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
     noteSheetRef.current?.present(note);
   }, [note]);
 
+  const handleRequestDelete = useCallback(() => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  }, [editingEntry, isEditMode, onRequestDelete]);
+
   const handleSave = useCallback(async () => {
     if (!canSave) {
       return;
@@ -165,14 +253,28 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
     ).catch(() => {});
 
     await onSave?.({
+      ...editingEntry,
+
+      id: editingEntry?.id,
+
       type: "symptoms",
+      mode: sheetMode,
+
       symptoms: selectedSymptoms,
       note: note.trim() || null,
       observedAt,
     });
 
     modalRef.current?.dismiss();
-  }, [canSave, selectedSymptoms, note, observedAt, onSave]);
+  }, [
+    canSave,
+    editingEntry,
+    note,
+    observedAt,
+    onSave,
+    selectedSymptoms,
+    sheetMode,
+  ]);
 
   return (
     <>
@@ -194,14 +296,20 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>{t("Add symptoms")}</Text>
+            <Text style={styles.title}>
+              {isEditMode ? t("Edit symptoms") : t("Add symptoms")}
+            </Text>
 
             <Text style={styles.subtitle}>
-              {childName
-                ? t("Select the symptoms observed for child", {
+              {isEditMode
+                ? t("Update the symptoms observed for child", {
                     childName,
                   })
-                : t("Select all symptoms you noticed.")}
+                : childName
+                  ? t("Select the symptoms observed for child", {
+                      childName,
+                    })
+                  : t("Select all symptoms you noticed.")}
             </Text>
           </View>
 
@@ -312,11 +420,31 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
           </View>
 
           <View style={styles.footerContainer}>
-            <PrimaryButton
-              title={t("Save symptoms")}
-              onPress={handleSave}
-              disabled={!canSave}
-            />
+            {isEditMode ? (
+              <View style={styles.editFooterRow}>
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                  />
+                </View>
+
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    onPress={handleSave}
+                    disabled={!canSave}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={t("Save symptoms")}
+                onPress={handleSave}
+                disabled={!canSave}
+              />
+            )}
           </View>
         </View>
       </BottomSheetModal>
@@ -499,7 +627,7 @@ function createStyles(colors) {
       alignItems: "center",
       justifyContent: "center",
       marginRight: 12,
-      borderRadius: 20,
+      borderRadius: 13,
       backgroundColor: selectedBackground,
     },
 
@@ -542,6 +670,20 @@ function createStyles(colors) {
 
     pressed: {
       opacity: 0.72,
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
   });
 }

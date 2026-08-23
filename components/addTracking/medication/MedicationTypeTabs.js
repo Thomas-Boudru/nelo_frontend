@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+
+import MedicineIcon from "../../../assets/illustrations/tracking/medication/medicine.svg";
+import VaccineIcon from "../../../assets/illustrations/tracking/medication/vaccine.svg";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
@@ -9,12 +11,12 @@ const MEDICATION_TYPES = [
   {
     id: "medication",
     label: "Medicine",
-    icon: "medical-outline",
+    Icon: MedicineIcon,
   },
   {
     id: "vaccine",
     label: "Vaccine",
-    icon: "shield-checkmark-outline",
+    Icon: VaccineIcon,
   },
 ];
 
@@ -29,6 +31,9 @@ export default function MedicationTypeTabs({ value, onChange }) {
       <View accessibilityRole="tablist" style={styles.content}>
         {MEDICATION_TYPES.map((type) => {
           const isSelected = value === type.id;
+          const iconColor = isSelected ? colors.primary : colors.textSecondary;
+
+          const Icon = type.Icon;
 
           return (
             <Pressable
@@ -43,11 +48,9 @@ export default function MedicationTypeTabs({ value, onChange }) {
                 pressed && styles.pressed,
               ]}
             >
-              <Ionicons
-                name={type.icon}
-                size={18}
-                color={isSelected ? colors.primary : colors.textSecondary}
-              />
+              <View style={styles.iconContainer}>
+                <Icon width="100%" height="100%" color={iconColor} />
+              </View>
 
               <Text style={[styles.label, isSelected && styles.labelSelected]}>
                 {t(type.label)}
@@ -82,11 +85,18 @@ function createStyles(colors) {
       paddingVertical: 10,
       marginBottom: 14,
       borderRadius: 14,
-      backgroundColor: colors.lightBlue,
+      backgroundColor: "transparent",
     },
 
     tabSelected: {
       backgroundColor: `${colors.primary}14`,
+    },
+
+    iconContainer: {
+      width: 20,
+      height: 20,
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     label: {

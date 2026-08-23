@@ -2,17 +2,18 @@ import { useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import HomeHeader from "../components/home/HomeHeader.js";
-import NeloQuestionBar from "../components/home/NeloQuestionBar.js";
-import DailySummaryCard from "../components/home/DailySummaryCard.js";
-import NextNapCard from "../components/home/NextNapCard.js";
-import DailyMessageCard from "../components/home/DailyMessageCard.js";
-import MemoryCard from "../components/home/MemoryCard.js";
-import ChildSelectorSheet from "./child/ChildSelectorSheet.js";
+import HomeHeader from "../../components/home/HomeHeader.js";
+import NeloQuestionBar from "../../components/home/NeloQuestionBar.js";
+import DailySummaryCard from "../../components/home/DailySummaryCard.js";
+import NextNapCard from "../../components/home/NextNapCard.js";
+import DailyMessageCard from "../../components/home/DailyMessageCard.js";
+import MemoryCard from "../../components/home/MemoryCard.js";
+import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import { useTranslation } from "react-i18next";
+import DailyMessageDetailScreen from "./DailyMessageDetailsScreen.js";
 
-import { mockHomeData } from "../data/mockHomeData.js";
-import { useThemeColors } from "../theme/useThemeColors.js";
+import { mockHomeData } from "../../data/mockHomeData.js";
+import { useThemeColors } from "../../theme/useThemeColors.js";
 
 const MOCK_CHILDREN = [
   {
@@ -31,6 +32,8 @@ const MOCK_CHILDREN = [
   },
 ];
 
+const MOCK_UNREAD_NOTIFICATION_COUNT = 2;
+
 export default function HomeScreen({ navigation }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -39,6 +42,8 @@ export default function HomeScreen({ navigation }) {
   const childSelectorSheetRef = useRef(null);
 
   const homeData = mockHomeData;
+
+  const hasUnreadNotifications = MOCK_UNREAD_NOTIFICATION_COUNT > 0;
 
   const handleOpenChildSelector = () => {
     childSelectorSheetRef.current?.present();
@@ -58,15 +63,15 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleOpenNotifications = () => {
-    Alert.alert("Notifications", "Écran à créer.");
+    navigation.navigate("Notifications");
   };
 
   const handleOpenNelo = () => {
-    Alert.alert("Nelo", "Le copilote Nelo sera ouvert ici.");
+    navigation.navigate("NeloChat");
   };
 
   const handleOpenVoice = () => {
-    Alert.alert("Dictée vocale", "La dictée sera activée ici.");
+    navigation.navigate("NeloChat");
   };
 
   const handleRefreshSummary = () => {
@@ -82,7 +87,9 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleOpenDailyMessage = () => {
-    Alert.alert("Conseil du jour", homeData.dailyMessage.content);
+    navigation.navigate("DailyMessageDetail", {
+      message: homeData.dailyMessage,
+    });
   };
 
   const handleOpenMemory = () => {
@@ -100,6 +107,7 @@ export default function HomeScreen({ navigation }) {
           child={homeData.child}
           onPressChild={handleOpenChildSelector}
           onPressNotifications={handleOpenNotifications}
+          hasUnreadNotifications={hasUnreadNotifications}
         />
 
         <NeloQuestionBar

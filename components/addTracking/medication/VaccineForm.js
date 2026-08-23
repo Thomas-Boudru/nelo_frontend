@@ -109,7 +109,11 @@ export default function VaccineForm({
           pressed && styles.pressed,
         ]}
       >
-        <Ionicons name="search-outline" size={20} color={colors.textSecondary} />
+        <Ionicons
+          name="search-outline"
+          size={20}
+          color={colors.textSecondary}
+        />
 
         <Text
           numberOfLines={1}
@@ -179,7 +183,7 @@ export default function VaccineForm({
           <Ionicons
             name={hasPhotos ? "image-outline" : "document-text-outline"}
             size={19}
-            color={hasDetails ? colors.primary : colors.textSecondary}
+            color={colors.primary}
           />
         </View>
 
@@ -329,7 +333,7 @@ function createStyles(colors) {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: colors.white,
+      backgroundColor: `${colors.primary}12`,
     },
 
     noteIconActive: {

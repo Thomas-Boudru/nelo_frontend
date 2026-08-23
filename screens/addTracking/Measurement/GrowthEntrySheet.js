@@ -59,6 +59,76 @@ const MEASUREMENT_OPTIONS = [
   },
 ];
 
+function createGrowthStateFromTrackingEntry(entry) {
+  const entryData = entry?.data ?? entry ?? {};
+
+  let weight =
+    entryData.weightKg ??
+    entryData.weight ??
+    entry?.weightKg ??
+    entry?.weight ??
+    null;
+
+  let height =
+    entryData.heightCm ??
+    entryData.height ??
+    entry?.heightCm ??
+    entry?.height ??
+    null;
+
+  let headCircumference =
+    entryData.headCircumferenceCm ??
+    entryData.headCircumference ??
+    entry?.headCircumferenceCm ??
+    entry?.headCircumference ??
+    null;
+
+  /*
+   * Compatibilité avec l’ancien mock qui enregistrait
+   * une seule mesure sous measurementType + value.
+   */
+  const measurementType = entryData.measurementType ?? entry?.measurementType;
+
+  const singleValue = entryData.value ?? entry?.value ?? null;
+
+  if (measurementType === "weight" && weight === null) {
+    weight = singleValue;
+  }
+
+  if (measurementType === "height" && height === null) {
+    height = singleValue;
+  }
+
+  if (measurementType === "headCircumference" && headCircumference === null) {
+    headCircumference = singleValue;
+  }
+
+  const dateValue =
+    entryData.measuredAt ??
+    entry?.measuredAt ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasValidDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    measurements: {
+      weight,
+      height,
+      headCircumference,
+    },
+
+    measuredAt: hasValidDate ? parsedDate : new Date(),
+    hasRecordedDate: hasValidDate,
+
+    note: entryData.note ?? entry?.note ?? "",
+  };
+}
+
 function isDefined(value) {
   return value !== null && value !== undefined;
 }
@@ -72,7 +142,13 @@ function normalizeMeasurements(measurements = {}) {
 }
 
 const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
-  { previousMeasurements = EMPTY_MEASUREMENTS, onSave, onDismiss },
+  {
+    childName,
+    previousMeasurements = EMPTY_MEASUREMENTS,
+    onSave,
+    onDismiss,
+    onRequestDelete,
+  },
   ref,
 ) {
   const { t, i18n } = useTranslation();
@@ -89,6 +165,11 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   const [isNow, setIsNow] = useState(true);
   const [note, setNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
 
   const hasMeasurement = useMemo(
     () => Object.values(measurements).some(isDefined),
@@ -116,17 +197,38 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     () => ({
       present(parameters = {}) {
         const {
+          mode = "create",
+          entry = null,
+
           measurements: initialMeasurements = EMPTY_MEASUREMENTS,
+
           measuredAt,
           note: initialNote = "",
         } = parameters;
 
-        resetForm({
-          values: initialMeasurements,
-          date: measuredAt ? new Date(measuredAt) : new Date(),
-          isToday: !measuredAt,
-          initialNote,
-        });
+        setSheetMode(mode);
+
+        if (mode === "edit" && entry) {
+          const nextState = createGrowthStateFromTrackingEntry(entry);
+
+          setEditingEntry(entry);
+
+          resetForm({
+            values: nextState.measurements,
+            date: nextState.measuredAt,
+            isToday: !nextState.hasRecordedDate,
+            initialNote: nextState.note,
+          });
+        } else {
+          setEditingEntry(null);
+
+          resetForm({
+            values: initialMeasurements,
+            date: measuredAt ? new Date(measuredAt) : new Date(),
+            isToday: !measuredAt,
+            initialNote,
+          });
+        }
 
         requestAnimationFrame(() => {
           modalRef.current?.present();
@@ -134,6 +236,8 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
       },
 
       dismiss() {
+        noteSheetRef.current?.dismiss();
+        measurementPickerRef.current?.dismiss();
         modalRef.current?.dismiss();
       },
     }),
@@ -227,6 +331,14 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     setNote(normalizedNote.trim());
   }, []);
 
+  const handleRequestDelete = useCallback(() => {
+    if (!isEditMode || !editingEntry || isSaving) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  }, [editingEntry, isEditMode, isSaving, onRequestDelete]);
+
   const handleSave = useCallback(async () => {
     if (!hasMeasurement || isSaving) {
       return;
@@ -240,10 +352,17 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
       ).catch(() => {});
 
       await onSave?.({
+        ...editingEntry,
+
+        id: editingEntry?.id,
+
         type: "growth",
+        mode: sheetMode,
+
         weightKg: measurements.weight,
         heightCm: measurements.height,
         headCircumferenceCm: measurements.headCircumference,
+
         measuredAt: measurementDate,
         note: note.trim(),
       });
@@ -253,7 +372,16 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
       console.error("Unable to save growth measurement:", error);
       setIsSaving(false);
     }
-  }, [hasMeasurement, isSaving, measurementDate, measurements, note, onSave]);
+  }, [
+    editingEntry,
+    hasMeasurement,
+    isSaving,
+    measurementDate,
+    measurements,
+    note,
+    onSave,
+    sheetMode,
+  ]);
 
   return (
     <>
@@ -276,10 +404,16 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
       >
         <BottomSheetView style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>{t("Add growth")}</Text>
+            <Text style={styles.title}>
+              {isEditMode ? t("Edit growth") : t("Add growth")}
+            </Text>
 
             <Text style={styles.subtitle}>
-              {t("Record one or more measurements")}
+              {isEditMode
+                ? t("Update child's growth measurements", {
+                    childName,
+                  })
+                : t("Record one or more measurements")}
             </Text>
           </View>
 
@@ -345,12 +479,34 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
           </View>
 
           <View style={styles.footer}>
-            <PrimaryButton
-              title={t("Save growth")}
-              onPress={handleSave}
-              disabled={!hasMeasurement || isSaving}
-              loading={isSaving}
-            />
+            {isEditMode ? (
+              <View style={styles.editFooterRow}>
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                    disabled={isSaving}
+                  />
+                </View>
+
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    onPress={handleSave}
+                    disabled={!hasMeasurement || isSaving}
+                    loading={isSaving}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={t("Save growth")}
+                onPress={handleSave}
+                disabled={!hasMeasurement || isSaving}
+                loading={isSaving}
+              />
+            )}
           </View>
         </BottomSheetView>
       </BottomSheetModal>
@@ -667,6 +823,20 @@ function createStyles(colors) {
     details: {
       marginTop: 50,
       gap: 10,
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
 
     noteRow: {

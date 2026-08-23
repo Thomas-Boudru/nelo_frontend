@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -7,32 +7,38 @@ import { useTranslation } from "react-i18next";
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
+const DIAPER_ICONS = {
+  dry: require("../../../assets/illustrations/tracking/diaper/dry.png"),
+  wet: require("../../../assets/illustrations/tracking/diaper/wet.png"),
+  dirty: require("../../../assets/illustrations/tracking/diaper/dirty.png"),
+};
+
 const DIAPER_OPTIONS = [
   {
     id: "dry",
     label: "Dry",
-    icon: "sunny-outline",
+    iconType: "dry",
     color: "#8B9BB5",
     background: "#F3F6FA",
   },
   {
     id: "wet",
     label: "Wet",
-    icon: "water-outline",
+    iconType: "wet",
     color: "#4E83F7",
     background: "#EEF5FF",
   },
   {
     id: "dirty",
     label: "Dirty",
-    icon: "cloud-outline",
+    iconType: "dirty",
     color: "#D4924A",
     background: "#FFF6EA",
   },
   {
     id: "wetAndDirty",
     label: "Wet & dirty",
-    icon: "partly-sunny-outline",
+    iconType: "wetAndDirty",
     color: "#8B70D6",
     background: "#F5F1FF",
   },
@@ -44,6 +50,72 @@ const CONSISTENCIES = [
   { id: "formed", label: "Formed" },
   { id: "hard", label: "Hard" },
 ];
+
+function DiaperContentIcon({ type }) {
+  if (type === "wetAndDirty") {
+    return (
+      <View style={contentIconStyles.combined}>
+        <Image
+          source={DIAPER_ICONS.wet}
+          resizeMode="contain"
+          style={contentIconStyles.wetCombined}
+        />
+
+        <Image
+          source={DIAPER_ICONS.dirty}
+          resizeMode="contain"
+          style={contentIconStyles.dirtyCombined}
+        />
+      </View>
+    );
+  }
+
+  const source = DIAPER_ICONS[type];
+
+  if (!source) {
+    return null;
+  }
+
+  return (
+    <Image
+      source={source}
+      resizeMode="contain"
+      style={[
+        contentIconStyles.icon,
+        type === "dirty" && contentIconStyles.dirtyIcon,
+      ]}
+    />
+  );
+}
+
+const contentIconStyles = StyleSheet.create({
+  icon: {
+    width: 27,
+    height: 27,
+  },
+
+  dirtyIcon: {
+    width: 29,
+    height: 29,
+  },
+
+  combined: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+
+  wetCombined: {
+    width: 22,
+    height: 22,
+  },
+
+  dirtyCombined: {
+    width: 24,
+    height: 24,
+  },
+});
 
 export default function DiaperForm({ value, onChange, onPressNote }) {
   const { t } = useTranslation();
@@ -114,7 +186,7 @@ export default function DiaperForm({ value, onChange, onPressNote }) {
                   },
                 ]}
               >
-                <Ionicons name={option.icon} size={23} color={option.color} />
+                <DiaperContentIcon type={option.iconType} />
               </View>
 
               <Text
@@ -247,7 +319,7 @@ function DiaperNoteButton({ note, onPress, colors, styles, t }) {
         <Ionicons
           name="document-text-outline"
           size={19}
-          color={hasNote ? colors.primary : colors.textSecondary}
+          color={colors.primary}
         />
       </View>
 
@@ -320,11 +392,10 @@ function createStyles(colors) {
     optionIcon: {
       alignItems: "center",
       justifyContent: "center",
-      width: 42,
+      width: 52,
       height: 42,
       borderRadius: 15,
     },
-
     optionLabel: {
       marginTop: 9,
       textAlign: "center",
@@ -441,7 +512,7 @@ function createStyles(colors) {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: colors.white,
+      backgroundColor: `${colors.primary}12`,
     },
 
     noteTextContainer: {

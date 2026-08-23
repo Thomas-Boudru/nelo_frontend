@@ -64,6 +64,88 @@ const createVaccineEntry = () => ({
   photos: [],
 });
 
+function getTrackingEntryData(entry) {
+  return entry?.data ?? entry ?? {};
+}
+
+function getTrackingEntryDate(entry, preferredDateKey) {
+  const entryData = getTrackingEntryData(entry);
+
+  const dateValue =
+    entryData?.[preferredDateKey] ??
+    entry?.[preferredDateKey] ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasRecordedDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    date: hasRecordedDate ? parsedDate : new Date(),
+    hasRecordedDate,
+  };
+}
+
+function createMedicationEntryFromTrackingEntry(entry) {
+  const entryData = getTrackingEntryData(entry);
+
+  const { date, hasRecordedDate } = getTrackingEntryDate(
+    entry,
+    "medicationDate",
+  );
+
+  return {
+    medicationId: entryData.medicationId ?? null,
+    medicationName: entryData.medicationName ?? "",
+    medicationTranslationKey: entryData.medicationTranslationKey ?? null,
+    medicationCategory: entryData.medicationCategory ?? null,
+    isCustomMedication: entryData.isCustomMedication ?? false,
+
+    amount: String(entryData.amount ?? entryData.dose ?? ""),
+    unit: entryData.unit ?? entryData.doseUnit ?? "ml",
+
+    note: entryData.note ?? "",
+
+    medicationDate: date,
+    isDateEdited: hasRecordedDate,
+  };
+}
+
+function createVaccineEntryFromTrackingEntry(entry) {
+  const entryData = getTrackingEntryData(entry);
+
+  const { date, hasRecordedDate } = getTrackingEntryDate(entry, "vaccineDate");
+
+  const nextDoseValue = entryData.nextDoseDate ?? entryData.nextDoseAt ?? null;
+
+  const parsedNextDoseDate = nextDoseValue ? new Date(nextDoseValue) : null;
+
+  const hasValidNextDoseDate =
+    parsedNextDoseDate !== null && !Number.isNaN(parsedNextDoseDate.getTime());
+
+  return {
+    vaccineId: entryData.vaccineId ?? null,
+    vaccineName: entryData.vaccineName ?? "",
+    vaccineTranslationKey: entryData.vaccineTranslationKey ?? null,
+    vaccineCategory: entryData.vaccineCategory ?? null,
+    isCustomVaccine: entryData.isCustomVaccine ?? false,
+
+    dose: entryData.dose ?? entryData.doseNumber ?? null,
+
+    vaccineDate: date,
+    isDateEdited: hasRecordedDate,
+
+    hasNextDose: hasValidNextDoseDate,
+    nextDoseDate: hasValidNextDoseDate ? parsedNextDoseDate : null,
+
+    note: entryData.note ?? "",
+    photos: Array.isArray(entryData.photos) ? entryData.photos : [],
+  };
+}
+
 const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   {
     childName,
@@ -71,6 +153,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     recentVaccines = [],
     onSaveMedication,
     onSaveVaccine,
+    onRequestDelete,
   },
   ref,
 ) {
@@ -84,6 +167,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   const snapPoints = useMemo(() => ["92%"], []);
 
   const [selectedType, setSelectedType] = useState("medication");
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
   const [medicationEntry, setMedicationEntry] = useState(createMedicationEntry);
   const [vaccineEntry, setVaccineEntry] = useState(createVaccineEntry);
   const vaccineDetailsSheetRef = useRef(null);
@@ -91,8 +178,58 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   const noteSheetRef = useRef(null);
 
   useImperativeHandle(ref, () => ({
-    present(type = "medication") {
-      setSelectedType(type === "vaccine" ? "vaccine" : "medication");
+    present(options = {}) {
+      /*
+       * Compatibilité avec les appels existants :
+       * present("medication")
+       * present("vaccine")
+       */
+      if (typeof options === "string") {
+        const type = options === "vaccine" ? "vaccine" : "medication";
+
+        setSheetMode("create");
+        setEditingEntry(null);
+        setSelectedType(type);
+
+        if (type === "vaccine") {
+          setVaccineEntry(createVaccineEntry());
+        } else {
+          setMedicationEntry(createMedicationEntry());
+        }
+
+        modalRef.current?.present();
+        return;
+      }
+
+      const {
+        mode = "create",
+        medicationType = "medication",
+        entry = null,
+      } = options;
+
+      const type = medicationType === "vaccine" ? "vaccine" : "medication";
+
+      setSheetMode(mode);
+      setSelectedType(type);
+
+      if (mode === "edit" && entry) {
+        setEditingEntry(entry);
+
+        if (type === "vaccine") {
+          setVaccineEntry(createVaccineEntryFromTrackingEntry(entry));
+        } else {
+          setMedicationEntry(createMedicationEntryFromTrackingEntry(entry));
+        }
+      } else {
+        setEditingEntry(null);
+
+        if (type === "vaccine") {
+          setVaccineEntry(createVaccineEntry());
+        } else {
+          setMedicationEntry(createMedicationEntry());
+        }
+      }
+
       modalRef.current?.present();
     },
 
@@ -128,6 +265,14 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   const canSave =
     selectedType === "medication" ? canSaveMedication : canSaveVaccine;
 
+  const handleRequestDelete = () => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  };
+
   const handleSave = async () => {
     if (!canSave) {
       return;
@@ -135,19 +280,30 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
 
     if (selectedType === "medication") {
       await onSaveMedication?.({
+        ...editingEntry,
         ...medicationEntry,
+
+        id: editingEntry?.id,
+
         amount: medicationAmount,
         type: "medication",
+        mode: sheetMode,
       });
 
       setMedicationEntry(createMedicationEntry());
     } else {
       await onSaveVaccine?.({
+        ...editingEntry,
         ...vaccineEntry,
+
+        id: editingEntry?.id,
+
         nextDoseDate: vaccineEntry.hasNextDose
           ? vaccineEntry.nextDoseDate
           : null,
+
         type: "vaccine",
+        mode: sheetMode,
       });
 
       setVaccineEntry(createVaccineEntry());
@@ -224,21 +380,47 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
         <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.title}>
-              {selectedType === "medication"
-                ? t("Add medication")
-                : t("Add a vaccine")}
+              {isEditMode
+                ? selectedType === "medication"
+                  ? t("Edit medication")
+                  : t("Edit vaccine")
+                : selectedType === "medication"
+                  ? t("Add medication")
+                  : t("Add a vaccine")}
             </Text>
-
             <Text style={styles.subtitle}>
-              {selectedType === "medication"
-                ? t("Record medication given to child", { childName })
-                : t("Keep child vaccination history up to date", {
-                    childName,
-                  })}
+              {isEditMode
+                ? selectedType === "medication"
+                  ? t("Update child's medication", {
+                      childName,
+                    })
+                  : t("Update child's vaccine", {
+                      childName,
+                    })
+                : selectedType === "medication"
+                  ? t("Record medication given to child", {
+                      childName,
+                    })
+                  : t("Keep child vaccination history up to date", {
+                      childName,
+                    })}
             </Text>
           </View>
 
-          <MedicationTypeTabs value={selectedType} onChange={setSelectedType} />
+          {!isEditMode ? (
+            <MedicationTypeTabs
+              value={selectedType}
+              onChange={(type) => {
+                setSelectedType(type);
+
+                if (type === "vaccine") {
+                  setVaccineEntry(createVaccineEntry());
+                } else {
+                  setMedicationEntry(createMedicationEntry());
+                }
+              }}
+            />
+          ) : null}
 
           <View style={styles.formArea}>
             <BottomSheetScrollView
@@ -280,15 +462,35 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
           </View>
 
           <View style={styles.footerContainer}>
-            <PrimaryButton
-              title={
-                selectedType === "medication"
-                  ? t("Save medication")
-                  : t("Save vaccine")
-              }
-              onPress={handleSave}
-              disabled={!canSave}
-            />
+            {isEditMode ? (
+              <View style={styles.editFooterRow}>
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                  />
+                </View>
+
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    onPress={handleSave}
+                    disabled={!canSave}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={
+                  selectedType === "medication"
+                    ? t("Save medication")
+                    : t("Save vaccine")
+                }
+                onPress={handleSave}
+                disabled={!canSave}
+              />
+            )}
           </View>
         </View>
       </BottomSheetModal>
@@ -421,6 +623,20 @@ function createStyles(colors) {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.white,
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
   });
 }

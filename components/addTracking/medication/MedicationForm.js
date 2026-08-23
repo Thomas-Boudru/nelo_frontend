@@ -227,7 +227,7 @@ export default function MedicationForm({
           <Ionicons
             name="document-text-outline"
             size={19}
-            color={hasNote ? colors.primary : colors.textSecondary}
+            color={colors.primary}
           />
         </View>
 
@@ -457,7 +457,7 @@ function createStyles(colors) {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: colors.white,
+      backgroundColor: `${colors.primary}12`,
     },
 
     noteIconActive: {

@@ -15,18 +15,40 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
+import FormulaMilkIcon from "../../../assets/illustrations/tracking/milkType/formula.svg";
+import BreastMilkIcon from "../../../assets/illustrations/tracking/milkType/breast.svg";
+import MixedMilkIcon from "../../../assets/illustrations/tracking/milkType/mix.svg";
+import OtherMilkIcon from "../../../assets/illustrations/tracking/milkType/other.svg";
+
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const MILK_TYPES = [
-  { id: "formula", labelKey: "Formula", icon: "nutrition-outline" },
-  { id: "breast_milk", labelKey: "Breast milk", icon: "heart-outline" },
-  { id: "mixed", labelKey: "Mixed milk", icon: "git-merge-outline" },
-  { id: "other", labelKey: "Other milk", icon: "ellipsis-horizontal-outline" },
+  {
+    id: "formula",
+    labelKey: "Formula",
+    Icon: FormulaMilkIcon,
+  },
+  {
+    id: "breast_milk",
+    labelKey: "Breast milk",
+    Icon: BreastMilkIcon,
+  },
+  {
+    id: "mixed",
+    labelKey: "Mixed milk",
+    Icon: MixedMilkIcon,
+  },
+  {
+    id: "other",
+    labelKey: "Other milk",
+    Icon: OtherMilkIcon,
+  },
 ];
 
 const MilkTypeSheet = forwardRef(function MilkTypeSheet({ onSelect }, ref) {
   const { t } = useTranslation();
   const modalRef = useRef(null);
+
   const [selectedMilkType, setSelectedMilkType] = useState("formula");
 
   const colors = useThemeColors();
@@ -57,11 +79,14 @@ const MilkTypeSheet = forwardRef(function MilkTypeSheet({ onSelect }, ref) {
     [],
   );
 
-  const handleSelect = (milkType) => {
-    setSelectedMilkType(milkType);
-    onSelect?.(milkType);
-    modalRef.current?.dismiss();
-  };
+  const handleSelect = useCallback(
+    (milkType) => {
+      setSelectedMilkType(milkType);
+      onSelect?.(milkType);
+      modalRef.current?.dismiss();
+    },
+    [onSelect],
+  );
 
   return (
     <BottomSheetModal
@@ -86,10 +111,17 @@ const MilkTypeSheet = forwardRef(function MilkTypeSheet({ onSelect }, ref) {
         <View style={styles.options}>
           {MILK_TYPES.map((milkType) => {
             const isSelected = selectedMilkType === milkType.id;
+            const iconColor = isSelected
+              ? colors.primary
+              : colors.textSecondary;
+
+            const Icon = milkType.Icon;
 
             return (
               <Pressable
                 key={milkType.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
                 onPress={() => handleSelect(milkType.id)}
                 style={({ pressed }) => [
                   styles.option,
@@ -104,11 +136,7 @@ const MilkTypeSheet = forwardRef(function MilkTypeSheet({ onSelect }, ref) {
                       isSelected && styles.iconContainerSelected,
                     ]}
                   >
-                    <Ionicons
-                      name={milkType.icon}
-                      size={19}
-                      color={isSelected ? colors.primary : colors.textSecondary}
-                    />
+                    <Icon width={22} height={22} color={iconColor} />
                   </View>
 
                   <Text

@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -133,17 +133,12 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
 
   const isEditMode = sheetMode === "edit";
 
-  const { height: windowHeight } = useWindowDimensions();
-
   /*
-   * La librairie compare cette valeur à « hauteur du contenu + hauteur du
-   * handle » : c’est donc bien la hauteur totale visible de la sheet qui est
-   * plafonnée à 92 % de l’écran.
+   * Hauteur fixe plutôt que dimensionnement dynamique : c’est ce qui permet de
+   * garder l’en-tête et le bouton d’enregistrement immobiles, et de ne faire
+   * défiler que le formulaire (même fonctionnement que la sheet d’allaitement).
    */
-  const maxDynamicContentSize = useMemo(
-    () => Math.round(windowHeight * 0.92),
-    [windowHeight],
-  );
+  const snapPoints = useMemo(() => ["92%"], []);
 
   const resetEntryForType = useCallback((type) => {
     if (type === "diaper") {
@@ -314,8 +309,8 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
       <BottomSheetModal
         ref={modalRef}
         index={0}
-        enableDynamicSizing
-        maxDynamicContentSize={maxDynamicContentSize}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBackground}
@@ -323,17 +318,7 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
       >
-        {/*
-         * C’est ce scroll qui mesure le contenu et donne sa hauteur à la sheet.
-         * Toute la page vit donc dedans — en-tête, onglets, formulaire et
-         * boutons : sinon leur hauteur n’est jamais comptée et le bas de la
-         * sheet se retrouve coupé.
-         */}
-        <BottomSheetScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.title}>{title}</Text>
 
@@ -350,20 +335,31 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
             />
           ) : null}
 
+          {/*
+           * Seul le formulaire défile : l’en-tête, les onglets et le footer
+           * restent fixes puisqu’ils vivent en dehors de ce scroll.
+           */}
           <View style={[styles.formArea, isEditMode && styles.formAreaEditing]}>
-            {selectedType === "diaper" ? (
-              <DiaperForm
-                value={diaperEntry}
-                onChange={setDiaperEntry}
-                onPressNote={handleOpenDiaperNote}
-              />
-            ) : (
-              <PottyForm
-                value={pottyEntry}
-                onChange={setPottyEntry}
-                onPressNote={handleOpenPottyNote}
-              />
-            )}
+            <BottomSheetScrollView
+              style={styles.formScroll}
+              contentContainerStyle={styles.formScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {selectedType === "diaper" ? (
+                <DiaperForm
+                  value={diaperEntry}
+                  onChange={setDiaperEntry}
+                  onPressNote={handleOpenDiaperNote}
+                />
+              ) : (
+                <PottyForm
+                  value={pottyEntry}
+                  onChange={setPottyEntry}
+                  onPressNote={handleOpenPottyNote}
+                />
+              )}
+            </BottomSheetScrollView>
           </View>
 
           <View style={styles.footerContainer}>
@@ -395,7 +391,7 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
               />
             )}
           </View>
-        </BottomSheetScrollView>
+        </View>
       </BottomSheetModal>
 
       <NoteSheet
@@ -449,12 +445,8 @@ function createStyles(colors) {
       backgroundColor: colors.border,
     },
 
-    /*
-     * Aucun `flex: 1` ni `flexGrow` ici : en dimensionnement dynamique, c’est
-     * le contenu qui donne sa hauteur à la sheet, pas l’inverse.
-     */
-    scrollContent: {
-      paddingBottom: 0,
+    content: {
+      flex: 1,
     },
 
     header: {
@@ -480,17 +472,30 @@ function createStyles(colors) {
     },
 
     formArea: {
+      flex: 1,
+      minHeight: 0,
+    },
+
+    // Sans les onglets, le formulaire respire un peu plus sous le titre.
+    formAreaEditing: {
+      paddingTop: 8,
+    },
+
+    formScroll: {
+      flex: 1,
+    },
+
+    formScrollContent: {
+      flexGrow: 1,
+
       paddingHorizontal: 20,
       paddingTop: 22,
       paddingBottom: 20,
     },
 
-    // Sans les onglets, le formulaire respire un peu plus sous le titre.
-    formAreaEditing: {
-      paddingTop: 30,
-    },
-
     footerContainer: {
+      flexShrink: 0,
+
       paddingHorizontal: 20,
       paddingTop: 12,
       paddingBottom: 14,

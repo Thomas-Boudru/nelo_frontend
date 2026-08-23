@@ -1,34 +1,105 @@
 import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
+const POTTY_ICONS = {
+  wet: require("../../../assets/illustrations/tracking/diaper/wet.png"),
+  dirty: require("../../../assets/illustrations/tracking/diaper/dirty.png"),
+};
+
 const POTTY_OPTIONS = [
   {
     id: "pee",
     label: "Pee",
-    icon: "water-outline",
+    iconType: "wet",
     color: "#4E83F7",
     background: "#EEF5FF",
   },
   {
     id: "poop",
     label: "Poop",
-    icon: "cloud-outline",
+    iconType: "dirty",
     color: "#D4924A",
     background: "#FFF6EA",
   },
   {
     id: "peeAndPoop",
     label: "Pee & poop",
-    icon: "partly-sunny-outline",
+    iconType: "wetAndDirty",
     color: "#8B70D6",
     background: "#F5F1FF",
   },
 ];
+
+function PottyContentIcon({ type }) {
+  if (type === "wetAndDirty") {
+    return (
+      <View style={contentIconStyles.combined}>
+        <Image
+          source={POTTY_ICONS.wet}
+          resizeMode="contain"
+          style={contentIconStyles.wetCombined}
+        />
+
+        <Image
+          source={POTTY_ICONS.dirty}
+          resizeMode="contain"
+          style={contentIconStyles.dirtyCombined}
+        />
+      </View>
+    );
+  }
+
+  const source = POTTY_ICONS[type];
+
+  if (!source) {
+    return null;
+  }
+
+  return (
+    <Image
+      source={source}
+      resizeMode="contain"
+      style={[
+        contentIconStyles.icon,
+        type === "dirty" && contentIconStyles.dirtyIcon,
+      ]}
+    />
+  );
+}
+
+const contentIconStyles = StyleSheet.create({
+  icon: {
+    width: 27,
+    height: 27,
+  },
+
+  dirtyIcon: {
+    width: 29,
+    height: 29,
+  },
+
+  combined: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+
+  wetCombined: {
+    width: 23,
+    height: 23,
+  },
+
+  dirtyCombined: {
+    width: 25,
+    height: 25,
+  },
+});
 
 export default function PottyForm({ value, onChange, onPressNote }) {
   const { t } = useTranslation();
@@ -83,12 +154,13 @@ export default function PottyForm({ value, onChange, onPressNote }) {
                   },
                 ]}
               >
-                <Ionicons name={option.icon} size={23} color={option.color} />
+                <PottyContentIcon type={option.iconType} />
               </View>
 
               <Text
                 style={[
                   styles.optionLabel,
+                  isBothOption && styles.optionLabelWide,
                   isSelected && {
                     color: option.color,
                   },
@@ -200,7 +272,7 @@ function PottyNoteButton({ note, onPress, colors, styles, t }) {
         <Ionicons
           name="document-text-outline"
           size={19}
-          color={hasNote ? colors.primary : colors.textSecondary}
+          color={colors.primary}
         />
       </View>
 
@@ -279,7 +351,7 @@ function createStyles(colors) {
     optionIcon: {
       alignItems: "center",
       justifyContent: "center",
-      width: 42,
+      width: 52,
       height: 42,
       borderRadius: 15,
     },
@@ -392,7 +464,7 @@ function createStyles(colors) {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: colors.white,
+      backgroundColor: `${colors.primary}12`,
     },
 
     noteTextContainer: {
@@ -424,6 +496,10 @@ function createStyles(colors) {
       height: 8,
       borderRadius: 999,
       backgroundColor: colors.primary,
+    },
+
+    optionLabelWide: {
+      marginTop: 0,
     },
   });
 }

@@ -19,14 +19,17 @@ import TrackingHeader from "../../components/tracking/byDay/TrackingHeader.js";
 import TrackingViewSwitcher from "../../components/tracking/byDay/TrackingViewSwitcher.js";
 import TrackingDayToolbar from "../../components/tracking/byDay/TrackingDayToolbar.js";
 import TrackingTimeline from "../../components/tracking/byDay/TrackingTimeline.js";
+import TrackingWeekChart from "../../components/tracking/byDay/TrackingWeekChart.js";
 
 import TrackingByTypeView from "../../components/tracking/byTracking/TrackingByTypeView.js";
 
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
+import ShareChildDataSheet from "../child/Share/ShareChildDataSheet.js";
 
 import {
   mockTrackingChildren,
   mockTrackingDay,
+  mockSleepHistoryEntries,
   TRACKING_TYPE_CONFIG,
 } from "../../data/mockTrackingData.js";
 
@@ -38,6 +41,16 @@ const EMPTY_SUMMARY = {
   sleepDurationMinutes: 0,
   diaperCount: 0,
 };
+
+const INITIAL_ACTIVE_LINKS = [
+  {
+    id: "link-1",
+    label: "Last 7 days",
+    createdDateLabel: "Aug 17",
+    expiryDateLabel: "Aug 24",
+    url: "https://nelo.app/share/example",
+  },
+];
 
 function createLocalDate(dateKey) {
   const [year, month, day] = dateKey.split("-").map(Number);
@@ -119,21 +132,16 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const childSelectorSheetRef = useRef(null);
+  const shareChildDataSheetRef = useRef(null);
 
   const [selectedChildId, setSelectedChildId] = useState("emma");
 
   const [viewMode, setViewMode] = useState("day");
 
-  const [selectedFilterId, setSelectedFilterId] = useState("all");
+  const [selectedFilterIds, setSelectedFilterIds] = useState([]);
+  const [dayDisplayMode, setDayDisplayMode] = useState("timeline");
+  const [activeLinks, setActiveLinks] = useState(INITIAL_ACTIVE_LINKS);
 
-  /*
-   * On utilise temporairement la date des données mockées
-   * pour afficher immédiatement la timeline.
-   *
-   * Avec les vraies données, tu pourras remplacer par :
-   *
-   * useState(() => normalizeDate(new Date()))
-   */
   const [selectedDate, setSelectedDate] = useState(() =>
     createLocalDate(mockTrackingDay.date),
   );
@@ -169,6 +177,14 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
   const selectedDayEntries = selectedDay?.entries ?? [];
 
+  const chartEntries = useMemo(() => {
+    const nonSleepDayEntries = selectedDayEntries.filter(
+      (entry) => entry.type !== "sleep",
+    );
+
+    return [...mockSleepHistoryEntries, ...nonSleepDayEntries];
+  }, [selectedDayEntries]);
+
   const dateLabel = useMemo(
     () => formatSelectedDate(selectedDate, i18n.language, t),
     [i18n.language, selectedDate, t],
@@ -203,7 +219,7 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
   const handleSelectChild = (child) => {
     setSelectedChildId(child.id);
-    setSelectedFilterId("all");
+    setSelectedFilterIds([]);
   };
 
   const handleAddChild = () => {
@@ -214,10 +230,35 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
     setViewMode(mode);
   };
 
+  const handleSelectFilter = (filterId) => {
+    if (filterId === "all") {
+      setSelectedFilterIds([]);
+      return;
+    }
+
+    setSelectedFilterIds((currentFilterIds) => {
+      const isAlreadySelected = currentFilterIds.includes(filterId);
+
+      if (isAlreadySelected) {
+        return currentFilterIds.filter(
+          (currentFilterId) => currentFilterId !== filterId,
+        );
+      }
+
+      return [...currentFilterIds, filterId];
+    });
+  };
+
+  const handleToggleDayDisplayMode = () => {
+    setDayDisplayMode((currentMode) =>
+      currentMode === "timeline" ? "chart" : "timeline",
+    );
+  };
+
   const handlePreviousDay = () => {
     setSelectedDate((currentDate) => addDays(currentDate, -1));
 
-    setSelectedFilterId("all");
+    setSelectedFilterIds([]);
   };
 
   const handleNextDay = () => {
@@ -227,12 +268,12 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
     setSelectedDate((currentDate) => addDays(currentDate, 1));
 
-    setSelectedFilterId("all");
+    setSelectedFilterIds([]);
   };
 
   const handleSelectDate = (date) => {
     setSelectedDate(normalizeDate(date));
-    setSelectedFilterId("all");
+    setSelectedFilterIds([]);
   };
 
   const handleOpenDatePicker = () => {
@@ -274,17 +315,107 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   };
 
   const handlePressTrackingType = (item) => {
-    const title = item.titleKey ? t(item.titleKey) : item.title;
+    if (!item?.id) {
+      return;
+    }
 
-    Alert.alert(title, t("This tracking page will open here."));
+    switch (item.id) {
+      case "temperature":
+      case "medication":
+      case "vaccine":
+      case "teething":
+      case "note":
+        navigation.navigate("TrackingTypeHistory", {
+          trackingType: item.id,
+          titleKey: item.titleKey,
+        });
+        return;
 
-    /*
-     * Plus tard :
-     *
-     * navigation.navigate("TrackingDetails", {
-     *   trackingType: item.id,
-     * });
-     */
+      case "symptoms":
+      case "feeding":
+      case "diaper":
+      case "mood":
+        navigation.navigate("TrackingStatsHistory", {
+          trackingType: item.id,
+          titleKey: item.titleKey,
+        });
+        return;
+
+      case "sleep":
+        navigation.navigate("SleepHistory");
+        return;
+      case "growth":
+        navigation.navigate("GrowthHistory");
+        return;
+
+      default:
+        console.log("Unknown tracking type:", item.id);
+    }
+  };
+  const handleCreateLink = (options = {}) => {
+    const now = new Date();
+
+    const newLink = {
+      id: `link-${Date.now()}`,
+      label: options.periodLabel ?? "Last 7 days",
+      createdDateLabel: new Intl.DateTimeFormat(i18n.language, {
+        day: "numeric",
+        month: "short",
+      }).format(now),
+      expiryDateLabel: "No expiry",
+      url: `https://nelo.app/share/demo-${Date.now()}`,
+    };
+
+    console.log("[Share child data] Link created:", {
+      ...options,
+      link: newLink,
+    });
+
+    setActiveLinks((currentLinks) => [newLink, ...currentLinks]);
+
+    return newLink;
+  };
+
+  const openCustomPeriodPicker = () => {
+    console.log("[Share child data] Open custom period picker");
+
+    Alert.alert(
+      t("Custom period"),
+      t("The custom period picker will be connected later."),
+    );
+  };
+
+  const handleShareLink = (link) => {
+    console.log("[Share child data] Share link:", link);
+
+    Alert.alert(
+      t("Share link"),
+      link?.url ?? t("No sharing link is available."),
+    );
+  };
+
+  const handleCopyLink = (link) => {
+    console.log("[Share child data] Copy link:", link);
+
+    Alert.alert(
+      t("Link copied"),
+      link?.url ?? t("No sharing link is available."),
+    );
+  };
+
+  const handleDisableLink = async (link) => {
+    if (!link?.id) {
+      console.warn("[Share child data] Missing link ID.");
+      return false;
+    }
+
+    console.log("[Share child data] Link disabled:", link.id);
+
+    setActiveLinks((currentLinks) =>
+      currentLinks.filter((currentLink) => currentLink.id !== link.id),
+    );
+
+    return true;
   };
 
   return (
@@ -297,6 +428,18 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
         <TrackingHeader
           child={selectedChild}
           onPressChild={handleOpenChildSelector}
+          onPressShare={() => shareChildDataSheetRef.current?.present()}
+        />
+
+        <ShareChildDataSheet
+          ref={shareChildDataSheetRef}
+          child={selectedChild}
+          activeLinks={activeLinks}
+          onCreateLink={handleCreateLink}
+          onSelectCustomPeriod={openCustomPeriodPicker}
+          onShareLink={handleShareLink}
+          onCopyLink={handleCopyLink}
+          onDisableLink={handleDisableLink}
         />
 
         <TrackingViewSwitcher
@@ -310,18 +453,29 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
               dateLabel={dateLabel}
               isNextDayDisabled={isNextDayDisabled}
               filterValues={filterValues}
-              selectedFilterId={selectedFilterId}
+              selectedFilterIds={selectedFilterIds}
+              viewMode={dayDisplayMode}
               onPressDate={handleOpenDatePicker}
               onPressPreviousDay={handlePreviousDay}
               onPressNextDay={handleNextDay}
-              onSelectFilter={setSelectedFilterId}
+              onSelectFilter={handleSelectFilter}
+              onToggleView={handleToggleDayDisplayMode}
             />
 
-            <TrackingTimeline
-              entries={selectedDayEntries}
-              selectedFilterId={selectedFilterId}
-              onPressEntry={handlePressEntry}
-            />
+            {dayDisplayMode === "timeline" ? (
+              <TrackingTimeline
+                entries={selectedDayEntries}
+                selectedFilterIds={selectedFilterIds}
+                onPressEntry={handlePressEntry}
+              />
+            ) : (
+              <TrackingWeekChart
+                entries={chartEntries}
+                endDate={selectedDate}
+                selectedFilterIds={selectedFilterIds}
+                onPressEntry={handlePressEntry}
+              />
+            )}
           </>
         ) : (
           <TrackingByTypeView onPressTrackingType={handlePressTrackingType} />
@@ -505,5 +659,27 @@ const createStyles = (colors) =>
     actionPressed: {
       opacity: 0.65,
       transform: [{ scale: 0.97 }],
+    },
+
+    chartPlaceholder: {
+      minHeight: 300,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      marginHorizontal: 20,
+      marginTop: 20,
+
+      borderRadius: 20,
+
+      backgroundColor: colors.white,
+    },
+
+    chartPlaceholderText: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 14,
+      lineHeight: 20,
+
+      color: colors.textSecondary,
     },
   });

@@ -13,12 +13,6 @@ import { useTranslation } from "react-i18next";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
-/**
- * `title`, `mode`, `emptyLabel` et `onClear` sont optionnels et conservent le
- * comportement d’origine par défaut : la ligne sert aussi bien à l’heure d’une
- * prise (date + heure, plafonnée à maintenant) qu’à une date future comme la
- * prochaine dose d’un vaccin, sans dupliquer le picker.
- */
 export default function DateTimeRow({
   value = new Date(),
   isNow = true,

@@ -30,7 +30,7 @@ export default function DailyMessageCard({ message, onPress }) {
         <Text style={styles.title}>{t("A little note for today")}</Text>
 
         <Text style={styles.description} numberOfLines={3}>
-          {message.content}
+          {message.summary}
         </Text>
       </View>
 

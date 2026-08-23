@@ -29,7 +29,7 @@ import * as Haptics from "expo-haptics";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
-import NoteSheet from "../../../screens/addTracking/Feeding/NoteSheet.js";
+import NoteSheet from "../Feeding/NoteSheet.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const mouthBackground = require("../../../assets/illustrations/tracking/teething/mouth.png");
@@ -323,6 +323,57 @@ const TEETH = [
   },
 ];
 
+const TOOTH_ID_ALIASES = {
+  "lower-central-incisor-left": "lowerLeftCentralIncisor",
+  "lower-central-incisor-right": "lowerRightCentralIncisor",
+  "upper-central-incisor-left": "upperLeftCentralIncisor",
+  "upper-central-incisor-right": "upperRightCentralIncisor",
+};
+
+function normalizeToothId(toothId) {
+  return TOOTH_ID_ALIASES[toothId] ?? toothId;
+}
+
+function createTeethingStateFromTrackingEntry(entry) {
+  const entryData = entry?.data ?? entry ?? {};
+
+  let teeth = [];
+
+  if (Array.isArray(entryData.teeth)) {
+    teeth = entryData.teeth;
+  } else if (Array.isArray(entryData.toothIds)) {
+    teeth = entryData.toothIds;
+  } else if (entryData.toothId) {
+    teeth = [entryData.toothId];
+  }
+
+  const validToothIds = new Set(TEETH.map((tooth) => tooth.id));
+
+  const normalizedTeeth = teeth
+    .map(normalizeToothId)
+    .filter((toothId) => validToothIds.has(toothId));
+
+  const dateValue =
+    entryData.teethingDate ??
+    entryData.date ??
+    entry?.teethingDate ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasValidDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    teeth: normalizedTeeth,
+    date: hasValidDate ? parsedDate : new Date(),
+    hasRecordedDate: hasValidDate,
+    note: entryData.note ?? "",
+  };
+}
+
 function ToothSlot({ tooth, scale, isErupted, isSelected, selectedColor }) {
   const animatedScale = useRef(new Animated.Value(isErupted ? 1 : 0)).current;
 
@@ -606,7 +657,7 @@ function ResponsiveTeethingMouth({
 }
 
 const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
-  { childName, eruptedTeeth = [], onSave },
+  { childName, eruptedTeeth = [], onSave, onRequestDelete },
   ref,
 ) {
   const { t } = useTranslation();
@@ -624,24 +675,77 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
   const [isTeethingDateToday, setIsTeethingDateToday] = useState(true);
   const [note, setNote] = useState("");
 
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [editingEntryTeeth, setEditingEntryTeeth] = useState([]);
+
+  const isEditMode = sheetMode === "edit";
+
   const canSave = selectedTeeth.length > 0;
+
+  const lockedEruptedTeeth = useMemo(() => {
+    if (!isEditMode) {
+      return eruptedTeeth;
+    }
+    return eruptedTeeth.filter(
+      (toothId) => !editingEntryTeeth.includes(toothId),
+    );
+  }, [editingEntryTeeth, eruptedTeeth, isEditMode]);
 
   const resetForm = useCallback(() => {
     setSelectedTeeth([]);
     setTeethingDate(new Date());
     setIsTeethingDateToday(true);
     setNote("");
+
+    setSheetMode("create");
+    setEditingEntry(null);
+    setEditingEntryTeeth([]);
   }, []);
 
   useImperativeHandle(
     ref,
     () => ({
-      present() {
-        resetForm();
+      present(options = {}) {
+        /*
+         * Compatibilité avec :
+         * teethingSheetRef.current?.present()
+         */
+        if (!options || typeof options !== "object") {
+          resetForm();
+          modalRef.current?.present();
+          return;
+        }
+
+        const { mode = "create", entry = null } = options;
+
+        setSheetMode(mode);
+
+        if (mode === "edit" && entry) {
+          const nextState = createTeethingStateFromTrackingEntry(entry);
+
+          setEditingEntry(entry);
+          setEditingEntryTeeth(nextState.teeth);
+
+          setSelectedTeeth(nextState.teeth);
+          setTeethingDate(nextState.date);
+          setIsTeethingDateToday(!nextState.hasRecordedDate);
+          setNote(nextState.note);
+        } else {
+          setEditingEntry(null);
+          setEditingEntryTeeth([]);
+
+          setSelectedTeeth([]);
+          setTeethingDate(new Date());
+          setIsTeethingDateToday(true);
+          setNote("");
+        }
+
         modalRef.current?.present();
       },
 
       dismiss() {
+        noteSheetRef.current?.dismiss();
         modalRef.current?.dismiss();
       },
     }),
@@ -663,7 +767,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
 
   const handleToggleTooth = useCallback(
     (toothId) => {
-      if (eruptedTeeth.includes(toothId)) {
+      if (lockedEruptedTeeth.includes(toothId)) {
         return;
       }
 
@@ -677,12 +781,20 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
         return [...currentTeeth, toothId];
       });
     },
-    [eruptedTeeth],
+    [lockedEruptedTeeth],
   );
 
   const handleOpenNote = useCallback(() => {
     noteSheetRef.current?.present(note);
   }, [note]);
+
+  const handleRequestDelete = useCallback(() => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  }, [editingEntry, isEditMode, onRequestDelete]);
 
   const handleSave = useCallback(async () => {
     if (!canSave) {
@@ -694,14 +806,27 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
     ).catch(() => {});
 
     await onSave?.({
+      ...editingEntry,
+
+      id: editingEntry?.id,
+
       type: "teething",
+      mode: sheetMode,
+
       teeth: selectedTeeth,
       date: teethingDate,
       note: note.trim() || null,
     });
-
     modalRef.current?.dismiss();
-  }, [canSave, note, onSave, selectedTeeth, teethingDate]);
+  }, [
+    canSave,
+    editingEntry,
+    note,
+    onSave,
+    selectedTeeth,
+    sheetMode,
+    teethingDate,
+  ]);
 
   return (
     <>
@@ -721,10 +846,16 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
       >
         <View style={dynamicStyles.content}>
           <View style={dynamicStyles.header}>
-            <Text style={dynamicStyles.title}>{t("Add teething")}</Text>
+            <Text style={dynamicStyles.title}>
+              {isEditMode ? t("Edit teething") : t("Add teething")}
+            </Text>
 
             <Text style={dynamicStyles.subtitle}>
-              {t("Select the teeth that have appeared.")}
+              {isEditMode
+                ? t("Update the teeth recorded for child", {
+                    childName,
+                  })
+                : t("Select the teeth that have appeared.")}
             </Text>
           </View>
 
@@ -737,7 +868,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
             >
               <View style={dynamicStyles.mouthSection}>
                 <ResponsiveTeethingMouth
-                  eruptedTeeth={eruptedTeeth}
+                  eruptedTeeth={lockedEruptedTeeth}
                   selectedTeeth={selectedTeeth}
                   onToggleTooth={handleToggleTooth}
                   selectedColor={colors.primary}
@@ -802,11 +933,31 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
           </View>
 
           <View style={dynamicStyles.footer}>
-            <PrimaryButton
-              title={t("Save teething")}
-              onPress={handleSave}
-              disabled={!canSave}
-            />
+            {isEditMode ? (
+              <View style={dynamicStyles.editFooterRow}>
+                <View style={dynamicStyles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                  />
+                </View>
+
+                <View style={dynamicStyles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    onPress={handleSave}
+                    disabled={!canSave}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={t("Save teething")}
+                onPress={handleSave}
+                disabled={!canSave}
+              />
+            )}
           </View>
         </View>
       </BottomSheetModal>
@@ -976,6 +1127,20 @@ function createDynamicStyles(colors) {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       backgroundColor: colors.white,
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
 
     pressed: {

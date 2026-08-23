@@ -21,6 +21,7 @@ export default function HomeHeader({
   child,
   onPressChild,
   onPressNotifications,
+  hasUnreadNotifications = false,
 }) {
   const { t } = useTranslation();
 
@@ -73,7 +74,13 @@ export default function HomeHeader({
               color={colors.textSecondary}
             />
 
-            <View style={styles.notificationBadge} />
+            {hasUnreadNotifications && (
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={styles.notificationBadge}
+              />
+            )}
           </Pressable>
         </View>
       </View>
@@ -221,7 +228,7 @@ const createStyles = (colors) =>
       borderWidth: 2,
       borderColor: colors.white,
 
-      backgroundColor: colors.notification,
+      backgroundColor: colors.primary,
     },
 
     hero: {

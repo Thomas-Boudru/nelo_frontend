@@ -31,6 +31,8 @@ import * as WebBrowser from "expo-web-browser";
 import DeleteChildProfileSheet from "./DeleteChildProfileSheet.js";
 import EditChildProfileScreen from "./EditChildProfileScreen.js";
 import ChildPictureSheet from "./ChildPictureScreen.js";
+import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
+import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
 
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
 
@@ -42,7 +44,7 @@ const WEIGHT_IMAGE = require("../../assets/illustrations/tracking/weightBlue.png
 
 const HEIGHT_IMAGE = require("../../assets/illustrations/tracking/height.png");
 
-const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/head.png");
+const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/headBlue.png");
 
 const BABY_FALLBACK_IMAGES = {
   blue: require("../../assets/icons/header/babyBlue.png"),
@@ -287,6 +289,7 @@ export default function ChildProfileScreen({ navigation }) {
   const inviteMemberSheetRef = useRef(null);
   const memberDetailsSheetRef = useRef(null);
   const measurementUnitsSheetRef = useRef(null);
+  const shareChildDataSheetRef = useRef(null);
 
   const myAccountSheetRef = useRef(null);
   const editFirstNameSheetRef = useRef(null);
@@ -307,6 +310,7 @@ export default function ChildProfileScreen({ navigation }) {
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUpdatingChildPicture, setIsUpdatingChildPicture] = useState(false);
+  const [activeShareLinks, setActiveShareLinks] = useState([]);
 
   const [measurementUnits, setMeasurementUnits] = useState({
     weight: "kg",
@@ -454,6 +458,89 @@ export default function ChildProfileScreen({ navigation }) {
     }, 250);
   };
 
+  const handleOpenShareTrackingData = () => {
+    shareChildDataSheetRef.current?.present();
+  };
+
+  const handleCreateTrackingLink = async ({
+    period,
+    periodLabel,
+    includeAttachments,
+  }) => {
+    const now = new Date();
+    const expiryDate = new Date();
+
+    expiryDate.setDate(expiryDate.getDate() + 7);
+
+    const newLink = {
+      id: `link-${Date.now()}`,
+      label: periodLabel ?? "Last 7 days",
+
+      createdDateLabel: new Intl.DateTimeFormat("en", {
+        day: "numeric",
+        month: "short",
+      }).format(now),
+
+      expiryDateLabel: new Intl.DateTimeFormat("en", {
+        day: "numeric",
+        month: "short",
+      }).format(expiryDate),
+
+      url: `https://nelo.app/share/${Date.now()}`,
+
+      period,
+      includeAttachments,
+    };
+
+    console.log("[Child profile] Create tracking link:", newLink);
+
+    setActiveShareLinks((currentLinks) => [newLink, ...currentLinks]);
+
+    return newLink;
+  };
+
+  const handleCopyTrackingLink = async (link) => {
+    console.log("[Child profile] Copy tracking link:", link?.url);
+
+    showToast({
+      type: "success",
+      title: t("Link copied"),
+      message: t("The secure link has been copied"),
+    });
+
+    return true;
+  };
+
+  const handleDisableTrackingLink = async (link) => {
+    if (!link?.id) {
+      return false;
+    }
+
+    console.log("[Child profile] Disable tracking link:", link.id);
+
+    setActiveShareLinks((currentLinks) =>
+      currentLinks.filter((currentLink) => currentLink.id !== link.id),
+    );
+
+    showToast({
+      type: "success",
+      title: t("Link disabled"),
+      message: t("The secure link is no longer accessible"),
+    });
+
+    return true;
+  };
+
+  const handleSelectCustomSharePeriod = () => {
+    console.log("[Child profile] Open custom share period picker");
+
+    showToast({
+      type: "info",
+      title: t("Custom period"),
+      message: t("Custom period selection will be added later"),
+    });
+  };
+
   const handleRemoveMember = async ({ memberId }) => {
     setIsRemovingMember(true);
 
@@ -541,10 +628,10 @@ export default function ChildProfileScreen({ navigation }) {
                   <Image source={child.profilePicture} style={styles.avatar} />
                 ) : (
                   <View style={styles.avatarFallback}>
-                    <Image
-                      source={babyFallbackImage}
-                      resizeMode="contain"
-                      style={styles.avatarFallbackImage}
+                    <BabyFaceIcon
+                      width={82}
+                      height={82}
+                      color={colors.primary}
                     />
                   </View>
                 )}
@@ -696,6 +783,15 @@ export default function ChildProfileScreen({ navigation }) {
             title={t("Feeding preferences")}
             value={feedingPreferencesLabel}
             onPress={handleOpenFeedingPreferences}
+            colors={colors}
+            styles={styles}
+          />
+
+          <ProfileSettingRow
+            icon="link-outline"
+            title={t("Share tracking data")}
+            value={t("Secure link")}
+            onPress={handleOpenShareTrackingData}
             colors={colors}
             styles={styles}
           />
@@ -889,6 +985,19 @@ export default function ChildProfileScreen({ navigation }) {
         ref={trackingPreferencesSheetRef}
         visibleTrackingIds={visibleTrackingIds}
         onSave={handleSaveTrackingPreferences}
+      />
+
+      <ShareChildDataSheet
+        ref={shareChildDataSheetRef}
+        child={{
+          ...child,
+          name: child.firstName,
+        }}
+        activeLinks={activeShareLinks}
+        onCreateLink={handleCreateTrackingLink}
+        onSelectCustomPeriod={handleSelectCustomSharePeriod}
+        onCopyLink={handleCopyTrackingLink}
+        onDisableLink={handleDisableTrackingLink}
       />
 
       <ShareChildProfileSheet

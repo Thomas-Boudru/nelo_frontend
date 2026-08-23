@@ -61,6 +61,45 @@ function normalizeTemperature(value) {
   return Math.round(clampedValue * 10) / 10;
 }
 
+function createTemperatureStateFromTrackingEntry(entry) {
+  const entryData = entry?.data ?? entry ?? {};
+
+  const rawTemperature =
+    entryData.temperature ??
+    entryData.value ??
+    entry?.temperature ??
+    entry?.value ??
+    DEFAULT_TEMPERATURE;
+
+  const normalizedTemperature = normalizeTemperature(Number(rawTemperature));
+
+  const dateValue =
+    entryData.measuredAt ??
+    entryData.temperatureDate ??
+    entry?.measuredAt ??
+    entry?.temperatureDate ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasValidDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    temperature: normalizedTemperature,
+    measuredAt: hasValidDate ? parsedDate : new Date(),
+
+    location:
+      entryData.location ??
+      entryData.measurementLocation ??
+      entry?.location ??
+      entry?.measurementLocation ??
+      "forehead",
+  };
+}
+
 function getTemperatureStatus(temperature) {
   if (temperature >= 38) {
     return {
@@ -127,9 +166,11 @@ function IllustratedControlButton({
 
 const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   {
+    childName,
     initialLocation = "forehead",
     initialTemperature = DEFAULT_TEMPERATURE,
     onSave,
+    onRequestDelete,
   },
   ref,
 ) {
@@ -154,6 +195,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   const [measuredAt, setMeasuredAt] = useState(new Date());
   const [location, setLocation] = useState(initialLocation);
   const [isEditing, setIsEditing] = useState(false);
+
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
 
   const thermometerWidth = Math.min(
     Math.max(screenWidth - 48, 250),
@@ -185,23 +231,61 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     setLocation(initialLocation);
     setIsEditing(false);
 
+    setSheetMode("create");
+    setEditingEntry(null);
+
     locationSheetRef.current?.dismiss();
   }, [initialLocation, initialTemperature]);
 
   useImperativeHandle(
     ref,
     () => ({
-      present: () => {
-        reset();
+      present(options = {}) {
+        /*
+         * Compatibilité avec l’appel existant :
+         * temperatureSheetRef.current?.present()
+         */
+        if (!options || typeof options !== "object") {
+          reset();
+          sheetRef.current?.present();
+          return;
+        }
+
+        const { mode = "create", entry = null } = options;
+
+        setSheetMode(mode);
+        setIsEditing(false);
+
+        if (mode === "edit" && entry) {
+          const nextState = createTemperatureStateFromTrackingEntry(entry);
+
+          setEditingEntry(entry);
+
+          setTemperature(nextState.temperature);
+          setDraftTemperature(nextState.temperature.toFixed(1));
+          setMeasuredAt(nextState.measuredAt);
+          setLocation(nextState.location);
+        } else {
+          const nextTemperature = normalizeTemperature(initialTemperature);
+
+          setEditingEntry(null);
+
+          setTemperature(nextTemperature);
+          setDraftTemperature(nextTemperature.toFixed(1));
+          setMeasuredAt(new Date());
+          setLocation(initialLocation);
+        }
+
+        locationSheetRef.current?.dismiss();
         sheetRef.current?.present();
       },
 
-      dismiss: () => {
+      dismiss() {
         locationSheetRef.current?.dismiss();
         sheetRef.current?.dismiss();
       },
     }),
-    [reset],
+    [initialLocation, initialTemperature, reset],
   );
 
   const changeTemperature = useCallback((direction) => {
@@ -252,6 +336,14 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     Keyboard.dismiss();
   }, [draftTemperature, temperature]);
 
+  const handleRequestDelete = useCallback(() => {
+    if (!isEditMode || !editingEntry) {
+      return;
+    }
+
+    onRequestDelete?.(editingEntry);
+  }, [editingEntry, isEditMode, onRequestDelete]);
+
   const handleSave = useCallback(async () => {
     if (isEditing) {
       commitDraft();
@@ -262,10 +354,19 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     ).catch(() => {});
 
     onSave?.({
+      ...editingEntry,
+
+      id: editingEntry?.id,
+
       temperature,
+      value: temperature,
       unit: "celsius",
       location,
+      measurementLocation: location,
       measuredAt,
+
+      type: "temperature",
+      mode: sheetMode,
     });
 
     sheetRef.current?.dismiss();
@@ -303,10 +404,16 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
         >
           <View style={dynamicStyles.header}>
             <View style={dynamicStyles.headerText}>
-              <Text style={dynamicStyles.title}>{t("Temperature")}</Text>
+              <Text style={dynamicStyles.title}>
+                {isEditMode ? t("Edit temperature") : t("Temperature")}
+              </Text>
 
               <Text style={dynamicStyles.subtitle}>
-                {t("Record your baby's temperature")}
+                {isEditMode
+                  ? t("Update child's temperature", {
+                      childName,
+                    })
+                  : t("Record your baby's temperature")}
               </Text>
             </View>
           </View>
@@ -484,11 +591,27 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
 
           <DateTimeRow date={measuredAt} onChange={setMeasuredAt} />
 
-          <PrimaryButton
-            title={t("Save temperature")}
-            onPress={handleSave}
-            style={dynamicStyles.saveButton}
-          />
+          {isEditMode ? (
+            <View style={styles.editFooterRow}>
+              <View style={styles.footerButton}>
+                <PrimaryButton
+                  title={t("Delete")}
+                  variant="destructive"
+                  onPress={handleRequestDelete}
+                />
+              </View>
+
+              <View style={styles.footerButton}>
+                <PrimaryButton title={t("Save changes")} onPress={handleSave} />
+              </View>
+            </View>
+          ) : (
+            <PrimaryButton
+              title={t("Save temperature")}
+              onPress={handleSave}
+              style={dynamicStyles.saveButton}
+            />
+          )}
         </BottomSheetScrollView>
       </BottomSheetModal>
 
@@ -514,6 +637,21 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: "100%",
     height: "100%",
+  },
+
+  editFooterRow: {
+    width: "100%",
+
+    flexDirection: "row",
+    alignItems: "center",
+
+    gap: 10,
+    marginTop: 18,
+  },
+
+  footerButton: {
+    flex: 1,
+    minWidth: 0,
   },
 
   displayTouchArea: {

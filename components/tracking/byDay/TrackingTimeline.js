@@ -17,7 +17,7 @@ function sortEntriesByDate(entries) {
 
 export default function TrackingTimeline({
   entries = [],
-  selectedFilterId = "all",
+  selectedFilterIds = [],
   onPressEntry,
 }) {
   const { t } = useTranslation();
@@ -28,7 +28,7 @@ export default function TrackingTimeline({
   const filteredEntries = useMemo(() => {
     const sortedEntries = sortEntriesByDate(entries);
 
-    if (selectedFilterId === "all") {
+    if (selectedFilterIds.length === 0) {
       return sortedEntries;
     }
 
@@ -36,9 +36,9 @@ export default function TrackingTimeline({
       const visual =
         TRACKING_TYPE_CONFIG[entry.type] ?? TRACKING_TYPE_CONFIG.bottle;
 
-      return visual.category === selectedFilterId;
+      return selectedFilterIds.includes(visual.category);
     });
-  }, [entries, selectedFilterId]);
+  }, [entries, selectedFilterIds]);
 
   if (filteredEntries.length === 0) {
     return (
@@ -54,7 +54,7 @@ export default function TrackingTimeline({
         <Text style={styles.emptyTitle}>{t("No entries for this day")}</Text>
 
         <Text style={styles.emptyDescription}>
-          {selectedFilterId === "all"
+          {selectedFilterIds.length === 0
             ? t("The entries added for this day will appear here.")
             : t("No entries match the selected filter.")}
         </Text>

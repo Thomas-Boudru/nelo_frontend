@@ -86,6 +86,21 @@ const FRACTION_OPTIONS = [
   },
 ];
 
+function deduplicateFoods(foods) {
+  const foodsByKey = new Map();
+
+  foods.forEach((food) => {
+    const source = food.isCustom ? "custom" : "standard";
+    const key = `${source}:${food.id}`;
+
+    if (!foodsByKey.has(key)) {
+      foodsByKey.set(key, food);
+    }
+  });
+
+  return Array.from(foodsByKey.values());
+}
+
 function createCustomFoodId() {
   return `custom-food-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -158,7 +173,7 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
   );
 
   const allFoods = useMemo(
-    () => [...activeCustomFoods, ...translatedFoods],
+    () => deduplicateFoods([...activeCustomFoods, ...translatedFoods]),
     [activeCustomFoods, translatedFoods],
   );
 
@@ -210,7 +225,7 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
       .sort((first, second) => second.score - first.score)
       .map(({ food }) => food);
 
-    return [...customResults, ...standardResults];
+    return deduplicateFoods([...customResults, ...standardResults]);
   }, [activeCustomFoods, allFoods, currentLanguage, search, translatedFoods]);
 
   const trimmedSearch = search.trim();
@@ -573,7 +588,9 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
          */
         <BottomSheetFlatList
           data={filteredFoods}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) =>
+            `${item.isCustom ? "custom" : "standard"}:${item.id}`
+          }
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}

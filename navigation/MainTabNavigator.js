@@ -7,7 +7,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import HomeScreen from "../screens/HomeScreen.js";
+import HomeScreen from "../screens/home/HomeScreen.js";
 import TrackingScreen from "../screens/tracking/TrackingScreen.js";
 import MomentsScreen from "../screens/moments/MomentsScreen.js";
 import ChildProfileScreen from "../screens/child/ChildProfileScreen.js";
@@ -18,10 +18,15 @@ import MoodEntrySheet from "../screens/addTracking/Mood/MoodEntrySheet.js";
 import MedicationEntrySheet from "../screens/addTracking/Medication/MedicationEntrySheet.js";
 import TemperatureEntrySheet from "../screens/addTracking/Temperature/TemperatureEntrySheet.js";
 import SymptomsEntrySheet from "../screens/addTracking/Symptoms/SymptomsEntrySheet.js";
-import TeethingEntrySheet from "../components/addTracking/teething/teethingEntrySheet.js";
+import TeethingEntrySheet from "../screens/addTracking/Teething/TeethingEntrySheet.js";
 import GrowthEntrySheet from "../screens/addTracking/Measurement/GrowthEntrySheet.js";
 import NoteEntrySheet from "../screens/addTracking/Note/NoteEntrySheet.js";
 import ConfirmActionSheet from "../screens/ConfirmActionSheet.js";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import TrackingTypeHistoryScreen from "../screens/tracking/TrackingTypeHistoryScreen.js";
+import TrackingStatsHistoryScreen from "../screens/tracking/TrackingStatsHistoryScreen.js";
+import SleepHistoryScreen from "../screens/tracking/SleepHistoryScreen.js";
+import GrowthHistoryScreen from "../screens/tracking/GrowthHistoryScreen.js";
 
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
@@ -41,7 +46,11 @@ const momentsInactive = require("../assets/icons/tabBar/momentsInactive.png");
 const babyActive = require("../assets/icons/tabBar/babyActive.png");
 const babyInactive = require("../assets/icons/tabBar/babyInactive.png");
 
+import BabyActiveIcon from "../assets/icons/tabBar/babySvgActive.svg";
+import BabyInactiveIcon from "../assets/icons/tabBar/babySvgInactive.svg";
+
 const Tab = createBottomTabNavigator();
+const TrackingStack = createNativeStackNavigator();
 
 function AddButton({ onPress, accessibilityState, colors, styles }) {
   const { t } = useTranslation();
@@ -309,6 +318,63 @@ export default function MainTabNavigator() {
       return;
     }
 
+    const medicationTypes = ["medication", "vaccine"];
+
+    if (medicationTypes.includes(entry.type)) {
+      medicationSheetRef.current?.present({
+        mode: "edit",
+        medicationType: entry.type,
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "temperature") {
+      temperatureSheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "symptoms") {
+      symptomsEntrySheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "teething") {
+      teethingSheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "growth") {
+      growthEntrySheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
+    if (entry.type === "note") {
+      noteEntrySheetRef.current?.present({
+        mode: "edit",
+        entry,
+      });
+
+      return;
+    }
+
     console.log(
       "L’édition de ce type n’est pas encore disponible :",
       entry.type,
@@ -324,7 +390,7 @@ export default function MainTabNavigator() {
       confirmationSheetRef.current?.present({
         title: t("Delete this entry?"),
 
-        description: t("This bottle entry will be permanently deleted."),
+        description: t("This tracking entry will be permanently deleted."),
 
         confirmLabel: t("Delete entry"),
         cancelLabel: t("Cancel"),
@@ -349,10 +415,21 @@ export default function MainTabNavigator() {
             moodSheetRef.current?.dismiss();
           } else if (entry.type === "diaper" || entry.type === "potty") {
             diaperSheetRef.current?.dismiss();
+          } else if (entry.type === "medication" || entry.type === "vaccine") {
+            medicationSheetRef.current?.dismiss();
+          } else if (entry.type === "temperature") {
+            temperatureSheetRef.current?.dismiss();
+          } else if (entry.type === "symptoms") {
+            symptomsEntrySheetRef.current?.dismiss();
+          } else if (entry.type === "teething") {
+            teethingSheetRef.current?.dismiss();
+          } else if (entry.type === "growth") {
+            growthEntrySheetRef.current?.dismiss();
+          } else if (entry.type === "note") {
+            noteEntrySheetRef.current?.dismiss();
           } else {
             feedingSheetRef.current?.dismiss();
           }
-
           showToast({
             type: "success",
             title: t("Entry deleted"),
@@ -410,11 +487,59 @@ export default function MainTabNavigator() {
             ),
           }}
         >
-          {(screenProps) => (
-            <TrackingScreen
-              {...screenProps}
-              onEditTrackingEntry={handleEditTrackingEntry}
-            />
+          {() => (
+            <TrackingStack.Navigator
+              screenOptions={{
+                headerShown: false,
+                contentStyle: {
+                  backgroundColor: colors.background,
+                },
+              }}
+            >
+              <TrackingStack.Screen name="TrackingOverview">
+                {(screenProps) => (
+                  <TrackingScreen
+                    {...screenProps}
+                    onEditTrackingEntry={handleEditTrackingEntry}
+                  />
+                )}
+              </TrackingStack.Screen>
+
+              <TrackingStack.Screen name="TrackingTypeHistory">
+                {(screenProps) => (
+                  <TrackingTypeHistoryScreen
+                    {...screenProps}
+                    onEditTrackingEntry={handleEditTrackingEntry}
+                  />
+                )}
+              </TrackingStack.Screen>
+
+              <TrackingStack.Screen name="TrackingStatsHistory">
+                {(screenProps) => (
+                  <TrackingStatsHistoryScreen
+                    {...screenProps}
+                    onEditTrackingEntry={handleEditTrackingEntry}
+                  />
+                )}
+              </TrackingStack.Screen>
+              <TrackingStack.Screen name="SleepHistory">
+                {(screenProps) => (
+                  <SleepHistoryScreen
+                    {...screenProps}
+                    onEditTrackingEntry={handleEditTrackingEntry}
+                  />
+                )}
+              </TrackingStack.Screen>
+
+              <TrackingStack.Screen name="GrowthHistory">
+                {(screenProps) => (
+                  <GrowthHistoryScreen
+                    {...screenProps}
+                    onEditTrackingEntry={handleEditTrackingEntry}
+                  />
+                )}
+              </TrackingStack.Screen>
+            </TrackingStack.Navigator>
           )}
         </Tab.Screen>
 
@@ -461,12 +586,17 @@ export default function MainTabNavigator() {
               childName,
             }),
 
-            tabBarIcon: ({ focused }) => (
-              <Image
-                source={focused ? babyActive : babyInactive}
-                style={styles.tabIcon}
-              />
-            ),
+            tabBarIcon: ({ focused, color }) => {
+              const BabyIcon = focused ? BabyActiveIcon : BabyInactiveIcon;
+
+              return (
+                <BabyIcon
+                  width={styles.tabIcon.width}
+                  height={styles.tabIcon.height}
+                  color={color}
+                />
+              );
+            },
           }}
         />
       </Tab.Navigator>
@@ -605,36 +735,43 @@ export default function MainTabNavigator() {
           { id: "dafalgan", name: "Dafalgan" },
           { id: "nurofen", name: "Nurofen" },
         ]}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSaveMedication={async (medication) => {
           console.log("Médicament enregistré :", medication);
 
-          /*
-           * Plus tard :
-           * await saveMedication(medication);
-           */
-
           showToast({
             type: "success",
-            title: t("Medication saved"),
-            message: t("Child's medication was saved successfully", {
-              childName,
-            }),
+            title:
+              medication.mode === "edit"
+                ? t("Medication updated")
+                : t("Medication saved"),
+            message:
+              medication.mode === "edit"
+                ? t("Child's medication was updated successfully", {
+                    childName,
+                  })
+                : t("Child's medication was saved successfully", {
+                    childName,
+                  }),
           });
         }}
         onSaveVaccine={async (vaccine) => {
           console.log("Vaccin enregistré :", vaccine);
 
-          /*
-           * Plus tard :
-           * await saveVaccine(vaccine);
-           */
-
           showToast({
             type: "success",
-            title: t("Vaccine saved"),
-            message: t("Child's vaccine was saved successfully", {
-              childName,
-            }),
+            title:
+              vaccine.mode === "edit"
+                ? t("Vaccine updated")
+                : t("Vaccine saved"),
+            message:
+              vaccine.mode === "edit"
+                ? t("Child's vaccine was updated successfully", {
+                    childName,
+                  })
+                : t("Child's vaccine was saved successfully", {
+                    childName,
+                  }),
           });
         }}
       />
@@ -644,20 +781,24 @@ export default function MainTabNavigator() {
         childName={childName}
         childAgeInMonths={2}
         initialLocation="forehead"
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (temperatureEntry) => {
           console.log("Température enregistrée :", temperatureEntry);
 
-          /*
-           * Plus tard :
-           * await saveTemperature(temperatureEntry);
-           */
-
           showToast({
             type: "success",
-            title: t("Temperature saved"),
-            message: t("Child's temperature was saved successfully", {
-              childName,
-            }),
+            title:
+              temperatureEntry.mode === "edit"
+                ? t("Temperature updated")
+                : t("Temperature saved"),
+            message:
+              temperatureEntry.mode === "edit"
+                ? t("Child's temperature was updated successfully", {
+                    childName,
+                  })
+                : t("Child's temperature was saved successfully", {
+                    childName,
+                  }),
           });
         }}
       />
@@ -665,15 +806,26 @@ export default function MainTabNavigator() {
       <SymptomsEntrySheet
         ref={symptomsEntrySheetRef}
         childName={childName}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (symptomsData) => {
           console.log("Symptoms saved:", symptomsData);
 
           showToast({
             type: "success",
-            title: t("Symptoms saved"),
-            message: t("Child's symptoms were saved successfully", {
-              childName,
-            }),
+
+            title:
+              symptomsData.mode === "edit"
+                ? t("Symptoms updated")
+                : t("Symptoms saved"),
+
+            message:
+              symptomsData.mode === "edit"
+                ? t("Child's symptoms were updated successfully", {
+                    childName,
+                  })
+                : t("Child's symptoms were saved successfully", {
+                    childName,
+                  }),
           });
         }}
       />
@@ -683,20 +835,29 @@ export default function MainTabNavigator() {
         childName={childName}
         eruptedTeeth={
           [
-            // Exemples de dents déjà enregistrées :
-            // "upperLeftCentralIncisor",
-            // "upperRightCentralIncisor",
+            // Les dents déjà enregistrées dans les autres entrées.
           ]
         }
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (teethingEntry) => {
           console.log("Dentition enregistrée :", teethingEntry);
 
           showToast({
             type: "success",
-            title: t("Teething saved"),
-            message: t("Child's teething was saved successfully", {
-              childName,
-            }),
+
+            title:
+              teethingEntry.mode === "edit"
+                ? t("Teething updated")
+                : t("Teething saved"),
+
+            message:
+              teethingEntry.mode === "edit"
+                ? t("Child's teething was updated successfully", {
+                    childName,
+                  })
+                : t("Child's teething was saved successfully", {
+                    childName,
+                  }),
           });
         }}
       />
@@ -709,36 +870,46 @@ export default function MainTabNavigator() {
           height: 57.2,
           headCircumference: 38.7,
         }}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (growthEntry) => {
           console.log("Croissance enregistrée :", growthEntry);
 
           showToast({
             type: "success",
-            title: t("Growth saved"),
-            message: t("Child's growth was saved successfully", {
-              childName,
-            }),
+
+            title:
+              growthEntry.mode === "edit"
+                ? t("Growth updated")
+                : t("Growth saved"),
+
+            message:
+              growthEntry.mode === "edit"
+                ? t("Child's growth measurements were updated successfully", {
+                    childName,
+                  })
+                : t("Child's growth was saved successfully", {
+                    childName,
+                  }),
           });
         }}
       />
 
       <NoteEntrySheet
         ref={noteEntrySheetRef}
-        childName={childName}
+        onRequestDelete={handleRequestDeleteTrackingEntry}
         onSave={async (noteEntry) => {
           console.log("Note enregistrée :", noteEntry);
 
-          /*
-           * Plus tard :
-           * await saveNote(noteEntry);
-           */
-
           showToast({
             type: "success",
-            title: t("Note saved"),
-            message: t("Child's note was saved successfully", {
-              childName,
-            }),
+
+            title:
+              noteEntry.mode === "edit" ? t("Note updated") : t("Note saved"),
+
+            message:
+              noteEntry.mode === "edit"
+                ? t("The note was updated successfully.")
+                : t("The note was saved successfully."),
           });
         }}
       />

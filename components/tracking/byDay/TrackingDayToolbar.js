@@ -4,19 +4,24 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
 import TrackingFilterChips from "./TrackingFilterChips.js";
-
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import DayViewIcon from "../../../assets/icons/tracking/calendar1.svg";
+import WeekViewIcon from "../../../assets/icons/tracking/calendar7.svg";
 
 export default function TrackingDayToolbar({
   dateLabel,
   isNextDayDisabled = false,
 
   filterValues = {},
-  selectedFilterId = "all",
+  selectedFilterIds = [],
+
+  viewMode = "timeline",
 
   onPressDate,
   onPressPreviousDay,
   onPressNextDay,
+  onToggleView,
   onSelectFilter,
 }) {
   const { t } = useTranslation();
@@ -24,12 +29,16 @@ export default function TrackingDayToolbar({
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const isChartView = viewMode === "chart";
+
   return (
     <View style={styles.container}>
       <View style={styles.dateSelector}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("Previous day")}
+          accessibilityLabel={t(
+            isChartView ? "Previous period" : "Previous day",
+          )}
           onPress={onPressPreviousDay}
           hitSlop={6}
           style={({ pressed }) => [
@@ -42,7 +51,9 @@ export default function TrackingDayToolbar({
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("Choose a date")}
+          accessibilityLabel={t(
+            isChartView ? "Choose a date range" : "Choose a date",
+          )}
           onPress={onPressDate}
           style={({ pressed }) => [
             styles.dateButton,
@@ -52,7 +63,7 @@ export default function TrackingDayToolbar({
           <Text
             numberOfLines={1}
             adjustsFontSizeToFit
-            minimumFontScale={0.82}
+            minimumFontScale={0.78}
             style={styles.dateText}
           >
             {dateLabel}
@@ -61,7 +72,7 @@ export default function TrackingDayToolbar({
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t("Next day")}
+          accessibilityLabel={t(isChartView ? "Next period" : "Next day")}
           accessibilityState={{
             disabled: isNextDayDisabled,
           }}
@@ -88,9 +99,35 @@ export default function TrackingDayToolbar({
 
       <TrackingFilterChips
         values={filterValues}
-        selectedFilterId={selectedFilterId}
+        selectedFilterIds={selectedFilterIds}
         onSelectFilter={onSelectFilter}
       />
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t(
+          isChartView ? "Show timeline view" : "Show chart view",
+        )}
+        onPress={onToggleView}
+        hitSlop={5}
+        style={({ pressed }) => [styles.viewButton, pressed && styles.pressed]}
+      >
+        {isChartView ? (
+          <DayViewIcon
+            width={18}
+            height={18}
+            color={colors.primary}
+            fill={colors.primary}
+          />
+        ) : (
+          <WeekViewIcon
+            width={18}
+            height={18}
+            color={colors.primary}
+            fill={colors.primary}
+          />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -160,6 +197,22 @@ const createStyles = (colors) =>
       height: 28,
 
       backgroundColor: colors.border ?? "#DCE5F2",
+    },
+
+    viewButton: {
+      width: 44,
+      height: 44,
+
+      flexShrink: 0,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.border ?? "#DCE5F2",
+
+      backgroundColor: colors.white,
     },
 
     pressed: {

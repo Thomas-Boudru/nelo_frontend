@@ -13,27 +13,27 @@ import { useThemeColors } from "../../theme/useThemeColors.js";
 
 const FEEDING_IMAGES = {
   bottle: {
-    blue: require("../../assets/illustrations/tracking/bottle.png"),
-    pink: require("../../assets/illustrations/tracking/bottle.png"),
-    green: require("../../assets/illustrations/tracking/bottle.png"),
+    pink: require("../../assets/illustrations/tracking/foodPreference/bottlePink.png"),
+    green: require("../../assets/illustrations/tracking/foodPreference/bottleGreen.png"),
+    blue: require("../../assets/illustrations/tracking/foodPreference/bottleBlue.png"),
   },
 
   breastfeeding: {
-    blue: require("../../assets/illustrations/tracking/breath.png"),
-    pink: require("../../assets/illustrations/tracking/breath.png"),
-    green: require("../../assets/illustrations/tracking/breath.png"),
+    blue: require("../../assets/illustrations/tracking/foodPreference/breathBlue.png"),
+    pink: require("../../assets/illustrations/tracking/foodPreference/breathPink.png"),
+    green: require("../../assets/illustrations/tracking/foodPreference/breathGreen.png"),
   },
 
   solids: {
-    blue: require("../../assets/illustrations/tracking/mealsBlue.png"),
-    pink: require("../../assets/illustrations/tracking/mealsBlue.png"),
-    green: require("../../assets/illustrations/tracking/mealsBlue.png"),
+    blue: require("../../assets/illustrations/tracking/foodPreference/mealsBlue.png"),
+    pink: require("../../assets/illustrations/tracking/foodPreference/mealsPink.png"),
+    green: require("../../assets/illustrations/tracking/foodPreference/mealsGreen.png"),
   },
 
   pumping: {
-    blue: require("../../assets/illustrations/tracking/milk.png"),
-    pink: require("../../assets/illustrations/tracking/milk.png"),
-    green: require("../../assets/illustrations/tracking/milk.png"),
+    blue: require("../../assets/illustrations/tracking/foodPreference/pumpingBlue.png"),
+    pink: require("../../assets/illustrations/tracking/foodPreference/pumpingPink.png"),
+    green: require("../../assets/illustrations/tracking/foodPreference/pumpingGreen.png"),
   },
 };
 
@@ -93,7 +93,6 @@ function FeedingMethodRow({
       style={({ pressed }) => [
         styles.methodRow,
         selected && styles.methodRowSelected,
-        disabled && styles.methodRowDisabled,
         pressed && !disabled && styles.methodRowPressed,
       ]}
     >
@@ -107,14 +106,9 @@ function FeedingMethodRow({
         <Text style={styles.methodDescription}>{t(method.descriptionKey)}</Text>
       </View>
 
-      <View
-        style={[
-          styles.selectionCircle,
-          selected && styles.selectionCircleSelected,
-        ]}
-      >
+      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
         {selected ? (
-          <Ionicons name="checkmark" size={15} color={colors.white} />
+          <Ionicons name="checkmark" size={16} color={colors.white} />
         ) : null}
       </View>
     </Pressable>
@@ -325,10 +319,6 @@ const createStyles = (colors) =>
       backgroundColor: colors.selectedBackground,
     },
 
-    methodRowDisabled: {
-      opacity: 0.8,
-    },
-
     methodRowPressed: {
       opacity: 0.72,
 
@@ -377,23 +367,22 @@ const createStyles = (colors) =>
       color: colors.textSecondary,
     },
 
-    selectionCircle: {
-      width: 24,
-      height: 24,
+    checkbox: {
+      width: 25,
+      height: 25,
 
       alignItems: "center",
       justifyContent: "center",
 
-      marginLeft: 10,
+      marginLeft: 12,
 
       borderWidth: 1.5,
-      borderColor: colors.border,
-      borderRadius: 12,
+      borderColor: colors.textSecondary,
+      borderRadius: 7,
     },
 
-    selectionCircleSelected: {
+    checkboxSelected: {
       borderColor: colors.primary,
-
       backgroundColor: colors.primary,
     },
 

@@ -37,7 +37,7 @@ export default function NeloQuestionBar({ onPress, onPressVoice }) {
         </Text>
       </View>
 
-      <Pressable
+      {/*<Pressable
         accessibilityRole="button"
         accessibilityLabel={t("Ask Nelo with voice")}
         onPress={handleVoicePress}
@@ -48,7 +48,7 @@ export default function NeloQuestionBar({ onPress, onPressVoice }) {
         ]}
       >
         <Ionicons name="mic-outline" size={21} color={colors.white} />
-      </Pressable>
+      </Pressable>*/}
     </Pressable>
   );
 }

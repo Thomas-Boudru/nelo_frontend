@@ -16,15 +16,26 @@ import { useTranslation } from "react-i18next";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
+import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
+
 const BABY_FALLBACK_IMAGES = {
   blue: require("../../assets/icons/header/babyBlue.png"),
   pink: require("../../assets/icons/header/babyPink.png"),
   green: require("../../assets/icons/header/babyGreen.png"),
 };
 
+const BABY_FALLBACK_COLORS = {
+  blue: "#4E83F7",
+  pink: "#E77FA8",
+  green: "#65B59A",
+};
+
 function ChildRow({ child, selected, onPress, colors, styles }) {
   const fallbackImage =
     BABY_FALLBACK_IMAGES[child.themeMode] ?? BABY_FALLBACK_IMAGES.blue;
+
+  const fallbackColor =
+    BABY_FALLBACK_COLORS[child.themeMode] ?? BABY_FALLBACK_COLORS.blue;
 
   return (
     <Pressable
@@ -39,14 +50,15 @@ function ChildRow({ child, selected, onPress, colors, styles }) {
       ]}
     >
       <View style={styles.avatarContainer}>
-        <Image
-          source={child.profilePicture ?? fallbackImage}
-          resizeMode={child.profilePicture ? "cover" : "contain"}
-          style={[
-            styles.avatar,
-            !child.profilePicture && styles.avatarFallback,
-          ]}
-        />
+        {child.profilePicture ? (
+          <Image
+            source={child.profilePicture}
+            resizeMode="cover"
+            style={styles.avatar}
+          />
+        ) : (
+          <BabyFaceIcon width={35} height={35} color={fallbackColor} />
+        )}
       </View>
 
       <View style={styles.childInformation}>

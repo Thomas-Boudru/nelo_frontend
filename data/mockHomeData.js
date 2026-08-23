@@ -1,3 +1,5 @@
+import { getMockDailyMessage } from "./mockDailyMessages.js";
+
 export const mockHomeData = {
   parent: {
     id: "parent-1",
@@ -43,10 +45,7 @@ export const mockHomeData = {
     idealWindowEnd: "11:30",
   },
 
-  dailyMessage: {
-    id: "daily-message-1",
-    content: "Les réveils nocturnes sont encore très fréquents à cet âge.",
-  },
+  dailyMessage: getMockDailyMessage("night-wakings-4-months"),
 
   memory: {
     id: "memory-1",

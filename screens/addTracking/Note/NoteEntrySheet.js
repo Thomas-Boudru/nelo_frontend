@@ -43,8 +43,40 @@ function normalizePhotos(photos) {
   return photos.filter((photo) => photo?.uri).slice(0, MAX_PHOTOS);
 }
 
+function createNoteStateFromTrackingEntry(entry) {
+  const entryData = entry?.data ?? entry ?? {};
+
+  const dateValue =
+    entryData.notedAt ??
+    entryData.noteDate ??
+    entry?.notedAt ??
+    entry?.noteDate ??
+    entry?.occurredAt ??
+    entry?.startedAt ??
+    entry?.date;
+
+  const parsedDate = dateValue ? new Date(dateValue) : null;
+
+  const hasValidDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+
+  return {
+    note:
+      entryData.note ??
+      entryData.content ??
+      entry?.note ??
+      entry?.content ??
+      "",
+
+    photos: normalizePhotos(entryData.photos ?? entry?.photos ?? []),
+
+    notedAt: hasValidDate ? parsedDate : new Date(),
+    hasRecordedDate: hasValidDate,
+  };
+}
+
 const NoteEntrySheet = forwardRef(function NoteEntrySheet(
-  { onSave, onDismiss },
+  { onSave, onDismiss, onRequestDelete },
   ref,
 ) {
   const { t } = useTranslation();
@@ -63,6 +95,11 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
   const [isNow, setIsNow] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  const [sheetMode, setSheetMode] = useState("create");
+  const [editingEntry, setEditingEntry] = useState(null);
+
+  const isEditMode = sheetMode === "edit";
 
   const remainingPhotoCount = MAX_PHOTOS - photos.length;
 
@@ -117,20 +154,42 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
   useImperativeHandle(
     ref,
     () => ({
-      present({
-        note: initialNote = "",
-        photos: initialPhotos = [],
-        notedAt,
-        openPhotoPicker = false,
-      } = {}) {
-        resetForm({
-          initialNote,
-          initialPhotos,
-          initialDate: notedAt ? new Date(notedAt) : new Date(),
-          initialIsNow: !notedAt,
-        });
+      present(parameters = {}) {
+        const {
+          mode = "create",
+          entry = null,
 
-        shouldOpenPhotoSourceRef.current = openPhotoPicker;
+          note: initialNote = "",
+          photos: initialPhotos = [],
+          notedAt,
+          openPhotoPicker = false,
+        } = parameters;
+
+        setSheetMode(mode);
+
+        if (mode === "edit" && entry) {
+          const nextState = createNoteStateFromTrackingEntry(entry);
+
+          setEditingEntry(entry);
+
+          resetForm({
+            initialNote: nextState.note,
+            initialPhotos: nextState.photos,
+            initialDate: nextState.notedAt,
+            initialIsNow: !nextState.hasRecordedDate,
+          });
+        } else {
+          setEditingEntry(null);
+
+          resetForm({
+            initialNote,
+            initialPhotos,
+            initialDate: notedAt ? new Date(notedAt) : new Date(),
+            initialIsNow: !notedAt,
+          });
+        }
+
+        shouldOpenPhotoSourceRef.current = mode === "create" && openPhotoPicker;
 
         requestAnimationFrame(() => {
           modalRef.current?.present();
@@ -271,6 +330,15 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
     );
   }, []);
 
+  const handleRequestDelete = useCallback(() => {
+    if (!isEditMode || !editingEntry || isSaving) {
+      return;
+    }
+
+    Keyboard.dismiss();
+    onRequestDelete?.(editingEntry);
+  }, [editingEntry, isEditMode, isSaving, onRequestDelete]);
+
   const handleSave = useCallback(async () => {
     if (!canSave || isSaving) {
       return;
@@ -285,7 +353,13 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
       ).catch(() => {});
 
       await onSave?.({
+        ...editingEntry,
+
+        id: editingEntry?.id,
+
         type: "note",
+        mode: sheetMode,
+
         note: note.trim(),
         photos,
         notedAt: noteDate,
@@ -296,7 +370,16 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
       console.error("Unable to save note:", error);
       setIsSaving(false);
     }
-  }, [canSave, isSaving, note, noteDate, onSave, photos]);
+  }, [
+    canSave,
+    editingEntry,
+    isSaving,
+    note,
+    noteDate,
+    onSave,
+    photos,
+    sheetMode,
+  ]);
 
   return (
     <>
@@ -346,10 +429,14 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
             onPress={Keyboard.dismiss}
             style={styles.header}
           >
-            <Text style={styles.title}>{t("Add note")}</Text>
+            <Text style={styles.title}>
+              {isEditMode ? t("Edit note") : t("Add note")}
+            </Text>
 
             <Text style={styles.subtitle}>
-              {t("Write down something you want to remember")}
+              {isEditMode
+                ? t("Update this note and its photos")
+                : t("Write down something you want to remember")}
             </Text>
           </Pressable>
 
@@ -466,12 +553,34 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
           </Pressable>
 
           <View style={styles.footer}>
-            <PrimaryButton
-              title={t("Save note")}
-              onPress={handleSave}
-              disabled={!canSave || isSaving}
-              loading={isSaving}
-            />
+            {isEditMode ? (
+              <View style={styles.editFooterRow}>
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Delete")}
+                    variant="destructive"
+                    onPress={handleRequestDelete}
+                    disabled={isSaving}
+                  />
+                </View>
+
+                <View style={styles.footerButton}>
+                  <PrimaryButton
+                    title={t("Save changes")}
+                    onPress={handleSave}
+                    disabled={!canSave || isSaving}
+                    loading={isSaving}
+                  />
+                </View>
+              </View>
+            ) : (
+              <PrimaryButton
+                title={t("Save note")}
+                onPress={handleSave}
+                disabled={!canSave || isSaving}
+                loading={isSaving}
+              />
+            )}
           </View>
         </BottomSheetView>
       </BottomSheetModal>
@@ -544,6 +653,20 @@ function createStyles(colors) {
 
     noteSection: {
       position: "relative",
+    },
+
+    editFooterRow: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      gap: 10,
+    },
+
+    footerButton: {
+      flex: 1,
+      minWidth: 0,
     },
 
     sectionTitle: {

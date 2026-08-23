@@ -1,80 +1,22 @@
 import { useMemo } from "react";
-import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import {
-  TRACKING_FILTERS,
-  TRACKING_TYPE_CONFIG,
-} from "../../../data/mockTrackingData.js";
-
+import { TRACKING_FILTERS } from "../../../data/mockTrackingData.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
-
-const FILTER_VISUALS = {
-  all: {
-    icon: "list-outline",
-  },
-
-  feeding: {
-    image: TRACKING_TYPE_CONFIG.bottle.image,
-  },
-
-  sleep: {
-    image: TRACKING_TYPE_CONFIG.sleep.image,
-  },
-
-  diaper: {
-    image: TRACKING_TYPE_CONFIG.diaper.image,
-  },
-
-  health: {
-    image: TRACKING_TYPE_CONFIG.symptoms.image,
-  },
-};
-
-function FilterIcon({ filterId, isSelected, colors, styles }) {
-  const visual = FILTER_VISUALS[filterId];
-
-  if (!visual) {
-    return null;
-  }
-
-  if (visual.image) {
-    return (
-      <Image
-        source={visual.image}
-        resizeMode="contain"
-        style={styles.filterImage}
-      />
-    );
-  }
-
-  return (
-    <Ionicons
-      name={visual.icon}
-      size={17}
-      color={isSelected ? colors.white : (colors.primary ?? "#4F7DF3")}
-    />
-  );
-}
 
 export default function TrackingFilterChips({
   filters = TRACKING_FILTERS,
   values = {},
-  selectedFilterId = "all",
+  selectedFilterIds = [],
   onSelectFilter,
 }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const hasSelectedFilters = selectedFilterIds.length > 0;
 
   return (
     <View style={styles.container}>
@@ -85,7 +27,11 @@ export default function TrackingFilterChips({
         contentContainerStyle={styles.scrollContent}
       >
         {filters.map((filter) => {
-          const isSelected = filter.id === selectedFilterId;
+          const isAllFilter = filter.id === "all";
+
+          const isSelected = isAllFilter
+            ? !hasSelectedFilters
+            : selectedFilterIds.includes(filter.id);
 
           const filterValue = values?.[filter.id];
 
@@ -103,10 +49,10 @@ export default function TrackingFilterChips({
           return (
             <Pressable
               key={filter.id}
-              accessibilityRole="tab"
+              accessibilityRole="checkbox"
               accessibilityLabel={accessibilityLabel}
               accessibilityState={{
-                selected: isSelected,
+                checked: isSelected,
               }}
               onPress={() => onSelectFilter?.(filter.id)}
               style={({ pressed }) => [
@@ -186,11 +132,6 @@ const createStyles = (colors) =>
     filterChipPressed: {
       opacity: 0.74,
       transform: [{ scale: 0.98 }],
-    },
-
-    filterImage: {
-      width: 19,
-      height: 19,
     },
 
     filterLabel: {

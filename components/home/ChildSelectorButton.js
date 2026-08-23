@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useSelector } from "react-redux";
+import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
@@ -41,11 +42,7 @@ export default function ChildSelectorButton({ child, onPress }) {
           <Image source={child.profilePicture} style={styles.childImage} />
         ) : (
           <View style={styles.childImageFallback}>
-            <Image
-              source={babyFallbackIcon}
-              resizeMode="contain"
-              style={styles.childFallbackImage}
-            />
+            <BabyFaceIcon width={50} height={50} color={colors.primary} />
           </View>
         )}
       </View>

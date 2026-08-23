@@ -31,7 +31,7 @@ const WEIGHT_IMAGE = require("../../assets/illustrations/tracking/weight.png");
 
 const HEIGHT_IMAGE = require("../../assets/illustrations/tracking/height.png");
 
-const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/head.png");
+const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/headBlue.png");
 
 const NOTE_IMAGE = require("../../assets/illustrations/tracking/note.png");
 

@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+
+import DiaperIcon from "../../../assets/illustrations/tracking/diaper/diaper.svg";
+import PottyIcon from "../../../assets/illustrations/tracking/diaper/potty.svg";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
@@ -9,12 +11,12 @@ const DIAPER_TYPES = [
   {
     id: "diaper",
     label: "Diaper",
-    icon: "albums-outline",
+    Icon: DiaperIcon,
   },
   {
     id: "potty",
     label: "Potty",
-    icon: "home-outline",
+    Icon: PottyIcon,
   },
 ];
 
@@ -30,6 +32,10 @@ export default function DiaperTypeTabs({ value, onChange }) {
         {DIAPER_TYPES.map((type) => {
           const isSelected = value === type.id;
 
+          const iconColor = isSelected ? colors.primary : colors.textSecondary;
+
+          const Icon = type.Icon;
+
           return (
             <Pressable
               key={type.id}
@@ -42,11 +48,9 @@ export default function DiaperTypeTabs({ value, onChange }) {
                 pressed && styles.pressed,
               ]}
             >
-              <Ionicons
-                name={type.icon}
-                size={18}
-                color={isSelected ? colors.primary : colors.textSecondary}
-              />
+              <View style={styles.iconContainer}>
+                <Icon width={17} height={17} color={iconColor} />
+              </View>
 
               <Text style={[styles.label, isSelected && styles.labelSelected]}>
                 {t(type.label)}
@@ -81,11 +85,19 @@ function createStyles(colors) {
       paddingVertical: 10,
       marginBottom: 14,
       borderRadius: 14,
-      backgroundColor: colors.lightBlue,
+      backgroundColor: "transparent",
     },
 
     tabSelected: {
       backgroundColor: `${colors.primary}14`,
+    },
+
+    iconContainer: {
+      width: 22,
+      height: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "visible",
     },
 
     label: {

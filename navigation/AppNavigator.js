@@ -8,6 +8,10 @@ import MomentEditorScreen from "../screens/moments/MomentEditorScreen.js";
 import MilestonePickerScreen from "../screens/moments/MilestonePickerScreen.js";
 import MomentDetailsScreen from "../screens/moments/MomentDetailsScreen.js";
 import ShareMomentScreen from "../screens/moments/ShareMomentScreen.js";
+import DailyMessageDetailScreen from "../screens/home/DailyMessageDetailsScreen.js";
+import NotificationsScreen from "../screens/home/NotificationsScreen.js";
+import NeloChatScreen from "../screens/nelo/NeloChatScreen.js";
+import NeloConversationsScreen from "../screens/nelo/NeloConversationsScreen.js";
 
 import MainTabNavigator from "./MainTabNavigator.js";
 import { useThemeColors } from "../theme/useThemeColors.js";
@@ -30,6 +34,21 @@ export default function AppNavigator() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+
+      <Stack.Screen name="NeloChat" component={NeloChatScreen} />
+
+      <Stack.Screen
+        name="NeloConversations"
+        component={NeloConversationsScreen}
+      />
+
+      <Stack.Screen
+        name="DailyMessageDetail"
+        component={DailyMessageDetailScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
 
       <Stack.Screen
         name="NotificationSettings"
@@ -74,6 +93,13 @@ export default function AppNavigator() {
       <Stack.Screen
         name="ShareMoment"
         component={ShareMomentScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
         options={{
           headerShown: false,
         }}
