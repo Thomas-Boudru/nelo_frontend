@@ -333,7 +333,7 @@ export default function NeloChatScreen({ navigation, route }) {
           }
           ListEmptyComponent={
             <View style={styles.welcomeContainer}>
-              <NeloCloudMascot size={120} />
+              <NeloCloudMascot size={80} />
 
               <Text style={styles.welcomeTitle}>{t("How can Nelo help?")}</Text>
 

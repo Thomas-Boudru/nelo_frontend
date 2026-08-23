@@ -87,6 +87,143 @@ function EmptyScreen({ styles }) {
   return <View style={styles.emptyScreen} />;
 }
 
+/*
+ * Déclaré au niveau module : s’il était défini dans le corps de
+ * MainTabNavigator, React verrait un nouveau type de composant à chaque render
+ * du parent (toast, etc.) et remonterait toute la pile Tracking.
+ */
+function TrackingNavigatorContent({
+  navigation,
+  route,
+  colors,
+  sleepSheetRef,
+  onEditTrackingEntry,
+}) {
+  useEffect(() => {
+    const params = route.params;
+
+    if (!params?.openSleepEntry) {
+      return undefined;
+    }
+
+    const initialSleepType =
+      params.initialSleepType === "night" ? "night" : "nap";
+
+    const timeout = setTimeout(() => {
+      sleepSheetRef.current?.presentForType(initialSleepType);
+
+      navigation.setParams({
+        openSleepEntry: undefined,
+        initialSleepType: undefined,
+        requestId: undefined,
+      });
+    }, 300);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [
+    navigation,
+    route.params?.openSleepEntry,
+    route.params?.initialSleepType,
+    route.params?.requestId,
+    sleepSheetRef,
+  ]);
+
+  useEffect(() => {
+    const params = route.params;
+
+    if (!params?.openManualSleep) {
+      return undefined;
+    }
+
+    const initialSleepType =
+      params.initialSleepType === "night" ? "night" : "nap";
+
+    const timeout = setTimeout(() => {
+      sleepSheetRef.current?.presentManual({
+        mode: "create",
+        sleepType: initialSleepType,
+        suggestedStartTime: params.suggestedStartTime,
+      });
+
+      navigation.setParams({
+        openManualSleep: undefined,
+        initialSleepType: undefined,
+        suggestedStartTime: undefined,
+        requestId: undefined,
+      });
+    }, 300);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [
+    navigation,
+    route.params?.openManualSleep,
+    route.params?.initialSleepType,
+    route.params?.suggestedStartTime,
+    route.params?.requestId,
+    sleepSheetRef,
+  ]);
+
+  return (
+    <TrackingStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        contentStyle: {
+          backgroundColor: colors.background,
+        },
+      }}
+    >
+      <TrackingStack.Screen name="TrackingOverview">
+        {(screenProps) => (
+          <TrackingScreen
+            {...screenProps}
+            onEditTrackingEntry={onEditTrackingEntry}
+          />
+        )}
+      </TrackingStack.Screen>
+
+      <TrackingStack.Screen name="TrackingTypeHistory">
+        {(screenProps) => (
+          <TrackingTypeHistoryScreen
+            {...screenProps}
+            onEditTrackingEntry={onEditTrackingEntry}
+          />
+        )}
+      </TrackingStack.Screen>
+
+      <TrackingStack.Screen name="TrackingStatsHistory">
+        {(screenProps) => (
+          <TrackingStatsHistoryScreen
+            {...screenProps}
+            onEditTrackingEntry={onEditTrackingEntry}
+          />
+        )}
+      </TrackingStack.Screen>
+
+      <TrackingStack.Screen name="SleepHistory">
+        {(screenProps) => (
+          <SleepHistoryScreen
+            {...screenProps}
+            onEditTrackingEntry={onEditTrackingEntry}
+          />
+        )}
+      </TrackingStack.Screen>
+
+      <TrackingStack.Screen name="GrowthHistory">
+        {(screenProps) => (
+          <GrowthHistoryScreen
+            {...screenProps}
+            onEditTrackingEntry={onEditTrackingEntry}
+          />
+        )}
+      </TrackingStack.Screen>
+    </TrackingStack.Navigator>
+  );
+}
+
 export default function MainTabNavigator() {
   const { t } = useTranslation();
 
@@ -487,59 +624,13 @@ export default function MainTabNavigator() {
             ),
           }}
         >
-          {() => (
-            <TrackingStack.Navigator
-              screenOptions={{
-                headerShown: false,
-                contentStyle: {
-                  backgroundColor: colors.background,
-                },
-              }}
-            >
-              <TrackingStack.Screen name="TrackingOverview">
-                {(screenProps) => (
-                  <TrackingScreen
-                    {...screenProps}
-                    onEditTrackingEntry={handleEditTrackingEntry}
-                  />
-                )}
-              </TrackingStack.Screen>
-
-              <TrackingStack.Screen name="TrackingTypeHistory">
-                {(screenProps) => (
-                  <TrackingTypeHistoryScreen
-                    {...screenProps}
-                    onEditTrackingEntry={handleEditTrackingEntry}
-                  />
-                )}
-              </TrackingStack.Screen>
-
-              <TrackingStack.Screen name="TrackingStatsHistory">
-                {(screenProps) => (
-                  <TrackingStatsHistoryScreen
-                    {...screenProps}
-                    onEditTrackingEntry={handleEditTrackingEntry}
-                  />
-                )}
-              </TrackingStack.Screen>
-              <TrackingStack.Screen name="SleepHistory">
-                {(screenProps) => (
-                  <SleepHistoryScreen
-                    {...screenProps}
-                    onEditTrackingEntry={handleEditTrackingEntry}
-                  />
-                )}
-              </TrackingStack.Screen>
-
-              <TrackingStack.Screen name="GrowthHistory">
-                {(screenProps) => (
-                  <GrowthHistoryScreen
-                    {...screenProps}
-                    onEditTrackingEntry={handleEditTrackingEntry}
-                  />
-                )}
-              </TrackingStack.Screen>
-            </TrackingStack.Navigator>
+          {(screenProps) => (
+            <TrackingNavigatorContent
+              {...screenProps}
+              colors={colors}
+              sleepSheetRef={sleepSheetRef}
+              onEditTrackingEntry={handleEditTrackingEntry}
+            />
           )}
         </Tab.Screen>
 

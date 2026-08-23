@@ -44,10 +44,13 @@ function getFeedingConfiguration(summary, t) {
   if (feedingMode === "breastfeeding") {
     return {
       image: TRACKING_IMAGES.breastfeeding,
+
       value: String(
         summary.breastfeeding?.count ?? summary.bottles?.count ?? 0,
       ),
+
       label: t("Breastfeedings"),
+      trackingType: "breastfeeding",
     };
   }
 
@@ -60,13 +63,17 @@ function getFeedingConfiguration(summary, t) {
       image: TRACKING_IMAGES.mixed,
       value: String(total),
       label: t("Feedings"),
+      trackingType: "feeding",
     };
   }
 
   return {
     image: TRACKING_IMAGES.bottle,
+
     value: `${summary.bottles.amount} ${summary.bottles.unit}`,
+
     label: t("Bottles"),
+    trackingType: "bottle",
   };
 }
 
@@ -134,6 +141,7 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
   const summaryItems = [
     {
       id: "feeding",
+      trackingType: feeding.trackingType,
       image: feeding.image,
       backgroundColor: CATEGORY_STYLES.feeding.backgroundColor,
       value: feeding.value,
@@ -142,17 +150,21 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
 
     {
       id: "sleep",
+      trackingType: "sleep",
       image: TRACKING_IMAGES.sleep,
       backgroundColor: CATEGORY_STYLES.sleep.backgroundColor,
+
       value: t("Sleep duration", {
         hours: summary.sleep.hours,
         minutes: summary.sleep.minutes,
       }),
+
       label: t("Sleep"),
     },
 
     {
       id: "diapers",
+      trackingType: "diaper",
       image: TRACKING_IMAGES.diapers,
       backgroundColor: CATEGORY_STYLES.diapers.backgroundColor,
       value: String(summary.diapers.count),
@@ -161,6 +173,7 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
 
     {
       id: "meals",
+      trackingType: "solids",
       image: TRACKING_IMAGES.meals,
       backgroundColor: CATEGORY_STYLES.meals.backgroundColor,
       value: String(summary.meals.count),
@@ -169,6 +182,7 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
 
     {
       id: "mood",
+      trackingType: "mood",
       image: TRACKING_IMAGES.mood,
       backgroundColor: CATEGORY_STYLES.mood.backgroundColor,
       value: t(`Mood ${summary.mood.value}`),
@@ -211,7 +225,12 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
             value={item.value}
             label={item.label}
             showSeparator={index < summaryItems.length - 1}
-            onPress={() => onPressItem?.(item.id)}
+            onPress={() =>
+              onPressItem?.({
+                id: item.id,
+                trackingType: item.trackingType,
+              })
+            }
             styles={styles}
           />
         ))}

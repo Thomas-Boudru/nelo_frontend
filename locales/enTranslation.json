@@ -1479,5 +1479,38 @@
   "Choose end date": "Choose end date",
   "Confirm period": "Confirm period",
   "The start date must be before the end date.": "The start date must be before the end date.",
-  "The selected period cannot exceed {{count}} days.": "The selected period cannot exceed {{count}} days."
+  "The selected period cannot exceed {{count}} days.": "The selected period cannot exceed {{count}} days.",
+  "Next nap": "Next nap",
+  "Bedtime": "Bedtime",
+  "In about {{count}} minutes": "In about {{count}} minutes",
+  "The ideal window starts now": "The ideal window starts now",
+  "Start the sleep routine around {{time}}": "Start the sleep routine around {{time}}",
+  "Start the bedtime routine around {{time}}": "Start the bedtime routine around {{time}}",
+
+  "Why this estimate?": "Why this estimate?",
+  "Awake for {{duration}}": "Awake for {{duration}}",
+  "Last nap lasted {{duration}}": "Last nap lasted {{duration}}",
+  "Usual wake window: {{minimum}}–{{maximum}}": "Usual wake window: {{minimum}}–{{maximum}}",
+  "Daytime sleep: {{duration}}": "Daytime sleep: {{duration}}",
+  "Usual bedtime: {{time}}": "Usual bedtime: {{time}}",
+
+  "High confidence": "High confidence",
+  "Good estimate": "Good estimate",
+  "Early estimate": "Early estimate",
+
+  "Nelo's advice": "Nelo's advice",
+  "Reduce stimulation and watch for early signs of tiredness.": "Reduce stimulation and watch for early signs of tiredness.",
+  "Dim the lights and begin the usual bedtime routine.": "Dim the lights and begin the usual bedtime routine.",
+  "The last nap was short, so tiredness may appear a little earlier.": "The last nap was short, so tiredness may appear a little earlier.",
+  "Watch for yawning, eye rubbing or a sudden change in mood.": "Watch for yawning, eye rubbing or a sudden change in mood.",
+
+  "This estimate will adjust as new sleep is recorded. Always follow your baby's signs of tiredness first.": "This estimate will adjust as new sleep is recorded. Always follow your baby's signs of tiredness first.",
+
+  "Start sleep": "Start sleep",
+  "Adjust time": "Adjust time",
+  "Adjust the suggested sleep time": "Adjust the suggested sleep time",
+
+  "{{count}} min": "{{count}} min",
+  "{{count}} h": "{{count}} hr",
+  "{{hours}} h {{minutes}} min": "{{hours}} hr {{minutes}} min"
 }

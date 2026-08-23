@@ -108,6 +108,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     present(currentActiveSleep = null) {
       setCompletedSleep(null);
       setWakeNote("");
+      setSleepTags([]);
       setView("main");
 
       if (currentActiveSleep?.startedAt) {
@@ -121,7 +122,19 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       }
 
       isMainSheetPresentedRef.current = true;
+      modalRef.current?.present();
+    },
 
+    presentForType(type = "nap") {
+      const initialSleepType = type === "night" ? "night" : "nap";
+
+      setCompletedSleep(null);
+      setWakeNote("");
+      setSleepTags([]);
+      setView("main");
+      setSleepType(initialSleepType);
+
+      isMainSheetPresentedRef.current = true;
       modalRef.current?.present();
     },
 
@@ -132,6 +145,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     dismiss() {
       setCompletedSleep(null);
       setWakeNote("");
+      setSleepTags([]);
       setView("main");
 
       dismissMainSheet();

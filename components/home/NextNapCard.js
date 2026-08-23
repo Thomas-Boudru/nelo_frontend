@@ -5,57 +5,93 @@ import { useTranslation } from "react-i18next";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
+const CARD_CONFIG = {
+  nap: {
+    eyebrow: "Next nap",
+    icon: "moon",
+    accessibilityLabel: "Open next nap details",
+  },
+
+  bedtime: {
+    eyebrow: "Bedtime",
+    icon: "bed",
+    accessibilityLabel: "Open bedtime details",
+  },
+};
+
 export default function NextNapCard({ nextNap, onPress }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  if (!nextNap) {
+  const cardContent = useMemo(() => getCardContent(nextNap, t), [nextNap, t]);
+
+  if (!nextNap || !cardContent) {
     return null;
   }
+
+  const showStars =
+    nextNap.status === undefined || nextNap.status === "prediction";
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={t("Open next nap details")}
+      accessibilityLabel={cardContent.accessibilityLabel}
+      accessibilityHint={cardContent.accessibilityHint}
       onPress={onPress}
+      disabled={!onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.illustration}>
-        <View style={styles.moonCircle}>
-          <Ionicons name="moon" size={48} color={colors.primary} />
+        <View style={styles.iconCircle}>
+          <Ionicons name={cardContent.icon} size={46} color={colors.primary} />
         </View>
 
-        <Ionicons
-          name="star"
-          size={13}
-          color={colors.primary}
-          style={styles.starOne}
-        />
+        {showStars && (
+          <>
+            <Ionicons
+              name="star"
+              size={13}
+              color={colors.primary}
+              style={styles.starOne}
+            />
 
-        <Ionicons
-          name="star"
-          size={9}
-          color={colors.primary}
-          style={styles.starTwo}
-        />
+            <Ionicons
+              name="star"
+              size={9}
+              color={colors.primary}
+              style={styles.starTwo}
+            />
+          </>
+        )}
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.eyebrow}>{t("Next nap")}</Text>
-
-        <Text style={styles.title}>
-          {t("In minutes", {
-            count: nextNap.minutesUntil,
-          })}
+        <Text numberOfLines={1} style={styles.eyebrow}>
+          {cardContent.eyebrow}
         </Text>
 
-        <Text style={styles.subtitle}>{t("Ideal window")}</Text>
-
-        <Text style={styles.timeWindow}>
-          {nextNap.idealWindowStart} – {nextNap.idealWindowEnd}
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          style={styles.title}
+        >
+          {cardContent.title}
         </Text>
+
+        {cardContent.subtitle ? (
+          <Text numberOfLines={1} style={styles.subtitle}>
+            {cardContent.subtitle}
+          </Text>
+        ) : null}
+
+        {cardContent.detail ? (
+          <Text numberOfLines={1} style={styles.detail}>
+            {cardContent.detail}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.arrowButton}>
@@ -63,6 +99,93 @@ export default function NextNapCard({ nextNap, onPress }) {
       </View>
     </Pressable>
   );
+}
+
+function getCardContent(nextNap, t) {
+  if (!nextNap) {
+    return null;
+  }
+
+  if (nextNap.status === "sleeping") {
+    return {
+      eyebrow: t("Sleep in progress"),
+      title: formatDuration(nextNap.elapsedMinutes, t),
+      subtitle: nextNap.startedAt
+        ? t("Started at {{time}}", {
+            time: nextNap.startedAt,
+          })
+        : null,
+      detail: t("View sleep timer"),
+      icon: "moon",
+      accessibilityLabel: t("Open current sleep"),
+      accessibilityHint: t("View or stop the current sleep timer"),
+    };
+  }
+
+  if (nextNap.status === "learning") {
+    return {
+      eyebrow: t("Sleep prediction"),
+      title: t("Nelo is learning"),
+      subtitle: t("Keep tracking sleep"),
+      detail: t("A prediction will appear soon"),
+      icon: "sparkles",
+      accessibilityLabel: t("Open sleep prediction information"),
+      accessibilityHint: t("Learn how sleep predictions work"),
+    };
+  }
+
+  const sleepType = nextNap.type ?? "nap";
+  const config = CARD_CONFIG[sleepType] ?? CARD_CONFIG.nap;
+
+  const minutesUntil = Math.max(0, Number(nextNap.minutesUntil) || 0);
+
+  const timeWindow =
+    nextNap.idealWindowStart && nextNap.idealWindowEnd
+      ? `${nextNap.idealWindowStart} – ${nextNap.idealWindowEnd}`
+      : null;
+
+  return {
+    eyebrow: t(config.eyebrow),
+
+    title:
+      minutesUntil === 0
+        ? t("Now")
+        : t("In minutes", {
+            count: minutesUntil,
+          }),
+
+    subtitle: timeWindow ? t("Ideal window") : null,
+    detail: timeWindow,
+
+    icon: config.icon,
+
+    accessibilityLabel: t(config.accessibilityLabel),
+    accessibilityHint: t("Open the sleep recommendation details"),
+  };
+}
+
+function formatDuration(totalMinutes, t) {
+  const safeMinutes = Math.max(0, Math.floor(Number(totalMinutes) || 0));
+
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+
+  if (hours === 0) {
+    return t("{{count}} min", {
+      count: minutes,
+    });
+  }
+
+  if (minutes === 0) {
+    return t("{{count}} h", {
+      count: hours,
+    });
+  }
+
+  return t("{{hours}} h {{minutes}} min", {
+    hours,
+    minutes,
+  });
 }
 
 const createStyles = (colors) =>
@@ -99,7 +222,7 @@ const createStyles = (colors) =>
       justifyContent: "center",
     },
 
-    moonCircle: {
+    iconCircle: {
       width: 82,
       height: 82,
 
@@ -167,9 +290,7 @@ const createStyles = (colors) =>
       color: colors.textSecondary,
     },
 
-    timeWindow: {
-      marginTop: 0,
-
+    detail: {
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 14,
       lineHeight: 18,

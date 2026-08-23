@@ -40,9 +40,34 @@ export const mockHomeData = {
   },
 
   nextNap: {
-    minutesUntil: 23,
-    idealWindowStart: "11:10",
-    idealWindowEnd: "11:30",
+    status: "prediction",
+    type: "nap",
+
+    minutesUntil: 35,
+
+    idealWindowStart: "14:30",
+    idealWindowEnd: "15:00",
+    routineStart: "14:20",
+
+    confidence: "good",
+
+    reasons: [
+      {
+        type: "awake_duration",
+        minutes: 102,
+      },
+      {
+        type: "last_nap_duration",
+        minutes: 48,
+      },
+      {
+        type: "usual_wake_window",
+        minimumMinutes: 105,
+        maximumMinutes: 120,
+      },
+    ],
+
+    advice: "reduce_stimulation",
   },
 
   dailyMessage: getMockDailyMessage("night-wakings-4-months"),

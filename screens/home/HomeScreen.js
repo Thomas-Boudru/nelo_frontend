@@ -15,6 +15,26 @@ import DailyMessageDetailScreen from "./DailyMessageDetailsScreen.js";
 import { mockHomeData } from "../../data/mockHomeData.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
+function getTrackingFilterId(summaryItemId) {
+  switch (summaryItemId) {
+    case "feeding":
+    case "meals":
+      return "feeding";
+
+    case "sleep":
+      return "sleep";
+
+    case "diapers":
+      return "diaper";
+
+    case "mood":
+      return "all";
+
+    default:
+      return "all";
+  }
+}
+
 const MOCK_CHILDREN = [
   {
     id: "emma",
@@ -78,14 +98,29 @@ export default function HomeScreen({ navigation }) {
     Alert.alert("Résumé actualisé");
   };
 
-  const handleOpenSummaryItem = (itemId) => {
-    Alert.alert("Suivi", `Ouverture de la catégorie : ${itemId}`);
+  const handleOpenSummaryItem = ({ id, trackingType }) => {
+    navigation.navigate("MainTabs", {
+      screen: "Tracking",
+
+      params: {
+        screen: "TrackingOverview",
+
+        selectedDate: new Date().toISOString(),
+
+        selectedFilterId: getTrackingFilterId(id),
+
+        selectedTrackingType: trackingType,
+
+        requestId: Date.now(),
+      },
+    });
   };
 
   const handleOpenNextNap = () => {
-    Alert.alert("Prochaine sieste", "Détails de la prochaine sieste.");
+    navigation.navigate("NextSleepDetails", {
+      nextSleep: homeData.nextNap,
+    });
   };
-
   const handleOpenDailyMessage = () => {
     navigation.navigate("DailyMessageDetail", {
       message: homeData.dailyMessage,

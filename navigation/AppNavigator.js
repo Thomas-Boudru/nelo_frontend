@@ -12,6 +12,7 @@ import DailyMessageDetailScreen from "../screens/home/DailyMessageDetailsScreen.
 import NotificationsScreen from "../screens/home/NotificationsScreen.js";
 import NeloChatScreen from "../screens/nelo/NeloChatScreen.js";
 import NeloConversationsScreen from "../screens/nelo/NeloConversationsScreen.js";
+import NextSleepDetailsScreen from "../screens/home/NextSleepDetailsScreen.js";
 
 import MainTabNavigator from "./MainTabNavigator.js";
 import { useThemeColors } from "../theme/useThemeColors.js";
@@ -100,6 +101,14 @@ export default function AppNavigator() {
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen}
+        options={{
+          headerShown: false,
+        }}
+      />
+
+      <Stack.Screen
+        name="NextSleepDetails"
+        component={NextSleepDetailsScreen}
         options={{
           headerShown: false,
         }}
