@@ -14,8 +14,8 @@ import {
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { useTranslation } from "react-i18next";
-
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 
 import FeedingTypeTabs from "../../../components/addTracking/feeding/FeedingTypeTabs.js";
 import BottleFeedForm from "../../../components/addTracking/feeding/BottleFeedForm.js";
@@ -282,6 +282,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     onSavePumping,
 
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -690,6 +691,14 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     }
   };
 
+  const handleOpenHistory = () => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.(selectedType);
+    }, 220);
+  };
+
   const editTitle = EDIT_TITLE_BY_TYPE[selectedType] ?? "Edit feeding";
 
   return (
@@ -706,7 +715,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     >
       <View style={styles.content}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerContent}>
             <Text style={styles.title}>
               {isEditMode ? t(editTitle) : t("Add a feeding")}
             </Text>
@@ -721,6 +730,11 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
                   })}
             </Text>
           </View>
+
+          <TrackingHistoryButton
+            accessibilityLabel={t("View feeding history")}
+            onPress={handleOpenHistory}
+          />
         </View>
 
         {!isEditMode ? (
@@ -966,5 +980,11 @@ function createStyles(colors) {
       flex: 1,
       minWidth: 0,
     },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
+    },
+
   });
 }

@@ -144,6 +144,14 @@ const ChildSelectorSheet = forwardRef(function ChildSelectorSheet(
     sheetRef.current?.dismiss();
   };
 
+  const handleAddChild = useCallback(() => {
+    sheetRef.current?.dismiss();
+
+    setTimeout(() => {
+      onAddChild?.();
+    }, 250);
+  }, [onAddChild]);
+
   const renderChild = ({ item }) => (
     <ChildRow
       child={item}
@@ -183,13 +191,7 @@ const ChildSelectorSheet = forwardRef(function ChildSelectorSheet(
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("Add a child")}
-            onPress={() => {
-              sheetRef.current?.dismiss();
-
-              setTimeout(() => {
-                onAddChild?.();
-              }, 250);
-            }}
+            onPress={handleAddChild}
             style={({ pressed }) => [
               styles.addChildButton,
               pressed && styles.addChildButtonPressed,

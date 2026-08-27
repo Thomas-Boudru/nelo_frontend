@@ -45,7 +45,7 @@ const EditFirstNameSheet = forwardRef(function EditFirstNameSheet(
     const normalizedValue = value.trim();
 
     if (!normalizedValue) {
-      setError(t("First name is required"));
+      setError(t("Preferred name is required"));
       return;
     }
 
@@ -67,7 +67,7 @@ const EditFirstNameSheet = forwardRef(function EditFirstNameSheet(
         firstName: normalizedValue,
       });
     } catch (saveError) {
-      setError(saveError?.message || t("Unable to update first name"));
+      setError(saveError?.message || t("Unable to update preferred name"));
     }
   };
 
@@ -86,7 +86,7 @@ const EditFirstNameSheet = forwardRef(function EditFirstNameSheet(
       handleIndicatorStyle={styles.handleIndicator}
     >
       <BottomSheetView style={styles.container}>
-        <Text style={styles.title}>{t("Edit first name")}</Text>
+        <Text style={styles.title}>{t("Edit preferred name")}</Text>
 
         <Text style={styles.description}>
           {t("This name will be displayed throughout Nelo")}
@@ -94,7 +94,7 @@ const EditFirstNameSheet = forwardRef(function EditFirstNameSheet(
 
         <FormField
           InputComponent={BottomSheetTextInput}
-          label={t("First name")}
+          label={t("Preferred name")}
           value={value}
           onChangeText={(nextValue) => {
             setValue(nextValue);

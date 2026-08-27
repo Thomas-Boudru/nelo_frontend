@@ -28,6 +28,7 @@ import * as Haptics from "expo-haptics";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import FeedingPhotoSourceSheet from "../Feeding/FeedingPhotoSourceSheet.js";
@@ -76,7 +77,7 @@ function createNoteStateFromTrackingEntry(entry) {
 }
 
 const NoteEntrySheet = forwardRef(function NoteEntrySheet(
-  { onSave, onDismiss, onRequestDelete },
+  { onSave, onDismiss, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
@@ -339,6 +340,16 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
     onRequestDelete?.(editingEntry);
   }, [editingEntry, isEditMode, isSaving, onRequestDelete]);
 
+  const handleOpenHistory = useCallback(() => {
+    Keyboard.dismiss();
+
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("note");
+    }, 220);
+  }, [onPressHistory]);
+
   const handleSave = useCallback(async () => {
     if (!canSave || isSaving) {
       return;
@@ -424,21 +435,28 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
            * boutons, referme le clavier : les enfants pressables captent
            * le toucher avant ce Pressable, donc ils continuent de marcher.
            */}
-          <Pressable
-            accessible={false}
-            onPress={Keyboard.dismiss}
-            style={styles.header}
-          >
-            <Text style={styles.title}>
-              {isEditMode ? t("Edit note") : t("Add note")}
-            </Text>
+          <View style={styles.header}>
+            <Pressable
+              accessible={false}
+              onPress={Keyboard.dismiss}
+              style={styles.headerContent}
+            >
+              <Text style={styles.title}>
+                {isEditMode ? t("Edit note") : t("Add note")}
+              </Text>
 
-            <Text style={styles.subtitle}>
-              {isEditMode
-                ? t("Update this note and its photos")
-                : t("Write down something you want to remember")}
-            </Text>
-          </Pressable>
+              <Text style={styles.subtitle}>
+                {isEditMode
+                  ? t("Update this note and its photos")
+                  : t("Write down something you want to remember")}
+              </Text>
+            </Pressable>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View notes history")}
+              onPress={handleOpenHistory}
+            />
+          </View>
 
           <Pressable
             accessible={false}
@@ -628,8 +646,16 @@ function createStyles(colors) {
 
     header: {
       flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
       paddingHorizontal: 20,
       paddingBottom: 17,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

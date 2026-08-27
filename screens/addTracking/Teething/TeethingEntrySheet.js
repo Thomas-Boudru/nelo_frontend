@@ -30,6 +30,7 @@ import * as Haptics from "expo-haptics";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
 import NoteSheet from "../Feeding/NoteSheet.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const mouthBackground = require("../../../assets/illustrations/tracking/teething/mouth.png");
@@ -657,7 +658,7 @@ function ResponsiveTeethingMouth({
 }
 
 const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
-  { childName, eruptedTeeth = [], onSave, onRequestDelete },
+  { childName, eruptedTeeth = [], onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
@@ -796,6 +797,14 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
     onRequestDelete?.(editingEntry);
   }, [editingEntry, isEditMode, onRequestDelete]);
 
+  const handleOpenHistory = useCallback(() => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("teething");
+    }, 220);
+  }, [onPressHistory]);
+
   const handleSave = useCallback(async () => {
     if (!canSave) {
       return;
@@ -846,17 +855,24 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
       >
         <View style={dynamicStyles.content}>
           <View style={dynamicStyles.header}>
-            <Text style={dynamicStyles.title}>
-              {isEditMode ? t("Edit teething") : t("Add teething")}
-            </Text>
+            <View style={dynamicStyles.headerContent}>
+              <Text style={dynamicStyles.title}>
+                {isEditMode ? t("Edit teething") : t("Add teething")}
+              </Text>
 
-            <Text style={dynamicStyles.subtitle}>
-              {isEditMode
-                ? t("Update the teeth recorded for child", {
-                    childName,
-                  })
-                : t("Select the teeth that have appeared.")}
-            </Text>
+              <Text style={dynamicStyles.subtitle}>
+                {isEditMode
+                  ? t("Update the teeth recorded for child", {
+                      childName,
+                    })
+                  : t("Select the teeth that have appeared.")}
+              </Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View teething history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           <View style={dynamicStyles.scrollArea}>
@@ -1026,9 +1042,17 @@ function createDynamicStyles(colors) {
 
     header: {
       flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 8,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

@@ -30,18 +30,12 @@ export default function ParentNameScreen({ navigation, route }) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
-  const email = route.params?.email;
-  const verificationCode = route.params?.verificationCode;
-  const childProfile = route.params?.childProfile;
-
-  const [parentName, setParentName] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const trimmedDisplayName = displayName.trim();
   const [nameError, setNameError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  const trimmedParentName = parentName.trim();
-
-  const canSubmit = trimmedParentName.length > 0 && !isSubmitting;
+  const canSubmit = trimmedDisplayName.length > 0;
 
   useEffect(() => {
     const keyboardShowEvent =
@@ -65,21 +59,22 @@ export default function ParentNameScreen({ navigation, route }) {
   }, []);
 
   function handleNameChange(value) {
-    setParentName(value);
+    setDisplayName(value);
 
     if (nameError) {
       setNameError("");
     }
   }
-
   function validateName() {
-    if (!trimmedParentName) {
-      setNameError(t("Please enter your first name."));
+    if (!trimmedDisplayName) {
+      setNameError(t("Please enter the name you would like us to use."));
       return false;
     }
 
-    if (trimmedParentName.length < 2) {
-      setNameError(t("Your first name must contain at least 2 characters."));
+    if (trimmedDisplayName.length < 2) {
+      setNameError(
+        t("Your preferred name must contain at least 2 characters."),
+      );
 
       return false;
     }
@@ -88,49 +83,16 @@ export default function ParentNameScreen({ navigation, route }) {
     return true;
   }
 
-  async function handleContinue() {
-    if (!validateName() || isSubmitting) {
+  function handleContinue() {
+    if (!validateName()) {
       return;
     }
 
-    try {
-      setIsSubmitting(true);
-
-      console.log("Parent profile information", {
-        parentName: trimmedParentName,
-        email,
-        verificationCode,
-        childProfile,
-      });
-
-      /*
-        La création définitive du compte pourra être faite ici.
-
-        Exemple :
-
-        await authService.completeRegistration({
-          email,
-          verificationCode,
-          parentName: trimmedParentName,
-          childProfile,
-        });
-      */
-
-      navigation.replace("OnboardingComplete", {
-        parentName: trimmedParentName,
-        email,
-        verificationCode,
-        childProfile,
-      });
-    } catch (error) {
-      console.error("Unable to complete registration", error);
-
-      setNameError(t("Unable to save your first name. Please try again."));
-    } finally {
-      setIsSubmitting(false);
-    }
+    navigation.navigate("Relationship", {
+      ...route.params,
+      displayName: trimmedDisplayName,
+    });
   }
-
   function handleGoBack() {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -170,7 +132,7 @@ export default function ParentNameScreen({ navigation, route }) {
 
               <OnboardingProgressBar
                 currentStep={4}
-                totalSteps={5}
+                totalSteps={6}
                 style={styles.progressBar}
               />
             </View>
@@ -194,10 +156,10 @@ export default function ParentNameScreen({ navigation, route }) {
 
             <View style={styles.form}>
               <FormField
-                label={t("First name")}
-                value={parentName}
+                label={t("Preferred name")}
+                value={displayName}
                 onChangeText={handleNameChange}
-                placeholder={t("Your first name")}
+                placeholder={t("For example: Thomas")}
                 helperText={t("You can change this later in your settings.")}
                 helperIconName="heart-outline"
                 error={nameError}
@@ -206,7 +168,7 @@ export default function ParentNameScreen({ navigation, route }) {
                 autoCapitalize="words"
                 autoCorrect={false}
                 autoComplete="name"
-                textContentType="givenName"
+                textContentType="name"
                 returnKeyType="done"
                 maxLength={40}
                 onSubmitEditing={handleContinue}
@@ -228,7 +190,6 @@ export default function ParentNameScreen({ navigation, route }) {
             <PrimaryButton
               title={t("Continue")}
               onPress={handleContinue}
-              loading={isSubmitting}
               disabled={!canSubmit}
             />
           </View>

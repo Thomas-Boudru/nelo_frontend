@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import NoteSheet from "../Feeding/NoteSheet.js";
@@ -148,6 +149,7 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     onSave,
     onDismiss,
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -339,6 +341,14 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     onRequestDelete?.(editingEntry);
   }, [editingEntry, isEditMode, isSaving, onRequestDelete]);
 
+  const handleOpenHistory = useCallback(() => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("growth");
+    }, 220);
+  }, [onPressHistory]);
+
   const handleSave = useCallback(async () => {
     if (!hasMeasurement || isSaving) {
       return;
@@ -404,17 +414,24 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
       >
         <BottomSheetView style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={styles.title}>
-              {isEditMode ? t("Edit growth") : t("Add growth")}
-            </Text>
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>
+                {isEditMode ? t("Edit growth") : t("Add growth")}
+              </Text>
 
-            <Text style={styles.subtitle}>
-              {isEditMode
-                ? t("Update child's growth measurements", {
-                    childName,
-                  })
-                : t("Record one or more measurements")}
-            </Text>
+              <Text style={styles.subtitle}>
+                {isEditMode
+                  ? t("Update child's growth measurements", {
+                      childName,
+                    })
+                  : t("Record one or more measurements")}
+              </Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View growth history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           <View style={styles.body}>
@@ -625,9 +642,17 @@ function createStyles(colors) {
 
     header: {
       flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
       paddingHorizontal: 20,
       paddingBottom: 12,
       paddingTop: 5,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

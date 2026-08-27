@@ -149,7 +149,7 @@ const MyAccountSheet = forwardRef(function MyAccountSheet(
         <View style={styles.settingsCard}>
           <AccountRow
             icon="person-outline"
-            title={t("First name")}
+            title={t("Preferred name")}
             value={firstName}
             onPress={() => {
               handleOpenAction("firstName");

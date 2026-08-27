@@ -29,21 +29,47 @@ import { onboardingColors, radius, spacing } from "../../theme/index.js";
 
 const colors = onboardingColors;
 
-export default function EditChildProfileScreen({ navigation, route }) {
+const EMPTY_CHILD = {
+  id: null,
+  status: "born",
+  firstName: "",
+  displayName: "",
+  gender: null,
+  birthDate: null,
+  expectedDueDate: null,
+  isPremature: null,
+  gestationalAgeWeeks: null,
+};
+
+export default function ChildProfileFormScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
-  const child = route?.params?.child ?? {
-    id: null,
-    status: "born",
-    firstName: "",
-    gender: null,
-    birthDate: null,
-    expectedDueDate: null,
-    isPremature: null,
-    weeksEarly: null,
-  };
+  const routeMode = route?.params?.mode;
+  const receivedChild = route?.params?.child ?? null;
+
+  /*
+   * Si aucun enfant n’est transmis, on utilise automatiquement
+   * le mode création afin d’éviter un écran d’édition vide.
+   */
+  const isCreateMode = routeMode === "create" || !receivedChild?.id;
+
+  const child = useMemo(
+    () =>
+      isCreateMode
+        ? {
+            ...EMPTY_CHILD,
+
+            status:
+              route?.params?.initialStatus === "expected" ? "expected" : "born",
+          }
+        : {
+            ...EMPTY_CHILD,
+            ...receivedChild,
+          },
+    [isCreateMode, receivedChild, route?.params?.initialStatus],
+  );
 
   const initialStatus = child.status === "expected" ? "expected" : "born";
 
@@ -58,45 +84,62 @@ export default function EditChildProfileScreen({ navigation, route }) {
   );
 
   const [profileStatus, setProfileStatus] = useState(initialStatus);
-  const [childName, setChildName] = useState(child.firstName ?? "");
+
+  const [childName, setChildName] = useState(
+    initialStatus === "expected"
+      ? (child.displayName ?? "")
+      : (child.firstName ?? child.displayName ?? ""),
+  );
   const [gender, setGender] = useState(child.gender ?? null);
 
   const [birthDate, setBirthDate] = useState(initialBirthDate);
+
   const [expectedDueDate, setExpectedDueDate] = useState(
     initialExpectedDueDate,
   );
 
   const [isPremature, setIsPremature] = useState(child.isPremature ?? null);
 
-  const [weeksEarly, setWeeksEarly] = useState(
-    child.weeksEarly ? String(child.weeksEarly) : "",
+  const [gestationalAgeWeeks, setGestationalAgeWeeks] = useState(
+    child.gestationalAgeWeeks ? String(child.gestationalAgeWeeks) : "",
   );
-
   const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [datePickerMode, setDatePickerMode] = useState(null);
+
   const [temporaryDate, setTemporaryDate] = useState(new Date());
 
   const [hasSubmitted, setHasSubmitted] = useState(false);
+
   const [isSaving, setIsSaving] = useState(false);
+
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const today = useMemo(() => new Date(), []);
 
   const minimumExpectedDueDate = useMemo(() => {
     const date = new Date();
+
     date.setFullYear(date.getFullYear() - 1);
+
     return date;
   }, []);
 
   const maximumExpectedDueDate = useMemo(() => {
     const date = new Date();
+
     date.setFullYear(date.getFullYear() + 1);
+
     return date;
   }, []);
 
   const isBorn = profileStatus === "born";
-  const wasInitiallyExpected = initialStatus === "expected";
-  const isDeclaringBirth = wasInitiallyExpected && isBorn;
+
+  const wasInitiallyExpected = !isCreateMode && initialStatus === "expected";
+
+  const isDeclaringBirth = !isCreateMode && wasInitiallyExpected && isBorn;
+
+  const showStatusSelector = isCreateMode || wasInitiallyExpected;
 
   useEffect(() => {
     const keyboardShowEvent =
@@ -130,18 +173,18 @@ export default function EditChildProfileScreen({ navigation, route }) {
   );
 
   const trimmedChildName = childName.trim();
-  const weeksEarlyNumber = Number(weeksEarly);
+  const gestationalAgeWeeksNumber = Number(gestationalAgeWeeks);
 
-  const hasValidWeeksEarly =
+  const hasValidGestationalAge =
     !isBorn ||
     isPremature !== true ||
-    (weeksEarly !== "" &&
-      Number.isInteger(weeksEarlyNumber) &&
-      weeksEarlyNumber >= 1 &&
-      weeksEarlyNumber <= 20);
+    (gestationalAgeWeeks !== "" &&
+      Number.isInteger(gestationalAgeWeeksNumber) &&
+      gestationalAgeWeeksNumber >= 20 &&
+      gestationalAgeWeeksNumber <= 36);
 
   const childNameError =
-    hasSubmitted && !trimmedChildName
+    hasSubmitted && isBorn && !trimmedChildName
       ? t("Please enter your child's first name.")
       : "";
 
@@ -160,16 +203,16 @@ export default function EditChildProfileScreen({ navigation, route }) {
       ? t("Please select an answer.")
       : "";
 
-  const weeksEarlyError =
-    hasSubmitted && isBorn && isPremature === true && !hasValidWeeksEarly
-      ? t("Please enter a number between 1 and 20 weeks.")
+  const gestationalAgeError =
+    hasSubmitted && isBorn && isPremature === true && !hasValidGestationalAge
+      ? t("Please enter a number between 20 and 36 weeks.")
       : "";
-
-  const isFormValid =
-    trimmedChildName.length > 0 &&
-    (isBorn
-      ? birthDate !== null && isPremature !== null && hasValidWeeksEarly
-      : expectedDueDate !== null);
+  const isFormValid = isBorn
+    ? trimmedChildName.length > 0 &&
+      birthDate !== null &&
+      isPremature !== null &&
+      hasValidGestationalAge
+    : expectedDueDate !== null;
 
   function handleStatusChange(nextStatus) {
     setProfileStatus(nextStatus);
@@ -178,7 +221,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
     if (nextStatus === "expected") {
       setBirthDate(null);
       setIsPremature(null);
-      setWeeksEarly("");
+      setGestationalAgeWeeks("");
     }
   }
 
@@ -192,16 +235,15 @@ export default function EditChildProfileScreen({ navigation, route }) {
     setIsPremature(value);
 
     if (!value) {
-      setWeeksEarly("");
+      setGestationalAgeWeeks("");
     }
   }
 
-  function handleWeeksEarlyChange(value) {
+  function handleGestationalAgeChange(value) {
     const numericValue = value.replace(/[^0-9]/g, "").slice(0, 2);
 
-    setWeeksEarly(numericValue);
+    setGestationalAgeWeeks(numericValue);
   }
-
   function handleOpenDatePicker(mode) {
     Keyboard.dismiss();
 
@@ -222,6 +264,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
       }
 
       applySelectedDate(selectedDate);
+
       return;
     }
 
@@ -233,6 +276,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
   function applySelectedDate(selectedDate) {
     if (datePickerMode === "birthDate") {
       setBirthDate(selectedDate);
+
       return;
     }
 
@@ -257,13 +301,17 @@ export default function EditChildProfileScreen({ navigation, route }) {
       return;
     }
 
+    Keyboard.dismiss();
     setIsSaving(true);
 
     try {
-      const updatedChild = {
-        id: child.id,
+      const childPayload = {
         status: profileStatus,
-        firstName: trimmedChildName,
+
+        firstName: isBorn && trimmedChildName ? trimmedChildName : null,
+
+        displayName: trimmedChildName || null,
+
         gender,
 
         birthDate: isBorn && birthDate ? birthDate.toISOString() : null,
@@ -273,48 +321,121 @@ export default function EditChildProfileScreen({ navigation, route }) {
 
         isPremature: isBorn ? isPremature : null,
 
-        weeksEarly: isBorn && isPremature === true ? weeksEarlyNumber : null,
+        gestationalAgeWeeks:
+          isBorn && isPremature === true ? gestationalAgeWeeksNumber : null,
       };
 
-      /*
-       * Plus tard :
-       *
-       * await api.patch(
-       *   `/children/${child.id}`,
-       *   updatedChild,
-       * );
-       *
-       * Il faudra ensuite mettre à jour le store global
-       * ou recharger le profil depuis l’API.
-       */
+      let savedChild;
 
-      console.log("Updated child profile:", updatedChild);
+      if (isCreateMode) {
+        /*
+         * Plus tard :
+         *
+         * savedChild = await api.post(
+         *   "/children",
+         *   childPayload,
+         * );
+         *
+         * Le store global devra ensuite :
+         * - ajouter savedChild ;
+         * - sélectionner savedChild.id ;
+         * - rafraîchir les données de l’accueil.
+         */
+
+        savedChild = {
+          id: `child-${Date.now()}`,
+          themeMode: "blue",
+          profilePicture: null,
+          ...childPayload,
+        };
+
+        console.log("Created child profile:", savedChild);
+      } else {
+        /*
+         * Plus tard :
+         *
+         * savedChild = await api.patch(
+         *   `/children/${child.id}`,
+         *   childPayload,
+         * );
+         *
+         * Le store global devra remplacer l’enfant
+         * correspondant par savedChild.
+         */
+
+        savedChild = {
+          ...child,
+          ...childPayload,
+          id: child.id,
+        };
+
+        console.log("Updated child profile:", savedChild);
+      }
 
       showToast({
         type: "success",
-        title: isDeclaringBirth
-          ? t("Birth declared")
-          : t("Child profile updated"),
-        message: isDeclaringBirth
-          ? t("Child birth information has been saved", {
-              childName: updatedChild.firstName,
+
+        title: isCreateMode
+          ? t("Child added")
+          : isDeclaringBirth
+            ? t("Birth declared")
+            : t("Child profile updated"),
+
+        message: isCreateMode
+          ? t("Child profile has been created", {
+              childName:
+                savedChild.displayName ||
+                savedChild.firstName ||
+                t("your baby"),
             })
-          : t("Child profile information has been saved", {
-              childName: updatedChild.firstName,
-            }),
+          : isDeclaringBirth
+            ? t("Child birth information has been saved", {
+                childName:
+                  savedChild.displayName ||
+                  savedChild.firstName ||
+                  t("your baby"),
+              })
+            : t("Child profile information has been saved", {
+                childName:
+                  savedChild.displayName ||
+                  savedChild.firstName ||
+                  t("your baby"),
+              }),
       });
 
       navigation.goBack();
     } catch (error) {
       showToast({
         type: "error",
-        title: t("Unable to update child profile"),
+
+        title: isCreateMode
+          ? t("Unable to add child")
+          : t("Unable to update child profile"),
+
         message: error?.message ?? t("Please try again in a moment."),
       });
     } finally {
       setIsSaving(false);
     }
   }
+
+  const headerTitle = isCreateMode
+    ? t("Add a child")
+    : isDeclaringBirth
+      ? t("Declare child birth", {
+          childName:
+            trimmedChildName ||
+            child.displayName ||
+            child.firstName ||
+            t("your baby"),
+        })
+      : t("Edit child profile");
+
+  const submitButtonTitle = isCreateMode
+    ? t("Add child")
+    : isDeclaringBirth
+      ? t("Confirm birth")
+      : t("Save changes");
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -327,11 +448,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
             <BackButton onPress={() => navigation.goBack()} />
 
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {isDeclaringBirth
-                ? t("Declare child birth", {
-                    childName: trimmedChildName || child.firstName,
-                  })
-                : t("Edit child profile")}
+              {headerTitle}
             </Text>
 
             <View style={styles.headerPlaceholder} />
@@ -341,6 +458,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
             style={styles.scrollView}
             contentContainerStyle={[
               styles.scrollContent,
+
               isKeyboardVisible && styles.scrollContentWithKeyboard,
             ]}
             showsVerticalScrollIndicator={false}
@@ -350,7 +468,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
             }
             bounces={false}
           >
-            {wasInitiallyExpected ? (
+            {showStatusSelector ? (
               <View style={styles.statusContainer}>
                 <Text style={styles.fieldLabel}>
                   {t("Has your child been born?")}
@@ -378,16 +496,23 @@ export default function EditChildProfileScreen({ navigation, route }) {
 
             <View style={styles.form}>
               <FormField
-                label={t("Your child's first name")}
+                label={
+                  isBorn
+                    ? t("Your child's first name")
+                    : t("What should Nelo call your baby?")
+                }
+                optionalLabel={!isBorn ? t("Optional") : undefined}
                 value={childName}
                 onChangeText={setChildName}
-                placeholder={t("First name")}
+                placeholder={
+                  isBorn
+                    ? t("First name")
+                    : t("For example: Emma or Little Bean")
+                }
                 helperText={
                   isBorn
-                    ? undefined
-                    : t(
-                        "You can leave the name you currently use and change it later.",
-                      )
+                    ? t("You can change this later.")
+                    : t("You can change this after your baby is born.")
                 }
                 error={childNameError}
                 iconName="person-outline"
@@ -396,7 +521,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
                 returnKeyType="done"
                 maxLength={40}
                 editable={!isSaving}
-                required
+                required={isBorn}
               />
 
               <View style={styles.fieldGroup}>
@@ -440,6 +565,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
                   <View style={styles.fieldGroup}>
                     <Text style={styles.fieldLabel}>
                       {t("Was your child born prematurely?")}
+
                       <Text style={styles.required}> *</Text>
                     </Text>
 
@@ -467,14 +593,16 @@ export default function EditChildProfileScreen({ navigation, route }) {
                   {isPremature === true ? (
                     <View style={styles.conditionalField}>
                       <FormField
-                        label={t("How many weeks early was your child born?")}
-                        value={weeksEarly}
-                        onChangeText={handleWeeksEarlyChange}
-                        placeholder={t("Number of weeks early")}
-                        helperText={t(
-                          "For example: 6 weeks early. This helps Nelo adapt developmental information.",
+                        label={t(
+                          "At how many weeks of pregnancy was your child born?",
                         )}
-                        error={weeksEarlyError}
+                        value={gestationalAgeWeeks}
+                        onChangeText={handleGestationalAgeChange}
+                        placeholder={t("Weeks of pregnancy")}
+                        helperText={t(
+                          "For example: 32 weeks. This helps Nelo adapt developmental information.",
+                        )}
+                        error={gestationalAgeError}
                         iconName="time-outline"
                         keyboardType="number-pad"
                         maxLength={2}
@@ -504,6 +632,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
           <View
             style={[
               styles.footer,
+
               {
                 paddingBottom: isKeyboardVisible
                   ? spacing.xs
@@ -512,7 +641,7 @@ export default function EditChildProfileScreen({ navigation, route }) {
             ]}
           >
             <PrimaryButton
-              title={isDeclaringBirth ? t("Confirm birth") : t("Save changes")}
+              title={submitButtonTitle}
               loading={isSaving}
               disabled={isSaving}
               onPress={handleSave}
@@ -659,18 +788,25 @@ const styles = StyleSheet.create({
 
   header: {
     minHeight: 64,
+
     flexDirection: "row",
     alignItems: "center",
+
     paddingHorizontal: spacing.lg,
   },
 
   headerTitle: {
     flex: 1,
+
     marginHorizontal: spacing.sm,
+
     color: colors.textPrimary,
+
     fontFamily: "PlusJakartaSans_700Bold",
+
     fontSize: 18,
     lineHeight: 25,
+
     textAlign: "center",
   },
 
@@ -714,21 +850,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+
     marginBottom: spacing.sm,
   },
 
   fieldLabel: {
     marginBottom: spacing.sm,
+
     color: colors.textPrimary,
+
     fontFamily: "PlusJakartaSans_700Bold",
+
     fontSize: 16,
     lineHeight: 23,
   },
 
   optionalLabel: {
     marginBottom: spacing.sm,
+
     color: colors.textSecondary,
-    fontFamily: "PlusJakartaSans_500Regular",
+
+    fontFamily: "PlusJakartaSans_500Medium",
+
     fontSize: 12,
     lineHeight: 18,
   },
@@ -758,6 +901,7 @@ const styles = StyleSheet.create({
   errorRow: {
     flexDirection: "row",
     alignItems: "flex-start",
+
     gap: 7,
     marginTop: spacing.sm,
     paddingHorizontal: 2,
@@ -765,63 +909,84 @@ const styles = StyleSheet.create({
 
   errorText: {
     flex: 1,
+
     color: colors.error || "#E97878",
-    fontFamily: "PlusJakartaSans_500Regular",
+
+    fontFamily: "PlusJakartaSans_500Medium",
+
     fontSize: 13,
     lineHeight: 20,
   },
 
   footer: {
-    borderTopWidth: 1,
-    borderTopColor: "rgba(117, 139, 181, 0.12)",
-    backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
+
+    borderTopWidth: 1,
+    borderTopColor: "rgba(117, 139, 181, 0.12)",
+
+    backgroundColor: colors.background,
   },
 
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
+
     backgroundColor: "rgba(29, 42, 71, 0.32)",
   },
 
   dateModal: {
     overflow: "hidden",
+
+    paddingBottom: spacing.xl,
+
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
+
     backgroundColor: "#FFFFFF",
-    paddingBottom: spacing.xl,
   },
 
   modalHeader: {
     minHeight: 62,
+
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+
+    paddingHorizontal: spacing.lg,
+
     borderBottomWidth: 1,
     borderBottomColor: "#E8ECF4",
-    paddingHorizontal: spacing.lg,
   },
 
   modalTitle: {
     flex: 1,
+
     marginHorizontal: spacing.sm,
+
     color: colors.textPrimary,
+
     fontFamily: "PlusJakartaSans_700Bold",
+
     fontSize: 15,
     lineHeight: 21,
+
     textAlign: "center",
   },
 
   cancelButton: {
     color: colors.textSecondary,
+
     fontFamily: "PlusJakartaSans_600SemiBold",
+
     fontSize: 15,
   },
 
   confirmButton: {
     color: colors.primary,
+
     fontFamily: "PlusJakartaSans_700Bold",
+
     fontSize: 15,
   },
 

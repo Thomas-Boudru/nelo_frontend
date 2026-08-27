@@ -12,28 +12,9 @@ import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import { useTranslation } from "react-i18next";
 import DailyMessageDetailScreen from "./DailyMessageDetailsScreen.js";
 
+import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import { mockHomeData } from "../../data/mockHomeData.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
-
-function getTrackingFilterId(summaryItemId) {
-  switch (summaryItemId) {
-    case "feeding":
-    case "meals":
-      return "feeding";
-
-    case "sleep":
-      return "sleep";
-
-    case "diapers":
-      return "diaper";
-
-    case "mood":
-      return "all";
-
-    default:
-      return "all";
-  }
-}
 
 const MOCK_CHILDREN = [
   {
@@ -79,9 +60,10 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleAddChild = () => {
-    navigation.navigate("AddChild");
+    navigation.navigate("ChildProfileForm", {
+      mode: "create",
+    });
   };
-
   const handleOpenNotifications = () => {
     navigation.navigate("Notifications");
   };
@@ -98,22 +80,12 @@ export default function HomeScreen({ navigation }) {
     Alert.alert("Résumé actualisé");
   };
 
-  const handleOpenSummaryItem = ({ id, trackingType }) => {
-    navigation.navigate("MainTabs", {
-      screen: "Tracking",
-
-      params: {
-        screen: "TrackingOverview",
-
-        selectedDate: new Date().toISOString(),
-
-        selectedFilterId: getTrackingFilterId(id),
-
-        selectedTrackingType: trackingType,
-
-        requestId: Date.now(),
-      },
-    });
+  /*
+   * Les identifiants du résumé (« meals », « diapers »…) sont déjà connus
+   * de la table des destinations, qui gère les alias.
+   */
+  const handleOpenSummaryItem = ({ id }) => {
+    navigateToTrackingHistory(navigation, id);
   };
 
   const handleOpenNextNap = () => {

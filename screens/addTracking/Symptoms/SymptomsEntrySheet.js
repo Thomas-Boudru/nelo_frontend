@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
 import NoteSheet from "../Feeding/NoteSheet.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const SYMPTOM_OPTIONS = [
@@ -129,7 +130,7 @@ function createSymptomsStateFromTrackingEntry(entry) {
 }
 
 const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
-  { childName, onSave, onRequestDelete },
+  { childName, onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
@@ -243,6 +244,14 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
     onRequestDelete?.(editingEntry);
   }, [editingEntry, isEditMode, onRequestDelete]);
 
+  const handleOpenHistory = useCallback(() => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("symptoms");
+    }, 220);
+  }, [onPressHistory]);
+
   const handleSave = useCallback(async () => {
     if (!canSave) {
       return;
@@ -296,21 +305,28 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>
-              {isEditMode ? t("Edit symptoms") : t("Add symptoms")}
-            </Text>
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>
+                {isEditMode ? t("Edit symptoms") : t("Add symptoms")}
+              </Text>
 
-            <Text style={styles.subtitle}>
-              {isEditMode
-                ? t("Update the symptoms observed for child", {
-                    childName,
-                  })
-                : childName
-                  ? t("Select the symptoms observed for child", {
+              <Text style={styles.subtitle}>
+                {isEditMode
+                  ? t("Update the symptoms observed for child", {
                       childName,
                     })
-                  : t("Select all symptoms you noticed.")}
-            </Text>
+                  : childName
+                    ? t("Select the symptoms observed for child", {
+                        childName,
+                      })
+                    : t("Select all symptoms you noticed.")}
+              </Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View symptoms history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           <View style={styles.scrollArea}>
@@ -493,9 +509,17 @@ function createStyles(colors) {
 
     header: {
       flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 18,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

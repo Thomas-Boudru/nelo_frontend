@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -602,6 +602,7 @@ function GrowthHistoryCard({
 
 export default function GrowthHistoryScreen({
   navigation,
+  route,
   onEditTrackingEntry,
   child,
 }) {
@@ -613,7 +614,25 @@ export default function GrowthHistoryScreen({
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [selectedMeasurement, setSelectedMeasurement] = useState("weight");
+  /*
+   * L'appelant (carte « Dernières mesures » du profil enfant) peut demander
+   * l'onglet à ouvrir ; on retombe sur le poids si la mesure est inconnue.
+   */
+  const requestedMeasurement = route?.params?.measurement;
+
+  const [selectedMeasurement, setSelectedMeasurement] = useState(() =>
+    MEASUREMENT_CONFIG[requestedMeasurement] ? requestedMeasurement : "weight",
+  );
+
+  /*
+   * L'écran reste monté dans la pile : sans cette synchronisation, un second
+   * passage depuis une autre mesure rouvrirait l'onglet précédent.
+   */
+  useEffect(() => {
+    if (MEASUREMENT_CONFIG[requestedMeasurement]) {
+      setSelectedMeasurement(requestedMeasurement);
+    }
+  }, [requestedMeasurement]);
 
   const measurementConfig = MEASUREMENT_CONFIG[selectedMeasurement];
 

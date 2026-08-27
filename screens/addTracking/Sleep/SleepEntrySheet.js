@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next";
 import ManualSleepSheet from "./ManualSleepSheet.js";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 const awakeIllustration = require("../../../assets/illustrations/tracking/sleep/wake.png");
@@ -44,6 +45,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     onAddManually,
     onSaveManualSleep,
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -298,6 +300,14 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       setIsSavingWake(false);
     }
   };
+  const handleOpenHistory = () => {
+    dismissMainSheet();
+
+    setTimeout(() => {
+      onPressHistory?.("sleep");
+    }, 220);
+  };
+
   const durationSeconds = activeSleep?.startedAt
     ? Math.max(
         0,
@@ -330,19 +340,26 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>
-              {view === "wakeConfirmation"
-                ? t("Finish sleep")
-                : t("Track sleep")}
-            </Text>
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>
+                {view === "wakeConfirmation"
+                  ? t("Finish sleep")
+                  : t("Track sleep")}
+              </Text>
 
-            <Text style={styles.subtitle}>
-              {view === "wakeConfirmation"
-                ? t("Review the sleep before saving it")
-                : activeSleep
-                  ? t("Sleep tracking is currently running")
-                  : t("Record a nap or a night sleep")}
-            </Text>
+              <Text style={styles.subtitle}>
+                {view === "wakeConfirmation"
+                  ? t("Review the sleep before saving it")
+                  : activeSleep
+                    ? t("Sleep tracking is currently running")
+                    : t("Record a nap or a night sleep")}
+              </Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View sleep history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           <View style={styles.stateContainer}>
@@ -900,9 +917,18 @@ function createStyles(colors) {
     },
 
     header: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+
       paddingHorizontal: 20,
       paddingTop: 2,
       paddingBottom: 14,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

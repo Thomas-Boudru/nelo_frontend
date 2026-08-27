@@ -21,6 +21,7 @@ import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import MedicationTypeTabs from "../../../components/addTracking/medication/MedicationTypeTabs.js";
 import MedicationForm from "../../../components/addTracking/medication/MedicationForm.js";
 import VaccineForm from "../../../components/addTracking/medication/VaccineForm.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import VaccineDetailsSheet from "./VaccineDetailsSheet.js";
 
@@ -154,6 +155,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     onSaveMedication,
     onSaveVaccine,
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -273,6 +275,14 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     onRequestDelete?.(editingEntry);
   };
 
+  const handleOpenHistory = () => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.(selectedType);
+    }, 220);
+  };
+
   const handleSave = async () => {
     if (!canSave) {
       return;
@@ -379,32 +389,43 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>
-              {isEditMode
-                ? selectedType === "medication"
-                  ? t("Edit medication")
-                  : t("Edit vaccine")
-                : selectedType === "medication"
-                  ? t("Add medication")
-                  : t("Add a vaccine")}
-            </Text>
-            <Text style={styles.subtitle}>
-              {isEditMode
-                ? selectedType === "medication"
-                  ? t("Update child's medication", {
-                      childName,
-                    })
-                  : t("Update child's vaccine", {
-                      childName,
-                    })
-                : selectedType === "medication"
-                  ? t("Record medication given to child", {
-                      childName,
-                    })
-                  : t("Keep child vaccination history up to date", {
-                      childName,
-                    })}
-            </Text>
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>
+                {isEditMode
+                  ? selectedType === "medication"
+                    ? t("Edit medication")
+                    : t("Edit vaccine")
+                  : selectedType === "medication"
+                    ? t("Add medication")
+                    : t("Add a vaccine")}
+              </Text>
+              <Text style={styles.subtitle}>
+                {isEditMode
+                  ? selectedType === "medication"
+                    ? t("Update child's medication", {
+                        childName,
+                      })
+                    : t("Update child's vaccine", {
+                        childName,
+                      })
+                  : selectedType === "medication"
+                    ? t("Record medication given to child", {
+                        childName,
+                      })
+                    : t("Keep child vaccination history up to date", {
+                        childName,
+                      })}
+              </Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={
+                selectedType === "medication"
+                  ? t("View medication history")
+                  : t("View vaccine history")
+              }
+              onPress={handleOpenHistory}
+            />
           </View>
 
           {!isEditMode ? (
@@ -580,9 +601,17 @@ function createStyles(colors) {
 
     header: {
       flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 18,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

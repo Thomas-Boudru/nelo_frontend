@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
@@ -97,7 +98,7 @@ function createMoodEntryFromTrackingEntry(trackingEntry) {
 }
 
 const MoodEntrySheet = forwardRef(function MoodEntrySheet(
-  { childName, onSave, onRequestDelete },
+  { childName, onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
@@ -183,6 +184,14 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
     onRequestDelete?.(editingEntry);
   };
 
+  const handleOpenHistory = () => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("mood");
+    }, 220);
+  };
+
   const handleSave = async () => {
     if (!canSave) {
       return;
@@ -217,23 +226,30 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
     >
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>
-            {isEditMode
-              ? t("Edit mood")
-              : t("How is child feeling?", {
-                  childName,
-                })}
-          </Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.title}>
+              {isEditMode
+                ? t("Edit mood")
+                : t("How is child feeling?", {
+                    childName,
+                  })}
+            </Text>
 
-          <Text style={styles.subtitle}>
-            {isEditMode
-              ? t("Update child's mood", {
-                  childName,
-                })
-              : t("Choose the mood that best describes child right now", {
-                  childName,
-                })}
-          </Text>
+            <Text style={styles.subtitle}>
+              {isEditMode
+                ? t("Update child's mood", {
+                    childName,
+                  })
+                : t("Choose the mood that best describes child right now", {
+                    childName,
+                  })}
+            </Text>
+          </View>
+
+          <TrackingHistoryButton
+            accessibilityLabel={t("View mood history")}
+            onPress={handleOpenHistory}
+          />
         </View>
 
         <BottomSheetScrollView
@@ -377,9 +393,18 @@ function createStyles(colors) {
     },
 
     header: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 18,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

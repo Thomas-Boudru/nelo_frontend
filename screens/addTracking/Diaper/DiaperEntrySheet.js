@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 
 import NoteSheet from "../Feeding/NoteSheet.js";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 
 import DiaperTypeTabs from "../../../components/addTracking/diaper/DiaperHypeTabs.js";
 import DiaperForm from "../../../components/addTracking/diaper/DiaperForm.js";
@@ -108,6 +109,7 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
     onSavePotty,
 
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -286,6 +288,14 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
     modalRef.current?.dismiss();
   };
 
+  const handleOpenHistory = () => {
+    modalRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.(selectedType);
+    }, 220);
+  };
+
   const title = isEditMode
     ? selectedType === "diaper"
       ? t("Edit diaper")
@@ -320,9 +330,16 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>{title}</Text>
 
-            <Text style={styles.subtitle}>{subtitle}</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
+            </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View diaper history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           {!isEditMode ? (
@@ -450,9 +467,18 @@ function createStyles(colors) {
     },
 
     header: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 18,
+    },
+
+    headerContent: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     title: {

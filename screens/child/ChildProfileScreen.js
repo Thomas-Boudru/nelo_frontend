@@ -29,10 +29,12 @@ import EditEmailSheet from "./Account/EditEmailSheet.js";
 import DeleteAccountSheet from "./Account/DeleteAccountSheet.js";
 import * as WebBrowser from "expo-web-browser";
 import DeleteChildProfileSheet from "./DeleteChildProfileSheet.js";
-import EditChildProfileScreen from "./EditChildProfileScreen.js";
+import EditChildProfileScreen from "./ChildProfileFormScreen.js";
 import ChildPictureSheet from "./ChildPictureScreen.js";
 import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
+import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
+import RelationshipSettingsSheet from "./RelationshipSettingsSheet.js";
 
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
 
@@ -99,6 +101,7 @@ const mockChildren = [
     birthDate: "12 juillet 2024",
     ageInMonths: 9,
     ageLabel: "9 months",
+    currentUserRelationship: "father",
     gender: "girl",
     themeMode: "blue",
     profilePicture: null,
@@ -130,6 +133,7 @@ const mockChildren = [
     ageLabel: "3 years, 3 months",
     gender: "boy",
     themeMode: "green",
+    currentUserRelationship: "father",
     profilePicture: null,
     currentUserRole: "owner",
 
@@ -298,6 +302,7 @@ export default function ChildProfileScreen({ navigation }) {
   const deleteChildProfileSheetRef = useRef(null);
   const editChildProfileSheetRef = useRef(null);
   const childPictureSheetRef = useRef(null);
+  const relationshipSettingsSheetRef = useRef(null);
 
   const [isDeletingChildProfile, setIsDeletingChildProfile] = useState(false);
 
@@ -311,6 +316,7 @@ export default function ChildProfileScreen({ navigation }) {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUpdatingChildPicture, setIsUpdatingChildPicture] = useState(false);
   const [activeShareLinks, setActiveShareLinks] = useState([]);
+  const [isSavingRelationship, setIsSavingRelationship] = useState(false);
 
   const [measurementUnits, setMeasurementUnits] = useState({
     weight: "kg",
@@ -341,13 +347,28 @@ export default function ChildProfileScreen({ navigation }) {
   );
 
   const handleEditChild = () => {
-    navigation.navigate("EditChildProfile", {
+    navigation.navigate("ChildProfileForm", {
+      mode: "edit",
       child,
     });
   };
 
   const child =
     children.find((item) => item.id === selectedChildId) ?? children[0];
+
+  const relationshipLabels = {
+    mother: "Mother",
+    father: "Father",
+    parent: "Parent",
+    grandparent: "Grandparent",
+    family_or_friend: "Family or close friend",
+    caregiver: "Caregiver",
+    other: "Other",
+  };
+
+  const currentRelationshipLabel = t(
+    relationshipLabels[child?.currentUserRelationship] || "Not specified",
+  );
 
   const babyFallbackImage =
     BABY_FALLBACK_IMAGES[child.themeMode] ?? BABY_FALLBACK_IMAGES.blue;
@@ -419,12 +440,60 @@ export default function ChildProfileScreen({ navigation }) {
     childSelectorSheetRef.current?.present();
   };
 
+  function handleOpenRelationshipSettings() {
+    relationshipSettingsSheetRef.current?.present();
+  }
+
+  async function handleSaveRelationship({ relationship }) {
+    setIsSavingRelationship(true);
+
+    try {
+      /*
+      Plus tard :
+
+      await api.patch(
+        `/children/${child.id}/members/me`,
+        {
+          relationship,
+        },
+      );
+    */
+
+      setChildren((currentChildren) =>
+        currentChildren.map((currentChild) =>
+          currentChild.id === child.id
+            ? {
+                ...currentChild,
+                currentUserRelationship: relationship,
+              }
+            : currentChild,
+        ),
+      );
+
+      return true;
+    } finally {
+      setIsSavingRelationship(false);
+    }
+  }
+
+  /*
+   * Les dernières mesures renvoient vers l'onglet Tracking, sur la courbe
+   * de croissance, déjà positionnée sur la mesure touchée.
+   */
+  const handleOpenGrowthHistory = (measurement) => {
+    navigateToTrackingHistory(navigation, "growth", {
+      measurement,
+    });
+  };
+
   const handleSelectChild = (selectedChild) => {
     setSelectedChildId(selectedChild.id);
   };
 
   const handleAddChild = () => {
-    console.log("Ouvrir le parcours d’ajout d’un enfant");
+    navigation.navigate("ChildProfileForm", {
+      mode: "create",
+    });
   };
 
   const handleOpenTrackingPreferences = () => {
@@ -714,9 +783,7 @@ export default function ChildProfileScreen({ navigation }) {
               image={WEIGHT_IMAGE}
               value={child.measurements.weight.value}
               label={t("Weight")}
-              onPress={() => {
-                console.log("Ouvrir le suivi du poids");
-              }}
+              onPress={() => handleOpenGrowthHistory("weight")}
               styles={styles}
             />
 
@@ -724,9 +791,7 @@ export default function ChildProfileScreen({ navigation }) {
               image={HEIGHT_IMAGE}
               value={child.measurements.height.value}
               label={t("Height")}
-              onPress={() => {
-                console.log("Ouvrir le suivi de la taille");
-              }}
+              onPress={() => handleOpenGrowthHistory("height")}
               styles={styles}
             />
 
@@ -735,9 +800,7 @@ export default function ChildProfileScreen({ navigation }) {
               value={child.measurements.headCircumference.value}
               label={t("Head circumference")}
               isLast
-              onPress={() => {
-                console.log("Ouvrir le suivi du périmètre crânien");
-              }}
+              onPress={() => handleOpenGrowthHistory("headCircumference")}
               styles={styles}
             />
           </View>
@@ -792,6 +855,17 @@ export default function ChildProfileScreen({ navigation }) {
             title={t("Share tracking data")}
             value={t("Secure link")}
             onPress={handleOpenShareTrackingData}
+            colors={colors}
+            styles={styles}
+          />
+
+          <ProfileSettingRow
+            icon="heart-outline"
+            title={t("Your relationship with {{childName}}", {
+              childName: child.firstName,
+            })}
+            value={currentRelationshipLabel}
+            onPress={handleOpenRelationshipSettings}
             colors={colors}
             styles={styles}
           />
@@ -1262,6 +1336,13 @@ export default function ChildProfileScreen({ navigation }) {
         }}
       />
 
+      <RelationshipSettingsSheet
+        ref={relationshipSettingsSheetRef}
+        childName={child.firstName}
+        currentRelationship={child.currentUserRelationship}
+        isSaving={isSavingRelationship}
+        onSave={handleSaveRelationship}
+      />
       <ChildPictureSheet
         ref={childPictureSheetRef}
         childName={child.firstName}

@@ -5,6 +5,7 @@ import {
   createBottomTabNavigator,
 } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
 
 import HomeScreen from "../screens/home/HomeScreen.js";
@@ -32,6 +33,7 @@ import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
 import AddTrackingSheet from "../screens/addTracking/AddTrackingSheet.js";
 
+import { navigateToTrackingHistory } from "./trackingHistoryDestinations.js";
 import { useThemeColors } from "../theme/useThemeColors.js";
 
 const homeActive = require("../assets/icons/tabBar/homeActive.png");
@@ -227,6 +229,12 @@ function TrackingNavigatorContent({
 export default function MainTabNavigator() {
   const { t } = useTranslation();
 
+  /*
+   * Les sheets d'ajout vivent en dehors du navigateur d'onglets : elles n'ont
+   * donc pas de prop `navigation`. On récupère celle de la route « MainTabs ».
+   */
+  const navigation = useNavigation();
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -255,6 +263,17 @@ export default function MainTabNavigator() {
   const childName = "Emma";
 
   const EmptyScreenComponent = () => <EmptyScreen styles={styles} />;
+
+  /*
+   * Depuis l'en-tête d'une sheet d'ajout : on ouvre l'écran de suivi
+   * correspondant au type (sommeil -> historique de sommeil, etc.).
+   */
+  const handleOpenTrackingHistory = useCallback(
+    (trackingType) => {
+      navigateToTrackingHistory(navigation, trackingType);
+    },
+    [navigation],
+  );
 
   const handleOpenAddTracking = () => {
     addTrackingSheetRef.current?.present();
@@ -712,6 +731,7 @@ export default function MainTabNavigator() {
         ref={feedingSheetRef}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
       />
 
       <SleepEntrySheet
@@ -723,6 +743,7 @@ export default function MainTabNavigator() {
           endedAt: "2026-08-09T06:51:00",
         }}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onStartSleep={async (sleep) => {
           console.log("Sommeil commencé :", sleep);
 
@@ -764,6 +785,7 @@ export default function MainTabNavigator() {
         ref={diaperSheetRef}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSaveDiaper={async (diaper) => {
           console.log("Couche enregistrée :", diaper);
 
@@ -804,6 +826,7 @@ export default function MainTabNavigator() {
         ref={moodSheetRef}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (mood) => {
           console.log("Humeur enregistrée :", mood);
 
@@ -827,6 +850,7 @@ export default function MainTabNavigator() {
           { id: "nurofen", name: "Nurofen" },
         ]}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSaveMedication={async (medication) => {
           console.log("Médicament enregistré :", medication);
 
@@ -873,6 +897,7 @@ export default function MainTabNavigator() {
         childAgeInMonths={2}
         initialLocation="forehead"
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (temperatureEntry) => {
           console.log("Température enregistrée :", temperatureEntry);
 
@@ -898,6 +923,7 @@ export default function MainTabNavigator() {
         ref={symptomsEntrySheetRef}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (symptomsData) => {
           console.log("Symptoms saved:", symptomsData);
 
@@ -930,6 +956,7 @@ export default function MainTabNavigator() {
           ]
         }
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (teethingEntry) => {
           console.log("Dentition enregistrée :", teethingEntry);
 
@@ -962,6 +989,7 @@ export default function MainTabNavigator() {
           headCircumference: 38.7,
         }}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (growthEntry) => {
           console.log("Croissance enregistrée :", growthEntry);
 
@@ -988,6 +1016,7 @@ export default function MainTabNavigator() {
       <NoteEntrySheet
         ref={noteEntrySheetRef}
         onRequestDelete={handleRequestDeleteTrackingEntry}
+        onPressHistory={handleOpenTrackingHistory}
         onSave={async (noteEntry) => {
           console.log("Note enregistrée :", noteEntry);
 

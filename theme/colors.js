@@ -3,6 +3,10 @@ export const commonColors = {
 
   error: "#E75B62",
   success: "#4FB982",
+
+  iconSecondary: "#8A94A6",
+  iconSecondaryBackground: "#F1F3F6",
+
   heroCloud: "#DCE8FF",
   heroSecondaryStar: "#AFC1FF",
 };

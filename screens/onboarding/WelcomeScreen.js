@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
 
   heroIllustration: {
-    width: 280,
+    width: 220,
     height: 260,
     marginBottom: 12,
     zIndex: 2,

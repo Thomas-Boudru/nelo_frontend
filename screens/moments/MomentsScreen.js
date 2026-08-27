@@ -162,7 +162,9 @@ export default function MomentsScreen({ navigation }) {
   };
 
   const handleAddChild = () => {
-    navigation.navigate("AddChild");
+    navigation.navigate("ChildProfileForm", {
+      mode: "create",
+    });
   };
 
   const handleAddMoment = () => {

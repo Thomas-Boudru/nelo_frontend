@@ -9,6 +9,7 @@ import EmailScreen from "../screens/auth/EmailScreen.js";
 import VerificationCodeScreen from "../screens/auth/VerificationCodeSCreen.js";
 import ParentNameScreen from "../screens/auth/ParentNameScreen.js";
 import OnboardingCompleteScreen from "../screens/onboarding/OnboardingCompleteScreen.js";
+import RelationshipScreen from "../screens/auth/RelationshipScreen.js";
 
 const Stack = createNativeStackNavigator();
 
@@ -48,6 +49,8 @@ export default function OnboardingNavigator() {
       />
 
       <Stack.Screen name="ParentName" component={ParentNameScreen} />
+
+      <Stack.Screen name="Relationship" component={RelationshipScreen} />
 
       <Stack.Screen
         name="OnboardingComplete"

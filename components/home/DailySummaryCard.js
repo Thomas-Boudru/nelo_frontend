@@ -130,7 +130,7 @@ function SummaryItem({ item, value, label, showSeparator, styles, onPress }) {
   );
 }
 
-export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
+export default function DailySummaryCard({ summary, onPressItem }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
@@ -195,26 +195,13 @@ export default function DailySummaryCard({ summary, onRefresh, onPressItem }) {
       <View style={styles.header}>
         <Text style={styles.title}>{t("Daily summary")}</Text>
 
-        <View style={styles.updatedContainer}>
+        {summary.syncedAt ? (
           <Text style={styles.updatedText}>
-            {t("Updated at", {
-              time: summary.updatedAt,
+            {t("Synced at {{time}}", {
+              time: summary.syncedAt,
             })}
           </Text>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t("Refresh daily summary")}
-            onPress={onRefresh}
-            hitSlop={10}
-            style={({ pressed }) => [
-              styles.refreshButton,
-              pressed && styles.refreshButtonPressed,
-            ]}
-          >
-            <Ionicons name="refresh" size={19} color={colors.primary} />
-          </Pressable>
-        </View>
+        ) : null}
       </View>
 
       <View style={styles.items}>

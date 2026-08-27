@@ -225,11 +225,11 @@ export default function ExpectedChildProfileScreen({ navigation }) {
 
             <View style={styles.form}>
               <FormField
-                label={t("What will your child's first name be?")}
+                label={t("What should Nelo call your baby?")}
                 optionalLabel={t("Optional")}
                 value={childName}
                 onChangeText={setChildName}
-                placeholder={t("First name")}
+                placeholder={t("For example: Emma or Little Bean")}
                 helperText={t("You can change this later.")}
                 iconName="person-outline"
                 autoCapitalize="words"

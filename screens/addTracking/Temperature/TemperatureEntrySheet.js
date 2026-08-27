@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
+import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import MeasurementLocationSheet from "./MeasurementLocationSheet.js";
@@ -171,6 +172,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     initialTemperature = DEFAULT_TEMPERATURE,
     onSave,
     onRequestDelete,
+    onPressHistory,
   },
   ref,
 ) {
@@ -344,6 +346,14 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     onRequestDelete?.(editingEntry);
   }, [editingEntry, isEditMode, onRequestDelete]);
 
+  const handleOpenHistory = useCallback(() => {
+    sheetRef.current?.dismiss();
+
+    setTimeout(() => {
+      onPressHistory?.("temperature");
+    }, 220);
+  }, [onPressHistory]);
+
   const handleSave = useCallback(async () => {
     if (isEditing) {
       commitDraft();
@@ -416,6 +426,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                   : t("Record your baby's temperature")}
               </Text>
             </View>
+
+            <TrackingHistoryButton
+              accessibilityLabel={t("View temperature history")}
+              onPress={handleOpenHistory}
+            />
           </View>
 
           <View

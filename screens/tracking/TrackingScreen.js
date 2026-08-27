@@ -26,6 +26,8 @@ import TrackingByTypeView from "../../components/tracking/byTracking/TrackingByT
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import ShareChildDataSheet from "../child/Share/ShareChildDataSheet.js";
 
+import { getTrackingHistoryDestination } from "../../navigation/trackingHistoryDestinations.js";
+
 import {
   mockTrackingChildren,
   mockTrackingDay,
@@ -223,7 +225,9 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   };
 
   const handleAddChild = () => {
-    navigation?.navigate("AddChild");
+    navigation.navigate("ChildProfileForm", {
+      mode: "create",
+    });
   };
 
   const handleChangeViewMode = (mode) => {
@@ -315,42 +319,26 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   };
 
   const handlePressTrackingType = (item) => {
-    if (!item?.id) {
+    const destination = getTrackingHistoryDestination(item?.id);
+
+    if (!destination) {
+      console.log("Unknown tracking type:", item?.id);
       return;
     }
 
-    switch (item.id) {
-      case "temperature":
-      case "medication":
-      case "vaccine":
-      case "teething":
-      case "note":
-        navigation.navigate("TrackingTypeHistory", {
-          trackingType: item.id,
-          titleKey: item.titleKey,
-        });
-        return;
-
-      case "symptoms":
-      case "feeding":
-      case "diaper":
-      case "mood":
-        navigation.navigate("TrackingStatsHistory", {
-          trackingType: item.id,
-          titleKey: item.titleKey,
-        });
-        return;
-
-      case "sleep":
-        navigation.navigate("SleepHistory");
-        return;
-      case "growth":
-        navigation.navigate("GrowthHistory");
-        return;
-
-      default:
-        console.log("Unknown tracking type:", item.id);
-    }
+    /*
+     * On est déjà dans la pile Tracking : navigation directe, en laissant
+     * l'écran surcharger le titre avec celui de la liste.
+     */
+    navigation.navigate(
+      destination.screen,
+      destination.params
+        ? {
+            ...destination.params,
+            titleKey: item.titleKey ?? destination.params.titleKey,
+          }
+        : undefined,
+    );
   };
   const handleCreateLink = (options = {}) => {
     const now = new Date();

@@ -8,6 +8,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 
 import { onboardingColors, radius, spacing } from "../../theme";
+import { Ionicons } from "@expo/vector-icons";
 
 const colors = onboardingColors;
 
@@ -47,6 +48,13 @@ export default function PrimaryButton({
       : colors.primary;
 
   const contentColor = isWake ? colors.textPrimary : colors.white;
+
+  const renderedIcon =
+    typeof icon === "string" ? (
+      <Ionicons name={icon} size={20} color={contentColor} />
+    ) : (
+      icon
+    );
 
   return (
     <View
@@ -88,7 +96,7 @@ export default function PrimaryButton({
             <ActivityIndicator color={contentColor} />
           ) : (
             <>
-              {icon}
+              {renderedIcon}
 
               <Text
                 style={[

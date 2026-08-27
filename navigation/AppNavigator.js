@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import NotificationSettingsScreen from "../screens/child/NotificationSettingsScreen.js";
 import PrivacyDataScreen from "../screens/child/PrivacyDataScreen.js";
 import SubscriptionScreen from "../screens/child/SubscriptionScreen.js";
-import EditChildProfileScreen from "../screens/child/EditChildProfileScreen.js";
+import ChildProfileFormScreen from "../screens/child/ChildProfileFormScreen.js";
 import MomentEditorScreen from "../screens/moments/MomentEditorScreen.js";
 import MilestonePickerScreen from "../screens/moments/MilestonePickerScreen.js";
 import MomentDetailsScreen from "../screens/moments/MomentDetailsScreen.js";
@@ -60,11 +60,8 @@ export default function AppNavigator() {
 
       <Stack.Screen name="Subscription" component={SubscriptionScreen} />
       <Stack.Screen
-        name="EditChildProfile"
-        component={EditChildProfileScreen}
-        options={{
-          headerShown: false,
-        }}
+        name="ChildProfileForm"
+        component={ChildProfileFormScreen}
       />
 
       <Stack.Screen

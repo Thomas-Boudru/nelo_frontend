@@ -250,10 +250,10 @@ export default function BornChildProfileScreen({ navigation }) {
 
             <View style={styles.form}>
               <FormField
-                label={t("Your child's first name")}
+                label={t("What should Nelo call your baby?")}
                 value={childName}
                 onChangeText={setChildName}
-                placeholder={t("First name")}
+                placeholder={t("For example: Emma or Little Bean")}
                 helperText={t("You can change this later.")}
                 error={childNameError}
                 iconName="person-outline"
@@ -345,7 +345,9 @@ export default function BornChildProfileScreen({ navigation }) {
               {isPremature === true ? (
                 <View style={styles.conditionalField}>
                   <FormField
-                    label={t("How many weeks early was your child born?")}
+                    label={t(
+                      "At how many weeks of pregnancy was your child born?",
+                    )}
                     value={weeksEarly}
                     onChangeText={handleWeeksEarlyChange}
                     placeholder={t("Number of weeks early")}
