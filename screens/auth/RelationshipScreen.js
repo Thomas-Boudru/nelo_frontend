@@ -1,48 +1,43 @@
 import { useMemo, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Image,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { useDispatch, useSelector } from "react-redux";
 
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
-
-import FormField from "../../components/onboarding/FormField.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 
+import { setRelationship } from "../../store/slices/onboardingSlice.js";
+
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
-const PINK_STAR_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
+
 const colors = onboardingColors;
 
-export default function RelationshipScreen({ navigation, route }) {
+const PINK_STAR_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
+
+export default function RelationshipScreen({ navigation }) {
   const { t } = useTranslation();
+  const dispatch = useDispatch();
   const insets = useSafeAreaInsets();
 
-  const [relationship, setRelationship] = useState(null);
-  const [customRelationship, setCustomRelationship] = useState("");
-  const [submissionError, setSubmissionError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const childFirstName = useSelector(
+    (state) => state.onboarding.childFirstName,
+  );
 
-  const childProfile = route.params?.childProfile;
-  const displayName = route.params?.displayName;
-  const email = route.params?.email;
-  const verificationCode = route.params?.verificationCode;
-  const invitation = route.params?.invitation;
-  const onboardingMode = route.params?.onboardingMode;
+  const [selectedRelationship, setSelectedRelationship] = useState(null);
 
-  const childName =
-    childProfile?.firstName || invitation?.childName || t("this child");
+  const childName = childFirstName?.trim() || t("this child");
 
   const relationshipOptions = useMemo(
     () => [
@@ -78,102 +73,22 @@ export default function RelationshipScreen({ navigation, route }) {
     [t],
   );
 
-  const trimmedCustomRelationship = customRelationship.trim();
-
-  const canSubmit = relationship !== null && !isSubmitting;
+  const canSubmit = selectedRelationship !== null;
 
   function handleRelationshipSelection(value) {
-    setRelationship(value);
-    setSubmissionError("");
-
-    if (value !== "other") {
-      setCustomRelationship("");
-    }
+    setSelectedRelationship(value);
   }
 
-  function handleCustomRelationshipChange(value) {
-    setCustomRelationship(value);
-  }
-
-  async function handleContinue() {
-    if (!relationship || isSubmitting) {
+  function handleContinue() {
+    if (!selectedRelationship) {
       return;
     }
 
-    const relationshipData = {
-      type: relationship,
-      customLabel:
-        relationship === "other" && trimmedCustomRelationship
-          ? trimmedCustomRelationship
-          : null,
-    };
-
-    const registrationData = {
-      email,
-      verificationCode,
-      displayName,
-      childProfile: onboardingMode === "invitation" ? null : childProfile,
-      relationship: relationshipData,
-      invitationToken: invitation?.token || null,
-    };
-
-    try {
-      setIsSubmitting(true);
-      setSubmissionError("");
-
-      console.log("Complete registration", registrationData);
-
-      /*
-        La création définitive du compte sera effectuée ici.
-
-        Pour un utilisateur qui crée un enfant :
-
-        await authService.completeRegistration({
-          email,
-          verificationCode,
-          displayName,
-          childProfile,
-          relationship: relationshipData,
-        });
-
-        Pour un utilisateur invité :
-
-        await authService.completeRegistration({
-          email,
-          verificationCode,
-          displayName,
-          relationship: relationshipData,
-          invitationToken: invitation?.token,
-        });
-      */
-
-      const nextParams = {
-        ...route.params,
-        relationship: relationshipData,
-      };
-
-      if (onboardingMode === "invitation") {
-        navigation.replace("Invitation", nextParams);
-        return;
-      }
-
-      navigation.replace("OnboardingComplete", nextParams);
-    } catch (error) {
-      console.error("Unable to complete registration", error);
-
-      setSubmissionError(
-        t("Unable to complete your registration. Please try again."),
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
+    dispatch(setRelationship(selectedRelationship));
+    navigation.replace("OnboardingComplete");
   }
 
   function handleGoBack() {
-    if (isSubmitting) {
-      return;
-    }
-
     if (navigation.canGoBack()) {
       navigation.goBack();
     }
@@ -181,125 +96,97 @@ export default function RelationshipScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <View style={styles.screen}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={
-              Platform.OS === "ios" ? "interactive" : "on-drag"
-            }
-            bounces={false}
-          >
-            <View style={styles.topSection}>
-              <BackButton onPress={handleGoBack} />
+      <View style={styles.screen}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.topSection}>
+            <BackButton onPress={handleGoBack} />
 
-              <OnboardingProgressBar
-                currentStep={5}
-                totalSteps={6}
-                style={styles.progressBar}
-              />
-            </View>
-
-            <View style={styles.header}>
-              <Image
-                source={PINK_STAR_IMAGE}
-                resizeMode="contain"
-                pointerEvents="none"
-                style={styles.pinkStar}
-              />
-
-              <Text style={styles.title}>
-                {t("What is your relationship with {{childName}}?", {
-                  childName,
-                })}
-              </Text>
-
-              <Text style={styles.description}>
-                {t(
-                  "This helps Nelo personalize your experience and how it speaks to you.",
-                )}
-              </Text>
-            </View>
-
-            <View style={styles.form}>
-              <View style={styles.relationshipOptions}>
-                {relationshipOptions.map((option) => {
-                  const isSelected = relationship === option.value;
-
-                  return (
-                    <Pressable
-                      key={option.value}
-                      accessibilityRole="radio"
-                      accessibilityState={{
-                        selected: isSelected,
-                      }}
-                      accessibilityLabel={option.label}
-                      onPress={() => handleRelationshipSelection(option.value)}
-                      style={({ pressed }) => [
-                        styles.relationshipPill,
-                        isSelected && styles.relationshipPillSelected,
-                        pressed && styles.relationshipPillPressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.relationshipPillText,
-                          isSelected && styles.relationshipPillTextSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {relationship === "other" ? (
-                <View style={styles.customRelationshipField}>
-                  <FormField
-                    label={t("Specify your relationship")}
-                    value={customRelationship}
-                    onChangeText={handleCustomRelationshipChange}
-                    placeholder={t("For example: godparent, aunt or uncle")}
-                    helperText={t("This information is optional.")}
-                    autoCapitalize="sentences"
-                    autoCorrect
-                    returnKeyType="done"
-                    maxLength={40}
-                    onSubmitEditing={handleContinue}
-                  />
-                </View>
-              ) : null}
-
-              {submissionError ? (
-                <Text style={styles.errorText}>{submissionError}</Text>
-              ) : null}
-            </View>
-          </ScrollView>
-
-          <View
-            style={[
-              styles.footer,
-              {
-                paddingBottom: Math.max(insets.bottom, spacing.sm),
-              },
-            ]}
-          >
-            <PrimaryButton
-              title={t("Continue")}
-              onPress={handleContinue}
-              loading={isSubmitting}
-              disabled={!canSubmit}
+            <OnboardingProgressBar
+              currentStep={5}
+              totalSteps={6}
+              style={styles.progressBar}
             />
           </View>
+
+          <View style={styles.header}>
+            <Image
+              source={PINK_STAR_IMAGE}
+              resizeMode="contain"
+              pointerEvents="none"
+              style={styles.pinkStar}
+            />
+
+            <Text style={styles.title}>
+              {t("What is your relationship with {{childName}}?", {
+                childName,
+              })}
+            </Text>
+
+            <Text style={styles.description}>
+              {t(
+                "This helps Nelo personalize your experience and how it speaks to you.",
+              )}
+            </Text>
+          </View>
+
+          <View style={styles.form}>
+            <View
+              accessibilityRole="radiogroup"
+              style={styles.relationshipOptions}
+            >
+              {relationshipOptions.map((option) => {
+                const isSelected = selectedRelationship === option.value;
+
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.label}
+                    accessibilityState={{
+                      selected: isSelected,
+                    }}
+                    onPress={() => handleRelationshipSelection(option.value)}
+                    style={({ pressed }) => [
+                      styles.relationshipPill,
+                      isSelected && styles.relationshipPillSelected,
+                      pressed && styles.relationshipPillPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.relationshipPillText,
+                        isSelected && styles.relationshipPillTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </ScrollView>
+
+        <View
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(insets.bottom, spacing.sm),
+            },
+          ]}
+        >
+          <PrimaryButton
+            title={t("Continue")}
+            onPress={handleContinue}
+            disabled={!canSubmit}
+          />
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -308,10 +195,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-
-  keyboardView: {
-    flex: 1,
   },
 
   screen: {
@@ -341,9 +224,19 @@ const styles = StyleSheet.create({
   },
 
   header: {
+    position: "relative",
     alignItems: "center",
     marginTop: spacing.xxl,
     paddingHorizontal: spacing.md,
+  },
+
+  pinkStar: {
+    position: "absolute",
+    top: -12,
+    right: 18,
+    width: 21,
+    height: 21,
+    transform: [{ rotate: "10deg" }],
   },
 
   title: {
@@ -413,31 +306,9 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_700Bold",
   },
 
-  customRelationshipField: {
-    marginTop: spacing.xl,
-  },
-
-  errorText: {
-    marginTop: spacing.md,
-    color: colors.error,
-    fontFamily: "PlusJakartaSans_500Regular",
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: "center",
-  },
-
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     backgroundColor: colors.background,
-  },
-
-  pinkStar: {
-    position: "absolute",
-    top: -12,
-    right: 18,
-    width: 21,
-    height: 21,
-    transform: [{ rotate: "10deg" }],
   },
 });

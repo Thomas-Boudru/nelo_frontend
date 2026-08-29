@@ -19,6 +19,8 @@ import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import FormField from "../../components/onboarding/FormField.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
+import { useDispatch } from "react-redux";
+import { setParentFirstName } from "../../store/slices/onboardingSlice.js";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -26,9 +28,10 @@ const STAR_IMAGE = require("../../assets/illustrations/onboarding/starYellow.png
 const HEART_IMAGE = require("../../assets/illustrations/onboarding/heart.png");
 const LANDSCAPE_IMAGE = require("../../assets/illustrations/onboarding/landscape.png");
 
-export default function ParentNameScreen({ navigation, route }) {
+export default function ParentNameScreen({ navigation }) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const dispatch = useDispatch();
 
   const [displayName, setDisplayName] = useState("");
   const trimmedDisplayName = displayName.trim();
@@ -88,10 +91,9 @@ export default function ParentNameScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate("Relationship", {
-      ...route.params,
-      displayName: trimmedDisplayName,
-    });
+    Keyboard.dismiss();
+    dispatch(setParentFirstName(trimmedDisplayName));
+    navigation.navigate("Relationship");
   }
   function handleGoBack() {
     if (navigation.canGoBack()) {

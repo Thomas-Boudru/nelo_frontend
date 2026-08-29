@@ -535,16 +535,16 @@ export default function ChildProfileFormScreen({ navigation, route }) {
                   <SelectionCard
                     label={t("Boy")}
                     iconName="male-outline"
-                    selected={gender === "boy"}
-                    onPress={() => handleGenderSelection("boy")}
+                    selected={gender === "male"}
+                    onPress={() => handleGenderSelection("male")}
                     style={styles.genderSelection}
                   />
 
                   <SelectionCard
                     label={t("Girl")}
                     iconName="female-outline"
-                    selected={gender === "girl"}
-                    onPress={() => handleGenderSelection("girl")}
+                    selected={gender === "female"}
+                    onPress={() => handleGenderSelection("female")}
                     style={styles.genderSelection}
                   />
                 </View>

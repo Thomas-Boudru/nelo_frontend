@@ -27,17 +27,22 @@ import FormField from "../../components/onboarding/FormField.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 import SelectionCard from "../../components/onboarding/SelectionCard.js";
 
+import { useDispatch } from "react-redux";
+import { setBornChildProfile } from "../../store/slices/onboardingSlice.js";
+
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
 
 export default function BornChildProfileScreen({ navigation }) {
   const { t, i18n } = useTranslation();
 
+  const dispatch = useDispatch();
+
   const [childName, setChildName] = useState("");
   const [gender, setGender] = useState(null);
   const [birthDate, setBirthDate] = useState(null);
   const [isPremature, setIsPremature] = useState(null);
-  const [weeksEarly, setWeeksEarly] = useState("");
+  const [gestationalAgeWeeks, setGestationalAgeWeeks] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [temporaryBirthDate, setTemporaryBirthDate] = useState(new Date());
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -70,14 +75,14 @@ export default function BornChildProfileScreen({ navigation }) {
   }, [birthDate, i18n.language]);
 
   const trimmedChildName = childName.trim();
-  const weeksEarlyNumber = Number(weeksEarly);
+  const gestationalAgeWeeksNumber = Number(gestationalAgeWeeks);
 
-  const hasValidWeeksEarly =
+  const hasValidGestationalAgeWeeks =
     isPremature !== true ||
-    (weeksEarly !== "" &&
-      Number.isInteger(weeksEarlyNumber) &&
-      weeksEarlyNumber >= 1 &&
-      weeksEarlyNumber <= 20);
+    (gestationalAgeWeeks !== "" &&
+      Number.isInteger(gestationalAgeWeeksNumber) &&
+      gestationalAgeWeeksNumber >= 20 &&
+      gestationalAgeWeeksNumber <= 36);
 
   const childNameError =
     hasSubmitted && !trimmedChildName
@@ -92,16 +97,16 @@ export default function BornChildProfileScreen({ navigation }) {
   const prematureError =
     hasSubmitted && isPremature === null ? t("Please select an answer.") : "";
 
-  const weeksEarlyError =
-    hasSubmitted && isPremature === true && !hasValidWeeksEarly
-      ? t("Please enter a number between 1 and 20 weeks.")
+  const gestationalAgeWeeksError =
+    hasSubmitted && isPremature === true && !hasValidGestationalAgeWeeks
+      ? t("Please enter a number between 20 and 36 weeks.")
       : "";
 
   const isFormValid =
     trimmedChildName.length > 0 &&
     birthDate !== null &&
     isPremature !== null &&
-    hasValidWeeksEarly;
+    hasValidGestationalAgeWeeks;
 
   function handleOpenDatePicker() {
     setTemporaryBirthDate(birthDate || maximumBirthDate);
@@ -159,14 +164,14 @@ export default function BornChildProfileScreen({ navigation }) {
     setIsPremature(value);
 
     if (!value) {
-      setWeeksEarly("");
+      setGestationalAgeWeeks("");
     }
   }
 
-  function handleWeeksEarlyChange(value) {
+  function handleGestationalAgeWeeksChange(value) {
     const numericValue = value.replace(/[^0-9]/g, "").slice(0, 2);
 
-    setWeeksEarly(numericValue);
+    setGestationalAgeWeeks(numericValue);
   }
 
   function handleContinue() {
@@ -176,17 +181,21 @@ export default function BornChildProfileScreen({ navigation }) {
       return;
     }
 
-    const childProfile = {
-      firstName: trimmedChildName,
-      gender,
-      birthDate: birthDate.toISOString(),
-      isPremature,
-      weeksEarly: isPremature === true ? weeksEarlyNumber : null,
-    };
+    dispatch(
+      setBornChildProfile({
+        firstName: trimmedChildName,
+        gender,
+        birthDate: birthDate.toISOString().slice(0, 10),
+        birthTime: null,
+        isPremature,
+        gestationalAgeWeeks:
+          isPremature === true ? gestationalAgeWeeksNumber : null,
+        gestationalAgeDays: null,
+      }),
+    );
 
     navigation.navigate("SignUp", {
-      mode: "signUp",
-      childProfile,
+      onboardingMode: "signUp",
     });
   }
 
@@ -275,10 +284,10 @@ export default function BornChildProfileScreen({ navigation }) {
                   <SelectionCard
                     label={t("Boy")}
                     iconName="male-outline"
-                    selected={gender === "boy"}
+                    selected={gender === "male"}
                     onPress={() =>
                       setGender((currentGender) =>
-                        currentGender === "boy" ? null : "boy",
+                        currentGender === "male" ? null : "male",
                       )
                     }
                     style={styles.genderSelection}
@@ -287,10 +296,10 @@ export default function BornChildProfileScreen({ navigation }) {
                   <SelectionCard
                     label={t("Girl")}
                     iconName="female-outline"
-                    selected={gender === "girl"}
+                    selected={gender === "female"}
                     onPress={() =>
                       setGender((currentGender) =>
-                        currentGender === "girl" ? null : "girl",
+                        currentGender === "female" ? null : "female",
                       )
                     }
                     style={styles.genderSelection}
@@ -348,13 +357,13 @@ export default function BornChildProfileScreen({ navigation }) {
                     label={t(
                       "At how many weeks of pregnancy was your child born?",
                     )}
-                    value={weeksEarly}
-                    onChangeText={handleWeeksEarlyChange}
-                    placeholder={t("Number of weeks early")}
+                    value={gestationalAgeWeeks}
+                    onChangeText={handleGestationalAgeWeeksChange}
+                    placeholder={t("Number of weeks of pregnancy")}
                     helperText={t(
-                      "For example: 6 weeks early. This helps Nelo adapt developmental information.",
+                      "For example: 32 weeks. This helps Nelo adapt developmental information.",
                     )}
-                    error={weeksEarlyError}
+                    error={gestationalAgeWeeksError}
                     iconName="time-outline"
                     keyboardType="number-pad"
                     maxLength={2}

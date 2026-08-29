@@ -26,6 +26,9 @@ import FormField from "../../components/onboarding/FormField.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 import SelectionCard from "../../components/onboarding/SelectionCard.js";
 
+import { useDispatch } from "react-redux";
+import { setExpectedChildProfile } from "../../store/slices/onboardingSlice.js";
+
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
 
@@ -37,6 +40,7 @@ const YELLOW_STAR_IMAGE = require("../../assets/illustrations/onboarding/starYel
 
 export default function ExpectedChildProfileScreen({ navigation }) {
   const { t, i18n } = useTranslation();
+  const dispatch = useDispatch();
 
   const insets = useSafeAreaInsets();
 
@@ -150,18 +154,16 @@ export default function ExpectedChildProfileScreen({ navigation }) {
       return;
     }
 
-    const childProfile = {
-      firstName: childName.trim() || null,
-      expectedBirthDate: expectedBirthDate.toISOString(),
-      gender,
-      childStatus: "expected",
-    };
-
-    console.log("Expected child profile:", childProfile);
+    dispatch(
+      setExpectedChildProfile({
+        firstName: childName.trim(),
+        gender,
+        expectedBirthDate: expectedBirthDate.toISOString().slice(0, 10),
+      }),
+    );
 
     navigation.navigate("SignUp", {
-      mode: "signUp",
-      childProfile,
+      onboardingMode: "signUp",
     });
   }
 
@@ -260,24 +262,24 @@ export default function ExpectedChildProfileScreen({ navigation }) {
                   <SelectionCard
                     label={t("Boy")}
                     iconName="male-outline"
-                    selected={gender === "boy"}
-                    onPress={() => handleGenderSelection("boy")}
+                    onPress={() => handleGenderSelection("male")}
+                    selected={gender === "male"}
                     style={styles.genderSelection}
                   />
 
                   <SelectionCard
                     label={t("Girl")}
                     iconName="female-outline"
-                    selected={gender === "girl"}
-                    onPress={() => handleGenderSelection("girl")}
+                    onPress={() => handleGenderSelection("female")}
+                    selected={gender === "female"}
                     style={styles.genderSelection}
                   />
 
                   <SelectionCard
                     label={t("We don't know yet")}
                     iconName="help-outline"
-                    selected={gender === "unknown"}
-                    onPress={() => handleGenderSelection("unknown")}
+                    onPress={() => handleGenderSelection("unspecified")}
+                    selected={gender === "unspecified"}
                     style={[styles.genderSelection, styles.unknownSelection]}
                   />
                 </View>

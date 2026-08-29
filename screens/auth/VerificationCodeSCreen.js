@@ -183,7 +183,9 @@ export default function VerificationCodeScreen({ navigation, route }) {
       setIsResending(true);
       setError("");
 
-      await requestLoginCode(email);
+      const locale = i18n.resolvedLanguage?.split("-")[0] || "en";
+
+      await requestLoginCode(email, locale);
 
       setCode("");
       setSecondsRemaining(RESEND_DELAY);

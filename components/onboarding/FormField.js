@@ -38,6 +38,7 @@ export default function FormField({
   editable = true,
 
   InputComponent = TextInput,
+  inputRef,
 
   containerStyle,
   labelRowStyle,
@@ -136,6 +137,7 @@ export default function FormField({
         ) : null}
 
         <InputComponent
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}

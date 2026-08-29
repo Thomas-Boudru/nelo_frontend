@@ -12,13 +12,9 @@ export default function RootNavigator() {
     (state) => state.onboarding.completed,
   );
 
-  /*
-   * Valeurs possibles en développement :
-   * "app"        → afficher directement l'application
-   * "onboarding" → afficher directement l'onboarding
-   * "auto"       → utiliser le véritable état utilisateur
-   */
-  const developmentNavigationMode = __DEV__ ? "onboarding" : "auto";
+  //const developmentNavigationMode = __DEV__ ? "onboarding" : "auto";
+
+  const developmentNavigationMode = "auto";
 
   if (developmentNavigationMode === "app") {
     return <AppNavigator />;

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -8,7 +9,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../auth/AuthProvider.js";
@@ -32,11 +36,45 @@ export default function EmailScreen({ navigation, route }) {
   const mode = route.params?.mode || "signUp";
   const isSignIn = mode === "signIn";
 
+  const inputRef = useRef(null);
+
+  const insets = useSafeAreaInsets();
+
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
+
+  useEffect(() => {
+    const keyboardShowEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+
+    const keyboardHideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSubscription = Keyboard.addListener(keyboardShowEvent, () => {
+      setIsKeyboardVisible(true);
+    });
+
+    const hideSubscription = Keyboard.addListener(keyboardHideEvent, () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    const focusTimer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 350);
+
+    return () => clearTimeout(focusTimer);
+  }, []);
 
   const isEmailValid = useMemo(() => {
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -84,8 +122,6 @@ export default function EmailScreen({ navigation, route }) {
 
       await requestLoginCode(normalizedEmail, locale);
 
-      await requestLoginCode(normalizedEmail);
-
       navigation.navigate("VerificationCode", {
         mode,
         email: normalizedEmail,
@@ -118,6 +154,13 @@ export default function EmailScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <Image
+        source={LANDSCAPE_IMAGE}
+        resizeMode="contain"
+        pointerEvents="none"
+        style={styles.landscape}
+      />
+
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -178,6 +221,7 @@ export default function EmailScreen({ navigation, route }) {
 
               <View style={styles.form}>
                 <FormField
+                  inputRef={inputRef}
                   value={email}
                   onChangeText={handleEmailChange}
                   placeholder={t("Your email address")}
@@ -197,7 +241,16 @@ export default function EmailScreen({ navigation, route }) {
               </View>
             </View>
 
-            <View style={styles.bottomSection}>
+            <View
+              style={[
+                styles.bottomSection,
+                {
+                  paddingBottom: isKeyboardVisible
+                    ? spacing.xs
+                    : Math.max(insets.bottom, spacing.sm),
+                },
+              ]}
+            >
               <PrimaryButton
                 title={isSignIn ? t("Continue") : t("Send the code")}
                 onPress={handleSendCode}
@@ -230,13 +283,6 @@ export default function EmailScreen({ navigation, route }) {
               ) : null}
             </View>
           </View>
-
-          <Image
-            source={LANDSCAPE_IMAGE}
-            resizeMode="contain"
-            pointerEvents="none"
-            style={styles.landscape}
-          />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -376,8 +422,7 @@ const styles = StyleSheet.create({
   },
 
   bottomSection: {
-    marginTop: spacing.xxl,
-    paddingBottom: spacing.lg,
+    marginTop: spacing.xl,
   },
 
   signInText: {
@@ -394,18 +439,13 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_700Bold",
   },
 
-  landscapeContainer: {
-    flex: 1,
-    minHeight: 170,
-    justifyContent: "flex-end",
-    marginTop: spacing.xl,
-  },
-
   landscape: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: -20,
     width: "100%",
     height: 120,
-    marginTop: spacing.md,
-    marginBottom: -20,
     opacity: 0.9,
   },
 

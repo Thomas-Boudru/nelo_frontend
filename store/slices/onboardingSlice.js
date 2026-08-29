@@ -1,25 +1,44 @@
 import { createSlice } from "@reduxjs/toolkit";
 
-const initialState = {
-  childStatus: null,
+function createInitialState() {
+  return {
+    // "born" | "expected" | "join"
+    childStatus: null,
 
-  childFirstName: "",
-  childGender: null,
-  birthDate: null,
-  expectedBirthDate: null,
-  isPremature: null,
+    childFirstName: "",
 
-  relationship: null,
+    // "female" | "male" | "intersex" | "unspecified" | null
+    childGender: null,
 
-  parentFirstName: "",
+    // Dates au format YYYY-MM-DD
+    birthDate: null,
+    expectedBirthDate: null,
 
-  completed: false,
-};
+    // Heure au format HH:mm ou null
+    birthTime: null,
+
+    isPremature: false,
+    gestationalAgeWeeks: null,
+    gestationalAgeDays: null,
+
+    // "mother" | "father" | "parent" | "grandparent"
+    // | "family_or_friend" | "caregiver" | "other"
+    relationship: null,
+
+    parentFirstName: "",
+
+    // Thème associé au profil de l’enfant
+    themeMode: "blue",
+
+    // Passe à true après la réussite de POST /api/onboarding
+    completed: false,
+  };
+}
 
 const onboardingSlice = createSlice({
   name: "onboarding",
 
-  initialState,
+  initialState: createInitialState(),
 
   reducers: {
     setChildStatus(state, action) {
@@ -27,25 +46,47 @@ const onboardingSlice = createSlice({
     },
 
     setBornChildProfile(state, action) {
-      const { firstName, gender, birthDate, isPremature } = action.payload;
+      const {
+        firstName,
+        gender = null,
+        birthDate,
+        birthTime = null,
+        isPremature = false,
+        gestationalAgeWeeks = null,
+        gestationalAgeDays = null,
+      } = action.payload;
 
-      state.childFirstName = firstName;
+      state.childStatus = "born";
+      state.childFirstName = firstName || "";
       state.childGender = gender;
       state.birthDate = birthDate;
-      state.isPremature = isPremature;
-
+      state.birthTime = birthTime;
       state.expectedBirthDate = null;
+
+      state.isPremature = Boolean(isPremature);
+
+      state.gestationalAgeWeeks = isPremature ? gestationalAgeWeeks : null;
+
+      state.gestationalAgeDays = isPremature ? gestationalAgeDays : null;
     },
 
     setExpectedChildProfile(state, action) {
-      const { firstName, gender, expectedBirthDate } = action.payload;
+      const {
+        firstName = "",
+        gender = null,
+        expectedBirthDate,
+      } = action.payload;
 
-      state.childFirstName = firstName;
+      state.childStatus = "expected";
+      state.childFirstName = firstName || "";
       state.childGender = gender;
       state.expectedBirthDate = expectedBirthDate;
 
       state.birthDate = null;
-      state.isPremature = null;
+      state.birthTime = null;
+      state.isPremature = false;
+      state.gestationalAgeWeeks = null;
+      state.gestationalAgeDays = null;
     },
 
     setRelationship(state, action) {
@@ -56,12 +97,16 @@ const onboardingSlice = createSlice({
       state.parentFirstName = action.payload;
     },
 
+    setThemeMode(state, action) {
+      state.themeMode = action.payload;
+    },
+
     completeOnboarding(state) {
       state.completed = true;
     },
 
     resetOnboarding() {
-      return initialState;
+      return createInitialState();
     },
   },
 });
@@ -72,6 +117,7 @@ export const {
   setExpectedChildProfile,
   setRelationship,
   setParentFirstName,
+  setThemeMode,
   completeOnboarding,
   resetOnboarding,
 } = onboardingSlice.actions;

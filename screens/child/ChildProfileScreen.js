@@ -71,7 +71,7 @@ const mockChild = {
   firstName: "Emma",
   birthDate: "12 juillet 2024",
   ageInMonths: 9,
-  gender: "girl",
+  gender: "female",
   themeMode: "blue",
   profilePicture: null,
 
@@ -102,7 +102,7 @@ const mockChildren = [
     ageInMonths: 9,
     ageLabel: "9 months",
     currentUserRelationship: "father",
-    gender: "girl",
+    gender: "female",
     themeMode: "blue",
     profilePicture: null,
     currentUserRole: "owner",
@@ -131,7 +131,7 @@ const mockChildren = [
     birthDate: "4 mai 2022",
     ageInMonths: 39,
     ageLabel: "3 years, 3 months",
-    gender: "boy",
+    gender: "male",
     themeMode: "green",
     currentUserRelationship: "father",
     profilePicture: null,
@@ -374,9 +374,9 @@ export default function ChildProfileScreen({ navigation }) {
     BABY_FALLBACK_IMAGES[child.themeMode] ?? BABY_FALLBACK_IMAGES.blue;
 
   const genderLabel =
-    child.gender === "girl"
+    child.gender === "female"
       ? t("Girl")
-      : child.gender === "boy"
+      : child.gender === "male"
         ? t("Boy")
         : t("Not specified");
 
@@ -751,9 +751,9 @@ export default function ChildProfileScreen({ navigation }) {
               <View style={styles.profileDetailRow}>
                 <Ionicons
                   name={
-                    child.gender === "girl"
+                    child.gender === "female"
                       ? "female-outline"
-                      : child.gender === "boy"
+                      : child.gender === "male"
                         ? "male-outline"
                         : "person-outline"
                   }

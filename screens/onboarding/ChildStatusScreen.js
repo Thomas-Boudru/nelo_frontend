@@ -14,6 +14,8 @@ import ChoiceCard from "../../components/onboarding/ChoiceCard.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
+import { useDispatch } from "react-redux";
+import { setChildStatus } from "../../store/slices/onboardingSlice.js";
 
 const colors = onboardingColors;
 
@@ -23,16 +25,21 @@ const BABY_CALENDAR_IMAGE = require("../../assets/illustrations/onboarding/calen
 
 export default function ChildStatusScreen({ navigation }) {
   const { t } = useTranslation();
+  const dispatch = useDispatch();
 
   function handleBornChild() {
+    dispatch(setChildStatus("born"));
     navigation.navigate("BornChildProfile");
   }
 
   function handleExpectedChild() {
+    dispatch(setChildStatus("expected"));
     navigation.navigate("ExpectedChildProfile");
   }
 
   function handleInvitation() {
+    dispatch(setChildStatus("join"));
+
     navigation.navigate("SignUp", {
       onboardingMode: "invitation",
     });
