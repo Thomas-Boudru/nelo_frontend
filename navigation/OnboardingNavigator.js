@@ -6,7 +6,7 @@ import BornChildProfileScreen from "../screens/onboarding/BornChildProfileScreen
 import ExpectedChildProfileScreen from "../screens/onboarding/ExpectedChildProfileScreen.js";
 import SignUpScreen from "../screens/auth/SignupScreen.js";
 import EmailScreen from "../screens/auth/EmailScreen.js";
-import VerificationCodeScreen from "../screens/auth/VerificationCodeSCreen.js";
+import VerificationCodeScreen from "../screens/auth/VerificationCodeScreen.js";
 import ParentNameScreen from "../screens/auth/ParentNameScreen.js";
 import OnboardingCompleteScreen from "../screens/onboarding/OnboardingCompleteScreen.js";
 import RelationshipScreen from "../screens/auth/RelationshipScreen.js";

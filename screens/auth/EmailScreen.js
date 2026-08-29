@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useAuth } from "../../auth/AuthProvider.js";
 
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
@@ -24,7 +25,8 @@ const STAR_IMAGE = require("../../assets/illustrations/onboarding/starYellow.png
 const LANDSCAPE_IMAGE = require("../../assets/illustrations/onboarding/landscape.png");
 
 export default function EmailScreen({ navigation, route }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { requestLoginCode } = useAuth();
 
   const childProfile = route.params?.childProfile;
   const mode = route.params?.mode || "signUp";
@@ -76,21 +78,13 @@ export default function EmailScreen({ navigation, route }) {
 
     try {
       setIsSubmitting(true);
+      setEmailError("");
 
-      /*
-        Appel API à ajouter ici.
+      const locale = i18n.resolvedLanguage?.split("-")[0] || "en";
 
-        Exemple :
+      await requestLoginCode(normalizedEmail, locale);
 
-        await authService.sendVerificationCode({
-          email: normalizedEmail,
-        });
-      */
-
-      console.log("Send verification code", {
-        email: normalizedEmail,
-        childProfile,
-      });
+      await requestLoginCode(normalizedEmail);
 
       navigation.navigate("VerificationCode", {
         mode,
@@ -100,9 +94,17 @@ export default function EmailScreen({ navigation, route }) {
     } catch (error) {
       console.error("Unable to send verification code", error);
 
-      setEmailError(
-        t("Unable to send the verification code. Please try again."),
-      );
+      if (error.code === "TOO_MANY_AUTH_REQUESTS") {
+        setEmailError(t("Too many requests. Please wait before trying again."));
+      } else if (error.code === "NETWORK_ERROR") {
+        setEmailError(
+          t("Unable to contact the server. Check your internet connection."),
+        );
+      } else {
+        setEmailError(
+          t("Unable to send the verification code. Please try again."),
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }

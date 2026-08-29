@@ -5,6 +5,7 @@ import "./i18n/index.js";
 
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider } from "react-redux";
+import { AuthProvider } from "./auth/AuthProvider.js";
 import {
   SafeAreaProvider,
   initialWindowMetrics,
@@ -26,20 +27,22 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <Provider store={store}>
-          <BottomSheetModalProvider>
-            <ToastProvider>
-              <NavigationContainer>
-                <StatusBar style="dark" />
+    <AuthProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <Provider store={store}>
+            <BottomSheetModalProvider>
+              <ToastProvider>
+                <NavigationContainer>
+                  <StatusBar style="dark" />
 
-                <RootNavigator />
-              </NavigationContainer>
-            </ToastProvider>
-          </BottomSheetModalProvider>
-        </Provider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+                  <RootNavigator />
+                </NavigationContainer>
+              </ToastProvider>
+            </BottomSheetModalProvider>
+          </Provider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </AuthProvider>
   );
 }

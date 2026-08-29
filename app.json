@@ -6,11 +6,9 @@
     "version": "0.1.0",
     "description": "A simple and reassuring companion for parents.",
     "orientation": "portrait",
-    "icon": "./assets/icons/splash.png",
+    "icon": "./assets/icons/logo.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thomasboudru.nelo"
@@ -38,7 +36,8 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ]
   }
 }

@@ -18,6 +18,8 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import Constants from "expo-constants";
+import { useAuth } from "../../auth/AuthProvider.js";
 
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
@@ -34,7 +36,8 @@ const CODE_LENGTH = 6;
 const RESEND_DELAY = 30;
 
 export default function VerificationCodeScreen({ navigation, route }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { requestLoginCode, verifyLoginCode } = useAuth();
 
   const inputRef = useRef(null);
 
@@ -119,54 +122,53 @@ export default function VerificationCodeScreen({ navigation, route }) {
       setIsSubmitting(true);
       setError("");
 
-      /*
-        Appel API à ajouter ici.
+      const locale = i18n.resolvedLanguage?.split("-")[0] || "en";
 
-        Exemple :
-
-        await authService.verifyCode({
-          email,
-          code,
-        });
-      */
-
-      console.log("Verify email code", {
-        mode,
+      const result = await verifyLoginCode({
         email,
         code,
-        childProfile,
+        locale,
+        platform: Platform.OS,
+        appVersion: Constants.expoConfig?.version || "unknown",
       });
 
-      if (isSignIn) {
-        /*
-    Ici, enregistre les tokens et l'utilisateur connecté.
+      Keyboard.dismiss();
 
-    Exemple :
-    await authService.signInWithCode({
-      email,
-      code,
-    });
-
-    Puis fais basculer ton RootNavigator vers l'application.
-  */
-
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Home" }],
-        });
-
+      /*
+       * Si l'utilisateur a déjà terminé l'onboarding,
+       * RootNavigator affichera automatiquement l'application principale.
+       */
+      if (result.user.onboardingCompletedAt) {
         return;
       }
 
+      /*
+       * Pour un nouvel utilisateur ou un onboarding interrompu,
+       * on continue le parcours existant.
+       */
       navigation.navigate("ParentName", {
         email,
-        verificationCode: code,
         childProfile,
       });
     } catch (requestError) {
       console.error("Unable to verify code", requestError);
 
-      setError(t("The verification code is incorrect or has expired."));
+      if (requestError.code === "LOGIN_CODE_ATTEMPTS_EXCEEDED") {
+        setError(
+          t("Too many incorrect attempts. Request a new verification code."),
+        );
+      } else if (
+        requestError.code === "INVALID_LOGIN_CODE" ||
+        requestError.code === "LOGIN_CODE_EXPIRED"
+      ) {
+        setError(t("The verification code is incorrect or has expired."));
+      } else if (requestError.code === "NETWORK_ERROR") {
+        setError(
+          t("Unable to contact the server. Check your internet connection."),
+        );
+      } else {
+        setError(t("Unable to verify the code. Please try again."));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -181,20 +183,7 @@ export default function VerificationCodeScreen({ navigation, route }) {
       setIsResending(true);
       setError("");
 
-      /*
-        Appel API à ajouter ici.
-
-        Exemple :
-
-        await authService.sendVerificationCode({
-          email,
-        });
-      */
-
-      console.log("Resend verification code", {
-        mode,
-        email,
-      });
+      await requestLoginCode(email);
 
       setCode("");
       setSecondsRemaining(RESEND_DELAY);
@@ -205,7 +194,17 @@ export default function VerificationCodeScreen({ navigation, route }) {
     } catch (requestError) {
       console.error("Unable to resend code", requestError);
 
-      setError(t("Unable to resend the verification code. Please try again."));
+      if (requestError.code === "TOO_MANY_AUTH_REQUESTS") {
+        setError(t("Too many requests. Please wait before trying again."));
+      } else if (requestError.code === "NETWORK_ERROR") {
+        setError(
+          t("Unable to contact the server. Check your internet connection."),
+        );
+      } else {
+        setError(
+          t("Unable to resend the verification code. Please try again."),
+        );
+      }
     } finally {
       setIsResending(false);
     }
