@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+
 import {
   Alert,
   Image,
@@ -16,23 +18,7 @@ import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import AddMomentSheet from "./AddMomentSheet.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
 import MomentsFilterSheet from "./MomentsFilterSheet.js";
-
-const MOCK_CHILDREN = [
-  {
-    id: "emma",
-    firstName: "Emma",
-    ageLabel: "9 months old",
-    themeMode: "blue",
-    profilePicture: null,
-  },
-  {
-    id: "leo",
-    firstName: "Léo",
-    ageLabel: "2 years old",
-    themeMode: "green",
-    profilePicture: null,
-  },
-];
+import { selectChild } from "../../store/slices/childrenSlice.js";
 
 const MOCK_MEMBERS = [
   {
@@ -137,6 +123,14 @@ const EMPTY_FILTERS = {
 export default function MomentsScreen({ navigation }) {
   const { t } = useTranslation();
 
+  const dispatch = useDispatch();
+
+  const children = useSelector((state) => state.children.children);
+
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -146,21 +140,74 @@ export default function MomentsScreen({ navigation }) {
 
   const momentsFilterSheetRef = useRef(null);
 
-  const [children] = useState(MOCK_CHILDREN);
-  const [selectedChildId, setSelectedChildId] = useState("emma");
   const addMomentSheetRef = useRef(null);
 
-  const selectedChild =
-    children.find((child) => child.id === selectedChildId) ?? children[0];
+  const childPickerChildren = useMemo(
+    () =>
+      children.map((child) => {
+        let ageInMonths = 0;
+
+        if (child.birthDate) {
+          const [birthYear, birthMonth, birthDay] = child.birthDate
+            .slice(0, 10)
+            .split("-")
+            .map(Number);
+
+          const today = new Date();
+
+          ageInMonths =
+            (today.getFullYear() - birthYear) * 12 +
+            today.getMonth() -
+            (birthMonth - 1);
+
+          if (today.getDate() < birthDay) {
+            ageInMonths -= 1;
+          }
+
+          ageInMonths = Math.max(0, ageInMonths);
+        }
+
+        return {
+          ...child,
+
+          firstName: child.displayName || t("Baby"),
+
+          ageInMonths,
+
+          ageLabel:
+            child.birthStatus === "expected"
+              ? t("Expected date of birth")
+              : t("Child age in months", {
+                  count: ageInMonths,
+                }),
+
+          profilePicture: child.avatar?.url
+            ? {
+                uri: child.avatar.url,
+                cacheKey:
+                  `child-avatar:${child.id}:` + child.avatar.attachmentId,
+              }
+            : null,
+        };
+      }),
+    [children, t],
+  );
+
+  const selectedChild = useMemo(
+    () =>
+      childPickerChildren.find((child) => child.id === selectedChildId) ||
+      childPickerChildren[0] ||
+      null,
+    [childPickerChildren, selectedChildId],
+  );
 
   const handleOpenChildSelector = () => {
     childSelectorSheetRef.current?.present();
   };
 
   const handleSelectChild = (child) => {
-    setSelectedChildId(child.id);
+    dispatch(selectChild(child.id));
   };
-
   const handleAddChild = () => {
     navigation.navigate("ChildProfileForm", {
       mode: "create",
@@ -295,16 +342,20 @@ export default function MomentsScreen({ navigation }) {
             <Text style={styles.title}>{t("Moments")}</Text>
 
             <Text style={styles.subtitle}>
-              {t("Child memories", {
-                childName: selectedChild.firstName,
-              })}
+              {selectedChild
+                ? t("Child memories", {
+                    childName: selectedChild.firstName,
+                  })
+                : t("Child memories")}
             </Text>
           </View>
 
-          <ChildSelectorButton
-            child={selectedChild}
-            onPress={handleOpenChildSelector}
-          />
+          {selectedChild ? (
+            <ChildSelectorButton
+              child={selectedChild}
+              onPress={handleOpenChildSelector}
+            />
+          ) : null}
         </View>
 
         <Pressable
@@ -403,19 +454,21 @@ export default function MomentsScreen({ navigation }) {
 
       <ChildSelectorSheet
         ref={childSelectorSheetRef}
-        children={children}
+        children={childPickerChildren}
         selectedChildId={selectedChildId}
         onSelectChild={handleSelectChild}
         onAddChild={handleAddChild}
       />
 
-      <AddMomentSheet
-        ref={addMomentSheetRef}
-        childName={selectedChild.firstName}
-        onSelectPhoto={handleSelectPhotoMoment}
-        onSelectNote={handleSelectNoteMoment}
-        onSelectMilestone={handleSelectMilestoneMoment}
-      />
+      {selectedChild ? (
+        <AddMomentSheet
+          ref={addMomentSheetRef}
+          childName={selectedChild.firstName}
+          onSelectPhoto={handleSelectPhotoMoment}
+          onSelectNote={handleSelectNoteMoment}
+          onSelectMilestone={handleSelectMilestoneMoment}
+        />
+      ) : null}
 
       <MomentsFilterSheet
         ref={momentsFilterSheetRef}

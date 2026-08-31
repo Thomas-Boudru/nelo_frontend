@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
 import {
   Alert,
   Modal,
@@ -25,11 +26,11 @@ import TrackingByTypeView from "../../components/tracking/byTracking/TrackingByT
 
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import ShareChildDataSheet from "../child/Share/ShareChildDataSheet.js";
+import { selectChild } from "../../store/slices/childrenSlice.js";
 
 import { getTrackingHistoryDestination } from "../../navigation/trackingHistoryDestinations.js";
 
 import {
-  mockTrackingChildren,
   mockTrackingDay,
   mockSleepHistoryEntries,
   TRACKING_TYPE_CONFIG,
@@ -130,13 +131,19 @@ function formatSleepDuration(totalMinutes) {
 export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   const { t, i18n } = useTranslation();
 
+  const dispatch = useDispatch();
+
+  const children = useSelector((state) => state.children.children);
+
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const childSelectorSheetRef = useRef(null);
   const shareChildDataSheetRef = useRef(null);
-
-  const [selectedChildId, setSelectedChildId] = useState("emma");
 
   const [viewMode, setViewMode] = useState("day");
 
@@ -152,9 +159,64 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
 
-  const selectedChild =
-    mockTrackingChildren.find((child) => child.id === selectedChildId) ??
-    mockTrackingChildren[0];
+  const childPickerChildren = useMemo(
+    () =>
+      children.map((child) => {
+        let ageInMonths = 0;
+
+        if (child.birthDate) {
+          const [birthYear, birthMonth, birthDay] = child.birthDate
+            .slice(0, 10)
+            .split("-")
+            .map(Number);
+
+          const today = new Date();
+
+          ageInMonths =
+            (today.getFullYear() - birthYear) * 12 +
+            today.getMonth() -
+            (birthMonth - 1);
+
+          if (today.getDate() < birthDay) {
+            ageInMonths -= 1;
+          }
+
+          ageInMonths = Math.max(0, ageInMonths);
+        }
+
+        return {
+          ...child,
+
+          firstName: child.displayName || t("Baby"),
+
+          ageInMonths,
+
+          ageLabel:
+            child.birthStatus === "expected"
+              ? t("Expected date of birth")
+              : t("Child age in months", {
+                  count: ageInMonths,
+                }),
+
+          profilePicture: child.avatar?.url
+            ? {
+                uri: child.avatar.url,
+                cacheKey:
+                  `child-avatar:${child.id}:` + child.avatar.attachmentId,
+              }
+            : null,
+        };
+      }),
+    [children, t],
+  );
+
+  const selectedChild = useMemo(
+    () =>
+      childPickerChildren.find((child) => child.id === selectedChildId) ||
+      childPickerChildren[0] ||
+      null,
+    [childPickerChildren, selectedChildId],
+  );
 
   const today = useMemo(() => normalizeDate(new Date()), []);
 
@@ -220,7 +282,7 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   };
 
   const handleSelectChild = (child) => {
-    setSelectedChildId(child.id);
+    dispatch(selectChild(child.id));
     setSelectedFilterIds([]);
   };
 
@@ -413,22 +475,26 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
       >
-        <TrackingHeader
-          child={selectedChild}
-          onPressChild={handleOpenChildSelector}
-          onPressShare={() => shareChildDataSheetRef.current?.present()}
-        />
+        {selectedChild ? (
+          <>
+            <TrackingHeader
+              child={selectedChild}
+              onPressChild={handleOpenChildSelector}
+              onPressShare={() => shareChildDataSheetRef.current?.present()}
+            />
 
-        <ShareChildDataSheet
-          ref={shareChildDataSheetRef}
-          child={selectedChild}
-          activeLinks={activeLinks}
-          onCreateLink={handleCreateLink}
-          onSelectCustomPeriod={openCustomPeriodPicker}
-          onShareLink={handleShareLink}
-          onCopyLink={handleCopyLink}
-          onDisableLink={handleDisableLink}
-        />
+            <ShareChildDataSheet
+              ref={shareChildDataSheetRef}
+              child={selectedChild}
+              activeLinks={activeLinks}
+              onCreateLink={handleCreateLink}
+              onSelectCustomPeriod={openCustomPeriodPicker}
+              onShareLink={handleShareLink}
+              onCopyLink={handleCopyLink}
+              onDisableLink={handleDisableLink}
+            />
+          </>
+        ) : null}
 
         <TrackingViewSwitcher
           mode={viewMode}
@@ -472,7 +538,7 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
       <ChildSelectorSheet
         ref={childSelectorSheetRef}
-        children={mockTrackingChildren}
+        children={childPickerChildren}
         selectedChildId={selectedChildId}
         onSelectChild={handleSelectChild}
         onAddChild={handleAddChild}

@@ -11,7 +11,11 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.thomasboudru.nelo"
+      "bundleIdentifier": "com.thomasboudru.nelo",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "versionCode": 1,
@@ -37,7 +41,19 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.461926871954-o3t2vg867n97ei4iegj0sp4934rknif8"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d89894a2-535f-453a-a165-f1096c0aa00e"
+      }
+    }
   }
 }

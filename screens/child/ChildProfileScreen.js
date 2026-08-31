@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -7,6 +8,11 @@ import {
   Text,
   View,
 } from "react-native";
+
+import { useDispatch, useSelector } from "react-redux";
+
+import { Image as ExpoImage } from "expo-image";
+
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -35,6 +41,13 @@ import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
 import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import RelationshipSettingsSheet from "./RelationshipSettingsSheet.js";
+import { useAuth } from "../../auth/AuthProvider.js";
+
+import {
+  removeChildAvatar,
+  selectChild,
+  updateChildAvatar,
+} from "../../store/slices/childrenSlice.js";
 
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
 
@@ -67,96 +80,6 @@ const mockMembers = [
   },
 ];
 
-const mockChild = {
-  firstName: "Emma",
-  birthDate: "12 juillet 2024",
-  ageInMonths: 9,
-  gender: "female",
-  themeMode: "blue",
-  profilePicture: null,
-
-  measurements: {
-    weight: {
-      value: "8,2 kg",
-      date: "12 août 2025",
-    },
-    height: {
-      value: "72 cm",
-      date: "12 août 2025",
-    },
-    headCircumference: {
-      value: "45 cm",
-      date: "12 août 2025",
-    },
-  },
-
-  feedingMethods: ["breastfeeding", "bottle", "solids"],
-  sharedPeopleCount: 2,
-};
-
-const mockChildren = [
-  {
-    id: "emma",
-    firstName: "Emma",
-    birthDate: "12 juillet 2024",
-    ageInMonths: 9,
-    ageLabel: "9 months",
-    currentUserRelationship: "father",
-    gender: "female",
-    themeMode: "blue",
-    profilePicture: null,
-    currentUserRole: "owner",
-
-    measurements: {
-      weight: {
-        value: "8,2 kg",
-        date: "12 août 2025",
-      },
-      height: {
-        value: "72 cm",
-        date: "12 août 2025",
-      },
-      headCircumference: {
-        value: "45 cm",
-        date: "12 août 2025",
-      },
-    },
-
-    feedingPreference: "mixed",
-    sharedPeopleCount: 2,
-  },
-  {
-    id: "lucas",
-    firstName: "Lucas",
-    birthDate: "4 mai 2022",
-    ageInMonths: 39,
-    ageLabel: "3 years, 3 months",
-    gender: "male",
-    themeMode: "green",
-    currentUserRelationship: "father",
-    profilePicture: null,
-    currentUserRole: "owner",
-
-    measurements: {
-      weight: {
-        value: "14,8 kg",
-        date: "28 juillet 2025",
-      },
-      height: {
-        value: "96 cm",
-        date: "28 juillet 2025",
-      },
-      headCircumference: {
-        value: "50 cm",
-        date: "28 juillet 2025",
-      },
-    },
-
-    feedingPreference: "mixed",
-    sharedPeopleCount: 2,
-  },
-];
-
 function ProfileSettingRow({
   icon,
   title,
@@ -168,6 +91,7 @@ function ProfileSettingRow({
   themeColor,
   onPress,
   isLast = false,
+  loading = false,
   colors,
   styles,
 }) {
@@ -175,11 +99,14 @@ function ProfileSettingRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
+      accessibilityState={{ disabled: loading, busy: loading }}
+      disabled={loading}
       onPress={onPress}
       style={({ pressed }) => [
         styles.settingRow,
         !isLast && styles.settingRowBorder,
         pressed && styles.settingRowPressed,
+        loading && styles.settingRowLoading,
       ]}
     >
       <View style={styles.settingIconContainer}>
@@ -221,7 +148,12 @@ function ProfileSettingRow({
           </View>
         ) : null}
 
-        {showChevron ? (
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={danger ? colors.error : colors.textSecondary}
+          />
+        ) : showChevron ? (
           <Ionicons
             name="chevron-forward"
             size={15}
@@ -275,8 +207,49 @@ function SettingsSection({ title, children, styles }) {
   );
 }
 
+function calculateAgeInMonths(birthDate) {
+  if (!birthDate) {
+    return null;
+  }
+
+  const [year, month, day] = birthDate.slice(0, 10).split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const today = new Date();
+
+  let ageInMonths =
+    (today.getFullYear() - year) * 12 + today.getMonth() - (month - 1);
+
+  if (today.getDate() < day) {
+    ageInMonths -= 1;
+  }
+
+  return Math.max(0, ageInMonths);
+}
+
+function formatChildDate(dateValue, language) {
+  if (!dateValue) {
+    return null;
+  }
+
+  const [year, month, day] = dateValue.slice(0, 10).split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat(language, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
 export default function ChildProfileScreen({ navigation }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -284,6 +257,103 @@ export default function ChildProfileScreen({ navigation }) {
   const languageSelectionSheetRef = useRef(null);
 
   const [selectedLanguage, setSelectedLanguage] = useState("fr");
+  const { accessToken, logout, refreshSession } = useAuth();
+
+  const dispatch = useDispatch();
+
+  const reduxChildren = useSelector((state) => state.children.children);
+
+  const reduxSelectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+  const children = useMemo(
+    () =>
+      reduxChildren.map((reduxChild) => {
+        const ageInMonths =
+          reduxChild.birthStatus === "born"
+            ? calculateAgeInMonths(reduxChild.birthDate)
+            : null;
+
+        const relevantDate =
+          reduxChild.birthStatus === "expected"
+            ? reduxChild.expectedBirthDate
+            : reduxChild.birthDate;
+
+        return {
+          ...reduxChild,
+
+          firstName: reduxChild.displayName || t("Baby"),
+
+          ageInMonths,
+
+          ageLabel:
+            reduxChild.birthStatus === "expected"
+              ? t("Expected date of birth")
+              : ageInMonths !== null
+                ? t("Child age in months", {
+                    count: ageInMonths,
+                  })
+                : t("Age not specified"),
+
+          birthDateLabel: relevantDate
+            ? formatChildDate(relevantDate, i18n.language)
+            : t("Date not specified"),
+
+          profilePicture: reduxChild.avatar?.url
+            ? {
+                uri: reduxChild.avatar.url,
+                cacheKey:
+                  `child-avatar:${reduxChild.id}:` +
+                  reduxChild.avatar.attachmentId,
+              }
+            : null,
+
+          /*
+           * These values remain unavailable until their
+           * corresponding backend endpoints are connected.
+           */
+          measurements: reduxChild.measurements || {
+            weight: {
+              value: "—",
+              date: null,
+            },
+            height: {
+              value: "—",
+              date: null,
+            },
+            headCircumference: {
+              value: "—",
+              date: null,
+            },
+          },
+
+          feedingMethods: reduxChild.feedingMethods || [],
+
+          sharedPeopleCount: reduxChild.sharedPeopleCount ?? 0,
+
+          currentUserRelationship:
+            reduxChild.relationship ||
+            reduxChild.currentUserRelationship ||
+            null,
+
+          currentUserRole:
+            reduxChild.role || reduxChild.currentUserRole || "contributor",
+        };
+      }),
+    [i18n.language, reduxChildren, t],
+  );
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   const childSelectorSheetRef = useRef(null);
   const childThemeSheetRef = useRef(null);
@@ -340,12 +410,6 @@ export default function ChildProfileScreen({ navigation }) {
   const [isRemovingMember, setIsRemovingMember] = useState(false);
   const [members, setMembers] = useState(mockMembers);
 
-  const [children, setChildren] = useState(mockChildren);
-
-  const [selectedChildId, setSelectedChildId] = useState(
-    mockChildren[0]?.id ?? null,
-  );
-
   const handleEditChild = () => {
     navigation.navigate("ChildProfileForm", {
       mode: "edit",
@@ -354,7 +418,25 @@ export default function ChildProfileScreen({ navigation }) {
   };
 
   const child =
-    children.find((item) => item.id === selectedChildId) ?? children[0];
+    children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
+
+  if (!child) {
+    return (
+      <SafeAreaView edges={["top"]} style={styles.safeArea}>
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const displayedProfilePicture = child?.profilePicture || null;
 
   const relationshipLabels = {
     mother: "Mother",
@@ -406,7 +488,7 @@ export default function ChildProfileScreen({ navigation }) {
   const handleSaveFeedingPreferences = (feedingMethods) => {
     setChildren((currentChildren) =>
       currentChildren.map((currentChild) =>
-        currentChild.id === selectedChildId
+        currentChild.id === reduxSelectedChildId
           ? {
               ...currentChild,
               feedingMethods,
@@ -426,7 +508,7 @@ export default function ChildProfileScreen({ navigation }) {
   const handleSelectTheme = (themeMode) => {
     setChildren((currentChildren) =>
       currentChildren.map((currentChild) =>
-        currentChild.id === selectedChildId
+        currentChild.id === reduxSelectedChildId
           ? {
               ...currentChild,
               themeMode,
@@ -487,7 +569,7 @@ export default function ChildProfileScreen({ navigation }) {
   };
 
   const handleSelectChild = (selectedChild) => {
-    setSelectedChildId(selectedChild.id);
+    dispatch(selectChild(selectedChild.id));
   };
 
   const handleAddChild = () => {
@@ -625,7 +707,7 @@ export default function ChildProfileScreen({ navigation }) {
 
       setChildren((currentChildren) =>
         currentChildren.map((currentChild) =>
-          currentChild.id === selectedChildId
+          currentChild.id === reduxSelectedChildId
             ? {
                 ...currentChild,
                 sharedPeopleCount: Math.max(
@@ -693,8 +775,14 @@ export default function ChildProfileScreen({ navigation }) {
               ]}
             >
               <View style={styles.avatarContainer}>
-                {child.profilePicture ? (
-                  <Image source={child.profilePicture} style={styles.avatar} />
+                {displayedProfilePicture ? (
+                  <ExpoImage
+                    source={displayedProfilePicture}
+                    cachePolicy="memory-disk"
+                    contentFit="cover"
+                    transition={180}
+                    style={styles.avatar}
+                  />
                 ) : (
                   <View style={styles.avatarFallback}>
                     <BabyFaceIcon
@@ -745,7 +833,9 @@ export default function ChildProfileScreen({ navigation }) {
                   color={colors.textPrimary}
                 />
 
-                <Text style={styles.profileDetailText}>{child.birthDate}</Text>
+                <Text style={styles.profileDetailText}>
+                  {child.birthDateLabel}
+                </Text>
               </View>
 
               <View style={styles.profileDetailRow}>
@@ -766,9 +856,13 @@ export default function ChildProfileScreen({ navigation }) {
 
               <View style={styles.ageBadge}>
                 <Text style={styles.ageBadgeText}>
-                  {t("Child age in months", {
-                    count: child.ageInMonths,
-                  })}
+                  {child.birthStatus === "expected"
+                    ? t("Baby expected")
+                    : child.ageInMonths !== null
+                      ? t("Child age in months", {
+                          count: child.ageInMonths,
+                        })
+                      : t("Age not specified")}
                 </Text>
               </View>
             </View>
@@ -982,9 +1076,8 @@ export default function ChildProfileScreen({ navigation }) {
             title={t("Log out")}
             danger
             isLast
-            onPress={() => {
-              console.log("Déconnexion");
-            }}
+            loading={isLoggingOut}
+            onPress={handleLogout}
             colors={colors}
             styles={styles}
           />
@@ -1037,7 +1130,7 @@ export default function ChildProfileScreen({ navigation }) {
       <ChildSelectorSheet
         ref={childSelectorSheetRef}
         children={children}
-        selectedChildId={selectedChildId}
+        selectedChildId={reduxSelectedChildId}
         onSelectChild={handleSelectChild}
         onAddChild={handleAddChild}
       />
@@ -1305,7 +1398,7 @@ export default function ChildProfileScreen({ navigation }) {
             (currentChild) => currentChild.id !== child.id,
           );
 
-          setSelectedChildId(remainingChildren[0]?.id ?? null);
+          setreduxSelectedChildId(remainingChildren[0]?.id ?? null);
 
           showToast({
             type: "success",
@@ -1346,18 +1439,40 @@ export default function ChildProfileScreen({ navigation }) {
       <ChildPictureSheet
         ref={childPictureSheetRef}
         childName={child.firstName}
-        hasPicture={Boolean(child.profilePicture)}
+        hasPicture={Boolean(displayedProfilePicture)}
         isUpdating={isUpdatingChildPicture}
-        onPictureSelected={async ({ uri }) => {
+        onPictureSelected={async (image) => {
+          if (!reduxSelectedChildId) {
+            throw new Error(t("No child is currently selected"));
+          }
+
           setIsUpdatingChildPicture(true);
 
           try {
+            const result = await dispatch(
+              updateChildAvatar({
+                childId: reduxSelectedChildId,
+                image,
+                accessToken,
+                refreshSession,
+              }),
+            ).unwrap();
+
+            /*
+             * Redux already contains the server avatar.
+             * This local update keeps the still-mocked profile screen
+             * visually synchronized until all profile data uses Redux.
+             */
             setChildren((currentChildren) =>
               currentChildren.map((currentChild) =>
                 currentChild.id === child.id
                   ? {
                       ...currentChild,
-                      profilePicture: { uri },
+
+                      profilePicture: {
+                        uri: result.avatar.url,
+                        cacheKey: result.avatar.cacheKey,
+                      },
                     }
                   : currentChild,
               ),
@@ -1372,14 +1487,35 @@ export default function ChildProfileScreen({ navigation }) {
             });
 
             return true;
+          } catch (error) {
+            throw new Error(
+              error?.message || t("Unable to update the profile picture"),
+            );
           } finally {
             setIsUpdatingChildPicture(false);
           }
         }}
         onPictureRemoved={async () => {
+          if (!reduxSelectedChildId) {
+            throw new Error(t("No child is currently selected"));
+          }
+
           setIsUpdatingChildPicture(true);
 
           try {
+            await dispatch(
+              removeChildAvatar({
+                childId: reduxSelectedChildId,
+                accessToken,
+                refreshSession,
+              }),
+            ).unwrap();
+
+            /*
+             * Redux already contains avatar: null.
+             * This local update synchronizes the still-mocked
+             * profile screen until it fully uses Redux.
+             */
             setChildren((currentChildren) =>
               currentChildren.map((currentChild) =>
                 currentChild.id === child.id
@@ -1398,6 +1534,10 @@ export default function ChildProfileScreen({ navigation }) {
             });
 
             return true;
+          } catch (error) {
+            throw new Error(
+              error?.message || t("Unable to remove the profile picture"),
+            );
           } finally {
             setIsUpdatingChildPicture(false);
           }

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   Pressable,
@@ -370,11 +371,18 @@ function PictureAction({
         <Text style={styles.actionDescription}>{description}</Text>
       </View>
 
-      <Ionicons
-        name="chevron-forward"
-        size={17}
-        color={danger ? colors.error : colors.textSecondary}
-      />
+      {loading ? (
+        <ActivityIndicator
+          size="small"
+          color={danger ? colors.error : colors.primary}
+        />
+      ) : (
+        <Ionicons
+          name="chevron-forward"
+          size={17}
+          color={danger ? colors.error : colors.textSecondary}
+        />
+      )}
     </Pressable>
   );
 }

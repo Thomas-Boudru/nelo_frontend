@@ -55,30 +55,38 @@ export default function OnboardingCompleteScreen() {
   const contentOpacity = useRef(new Animated.Value(0)).current;
 
   function createPayload() {
+    const shouldCreateChild = onboarding.childStatus !== "join";
+
     return {
       user: {
         displayName: onboarding.parentFirstName,
       },
 
-      child: {
-        status: onboarding.childStatus,
-        displayName: onboarding.childFirstName || null,
-        gender: onboarding.childGender,
-        birthDate: onboarding.birthDate,
-        birthTime: onboarding.birthTime,
-        expectedBirthDate: onboarding.expectedBirthDate,
-        isPremature: onboarding.isPremature,
-        gestationalAgeWeeks: onboarding.gestationalAgeWeeks,
-        gestationalAgeDays: onboarding.gestationalAgeDays,
-      },
+      child: shouldCreateChild
+        ? {
+            status: onboarding.childStatus,
+            displayName: onboarding.childFirstName || null,
+            gender: onboarding.childGender,
+            birthDate: onboarding.birthDate,
+            birthTime: onboarding.birthTime,
+            expectedBirthDate: onboarding.expectedBirthDate,
+            isPremature: onboarding.isPremature,
+            gestationalAgeWeeks: onboarding.gestationalAgeWeeks,
+            gestationalAgeDays: onboarding.gestationalAgeDays,
+          }
+        : null,
 
-      membership: {
-        relationship: onboarding.relationship,
-      },
+      membership: shouldCreateChild
+        ? {
+            relationship: onboarding.relationship,
+          }
+        : null,
 
-      preferences: {
-        themeMode: onboarding.themeMode,
-      },
+      preferences: shouldCreateChild
+        ? {
+            themeMode: onboarding.themeMode,
+          }
+        : null,
     };
   }
 

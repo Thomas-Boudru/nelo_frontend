@@ -13,12 +13,33 @@ export class ApiError extends Error {
   }
 }
 
+function isFormDataBody(body) {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
 export async function apiRequest(
   path,
-  { method = "GET", body, accessToken, headers = {} } = {},
+  { method = "GET", body, accessToken, headers = {}, signal } = {},
 ) {
   if (!API_URL) {
     throw new Error("Missing EXPO_PUBLIC_API_URL environment variable.");
+  }
+
+  const hasBody = body !== undefined && body !== null;
+  const isFormData = hasBody && isFormDataBody(body);
+
+  let requestBody;
+
+  if (!hasBody) {
+    requestBody = undefined;
+  } else if (isFormData) {
+    /*
+     * React Native must generate the multipart boundary itself.
+     * Do not manually set Content-Type for FormData requests.
+     */
+    requestBody = body;
+  } else {
+    requestBody = JSON.stringify(body);
   }
 
   let response;
@@ -26,19 +47,44 @@ export async function apiRequest(
   try {
     response = await fetch(`${API_URL}${path}`, {
       method,
+
       headers: {
         Accept: "application/json",
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+
+        /*
+         * JSON requests require an explicit content type.
+         * Multipart requests receive their content type and boundary
+         * automatically from React Native.
+         */
+        ...(hasBody && !isFormData
+          ? {
+              "Content-Type": "application/json",
+            }
+          : {}),
+
+        ...(accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : {}),
+
         ...headers,
       },
-      body: body ? JSON.stringify(body) : undefined,
+
+      body: requestBody,
+      signal,
     });
   } catch (error) {
     throw new ApiError({
       status: 0,
-      code: "NETWORK_ERROR",
-      message: "Unable to contact the server.",
+
+      code: error.name === "AbortError" ? "REQUEST_ABORTED" : "NETWORK_ERROR",
+
+      message:
+        error.name === "AbortError"
+          ? "The request was cancelled."
+          : "Unable to contact the server.",
+
       details: error.message,
     });
   }

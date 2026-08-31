@@ -8,6 +8,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useTranslation } from "react-i18next";
 
+import { Image as ExpoImage } from "expo-image";
+import { useSelector } from "react-redux";
+
 import HomeScreen from "../screens/home/HomeScreen.js";
 import TrackingScreen from "../screens/tracking/TrackingScreen.js";
 import MomentsScreen from "../screens/moments/MomentsScreen.js";
@@ -44,9 +47,6 @@ const trackingInactive = require("../assets/icons/tabBar/trackingInactive.png");
 
 const momentsActive = require("../assets/icons/tabBar/momentsActive.png");
 const momentsInactive = require("../assets/icons/tabBar/momentsInactive.png");
-
-const babyActive = require("../assets/icons/tabBar/babyActive.png");
-const babyInactive = require("../assets/icons/tabBar/babyInactive.png");
 
 import BabyActiveIcon from "../assets/icons/tabBar/babySvgActive.svg";
 import BabyInactiveIcon from "../assets/icons/tabBar/babySvgInactive.svg";
@@ -260,7 +260,18 @@ export default function MainTabNavigator() {
   });
 
   // Plus tard, ces informations viendront du store Redux.
-  const childName = "Emma";
+  const children = useSelector((state) => state.children.children);
+
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
+  const selectedChild =
+    children.find((child) => child.id === selectedChildId) || null;
+
+  const childName = selectedChild?.displayName || t("Child");
+
+  const childAvatar = selectedChild?.avatar || null;
 
   const EmptyScreenComponent = () => <EmptyScreen styles={styles} />;
 
@@ -696,7 +707,38 @@ export default function MainTabNavigator() {
               childName,
             }),
 
+            /*
+             * Sans ceci, react-navigation impose une boîte d'icône 31x28
+             * (non carrée) : l'avatar se retrouve décalé et rogné.
+             */
+            tabBarIconStyle: styles.childTabIcon,
+
             tabBarIcon: ({ focused, color }) => {
+              if (childAvatar?.url) {
+                return (
+                  <View style={styles.childTabAvatarContainer}>
+                    <ExpoImage
+                      source={{
+                        uri: childAvatar.url,
+                        cacheKey: childAvatar.cacheKey,
+                      }}
+                      cachePolicy="memory-disk"
+                      contentFit="cover"
+                      contentPosition="center"
+                      transition={150}
+                      style={styles.childTabAvatar}
+                    />
+
+                    {focused ? (
+                      <View
+                        pointerEvents="none"
+                        style={styles.childTabAvatarRing}
+                      />
+                    ) : null}
+                  </View>
+                );
+              }
+
               const BabyIcon = focused ? BabyActiveIcon : BabyInactiveIcon;
 
               return (
@@ -1124,6 +1166,35 @@ const createStyles = (colors) =>
       resizeMode: "contain",
     },
 
+    childTabIcon: {
+      width: 30,
+      height: 30,
+    },
+
+    childTabAvatarContainer: {
+      width: 30,
+      height: 30,
+
+      alignSelf: "center",
+
+      borderRadius: 15,
+
+      overflow: "hidden",
+      backgroundColor: colors.selectedBackground,
+    },
+
+    childTabAvatar: {
+      width: "100%",
+      height: "100%",
+    },
+
+    childTabAvatarRing: {
+      ...StyleSheet.absoluteFillObject,
+
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: 15,
+    },
     addButtonWrapper: {
       flex: 1,
 

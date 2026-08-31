@@ -16,6 +16,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import RootNavigator from "./navigation/RootNavigator.js";
 import { store } from "./store/store.js";
+import ChildrenBootstrap from "./store/ChildrenBootstrap.js";
 import { useAppFonts } from "./theme/fonts.js";
 import ToastProvider from "./components/ui/toast/ToastProvider.js";
 
@@ -31,6 +32,7 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <Provider store={store}>
+            <ChildrenBootstrap />
             <BottomSheetModalProvider>
               <ToastProvider>
                 <NavigationContainer>

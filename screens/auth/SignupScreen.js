@@ -1,11 +1,19 @@
+import { useEffect, useState } from "react";
+
 import {
+  Alert,
   Image,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+
+import * as AppleAuthentication from "expo-apple-authentication";
+import Constants from "expo-constants";
+
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -13,6 +21,8 @@ import { useTranslation } from "react-i18next";
 import BackButton from "../../components/ui/BackButton.js";
 import AuthMethodButton from "../../components/auth/AuthMethodButton.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -52,41 +62,110 @@ const BENEFITS = [
 ];
 
 export default function SignUpScreen({ navigation, route }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { signInWithApple, signInWithGoogle } = useAuth();
+
+  const [isAppleAvailable, setIsAppleAvailable] = useState(false);
+  const [isSigningInWithApple, setIsSigningInWithApple] = useState(false);
+  const [isSigningInWithGoogle, setIsSigningInWithGoogle] = useState(false);
+  const isAuthenticating = isSigningInWithApple || isSigningInWithGoogle;
 
   const childProfile = route.params?.childProfile;
 
   const mode = route.params?.mode || "signUp";
   const isSignIn = mode === "signIn";
 
-  function handleGoogleSignIn() {
-    console.log(isSignIn ? "Sign in with Google" : "Sign up with Google", {
-      mode,
-      childProfile,
-    });
+  async function handleGoogleSignIn() {
+    if (isSigningInWithGoogle) {
+      return;
+    }
 
-    /*
-    La connexion Google sera ajoutée plus tard.
+    setIsSigningInWithGoogle(true);
 
-    Si l'utilisateur existe :
-    - enregistrer les tokens ;
-    - ouvrir directement l'application.
+    try {
+      const locale = i18n.resolvedLanguage?.split("-")[0] || "en";
 
-    Si l'utilisateur n'existe pas et que mode === "signUp" :
-    - créer son compte ;
-    - ouvrir OnboardingComplete.
-  */
+      const result = await signInWithGoogle({
+        locale,
+        platform: Platform.OS,
+        appVersion: Constants.expoConfig?.version || "0.1.0",
+      });
+
+      if (result?.cancelled) {
+        return;
+      }
+
+      if (result.verificationRequired) {
+        navigation.navigate("VerificationCode", {
+          mode,
+          email: result.email,
+          googleIdToken: result.googleIdToken,
+          childProfile,
+        });
+
+        return;
+      }
+
+      if (result.user.onboardingCompletedAt) {
+        return;
+      }
+
+      navigation.replace("ParentName", {
+        childProfile,
+      });
+    } catch (error) {
+      console.error("Unable to sign in with Google:", error);
+
+      const isLinkConflict =
+        error.code === "GOOGLE_IDENTITY_ALREADY_LINKED" ||
+        error.code === "NELO_ACCOUNT_ALREADY_LINKED_TO_GOOGLE";
+
+      Alert.alert(
+        t("Unable to sign in"),
+        isLinkConflict
+          ? t("This account is already linked to another Google account.")
+          : t("Google authentication could not be completed. Please try again."),
+      );
+    } finally {
+      setIsSigningInWithGoogle(false);
+    }
   }
 
-  function handleAppleSignIn() {
-    console.log(isSignIn ? "Sign in with Apple" : "Sign up with Apple", {
-      mode,
-      childProfile,
-    });
+  async function handleAppleSignIn() {
+    if (isSigningInWithApple) {
+      return;
+    }
 
-    /*
-    La connexion Apple sera ajoutée plus tard.
-  */
+    setIsSigningInWithApple(true);
+
+    try {
+      const result = await signInWithApple({
+        locale: i18n.resolvedLanguage || i18n.language || "en",
+        platform: Platform.OS,
+        appVersion: Constants.expoConfig?.version || "0.1.0",
+      });
+
+      if (result?.cancelled) {
+        return;
+      }
+
+      if (result.user.onboardingCompletedAt) {
+        return;
+      }
+
+      navigation.replace("ParentName", {
+        childProfile,
+      });
+    } catch (error) {
+      console.error("Unable to sign in with Apple:", error);
+
+      Alert.alert(
+        t("Unable to sign in"),
+        t("Apple authentication could not be completed. Please try again."),
+      );
+    } finally {
+      setIsSigningInWithApple(false);
+    }
   }
 
   function handleEmailSignIn() {
@@ -109,6 +188,40 @@ export default function SignUpScreen({ navigation, route }) {
       navigation.goBack();
     }
   }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkAppleAuthenticationAvailability() {
+      if (Platform.OS !== "ios") {
+        setIsAppleAvailable(false);
+        return;
+      }
+
+      try {
+        const available = await AppleAuthentication.isAvailableAsync();
+
+        if (isMounted) {
+          setIsAppleAvailable(available);
+        }
+      } catch (error) {
+        console.error(
+          "Unable to check Apple authentication availability:",
+          error,
+        );
+
+        if (isMounted) {
+          setIsAppleAvailable(false);
+        }
+      }
+    }
+
+    checkAppleAuthenticationAvailability();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -187,15 +300,21 @@ export default function SignUpScreen({ navigation, route }) {
               }
               imageSource={GOOGLE_ICON}
               onPress={handleGoogleSignIn}
+              disabled={isAuthenticating}
+              loading={isSigningInWithGoogle}
             />
 
-            <AuthMethodButton
-              title={
-                isSignIn ? t("Sign in with Apple") : t("Continue with Apple")
-              }
-              imageSource={APPLE_ICON}
-              onPress={handleAppleSignIn}
-            />
+            {isAppleAvailable ? (
+              <AuthMethodButton
+                title={
+                  isSignIn ? t("Sign in with Apple") : t("Continue with Apple")
+                }
+                imageSource={APPLE_ICON}
+                onPress={handleAppleSignIn}
+                loading={isSigningInWithApple}
+                disabled={isAuthenticating}
+              />
+            ) : null}
 
             <View style={styles.separator}>
               <View style={styles.separatorLine} />
@@ -214,6 +333,7 @@ export default function SignUpScreen({ navigation, route }) {
               iconName="mail-outline"
               iconSize={23}
               onPress={handleEmailSignIn}
+              disabled={isAuthenticating}
             />
           </View>
 
@@ -285,6 +405,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
+  },
+
+  appleButton: {
+    width: "100%",
+    height: 52,
   },
 
   progressBar: {

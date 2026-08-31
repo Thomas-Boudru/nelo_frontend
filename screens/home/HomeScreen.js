@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useDispatch, useSelector } from "react-redux";
 
 import HomeHeader from "../../components/home/HomeHeader.js";
 import NeloQuestionBar from "../../components/home/NeloQuestionBar.js";
@@ -15,32 +16,69 @@ import DailyMessageDetailScreen from "./DailyMessageDetailsScreen.js";
 import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import { mockHomeData } from "../../data/mockHomeData.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
-
-const MOCK_CHILDREN = [
-  {
-    id: "emma",
-    firstName: "Emma",
-    ageLabel: "4 months old",
-    themeMode: "blue",
-    profilePicture: null,
-  },
-  {
-    id: "leo",
-    firstName: "Léo",
-    ageLabel: "2 years old",
-    themeMode: "green",
-    profilePicture: null,
-  },
-];
+import { selectChild } from "../../store/slices/childrenSlice.js";
 
 const MOCK_UNREAD_NOTIFICATION_COUNT = 2;
 
 export default function HomeScreen({ navigation }) {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [children] = useState(MOCK_CHILDREN);
-  const [selectedChildId, setSelectedChildId] = useState("emma");
+  const children = useSelector((state) => state.children.children);
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
   const childSelectorSheetRef = useRef(null);
+
+  const childPickerChildren = useMemo(
+    () =>
+      children.map((child) => {
+        let ageInMonths = 0;
+
+        if (child.birthDate) {
+          const [birthYear, birthMonth, birthDay] = child.birthDate
+            .slice(0, 10)
+            .split("-")
+            .map(Number);
+          const today = new Date();
+
+          ageInMonths =
+            (today.getFullYear() - birthYear) * 12 +
+            today.getMonth() -
+            (birthMonth - 1);
+
+          if (today.getDate() < birthDay) {
+            ageInMonths -= 1;
+          }
+
+          ageInMonths = Math.max(0, ageInMonths);
+        }
+
+        return {
+          ...child,
+          firstName: child.displayName || t("Baby"),
+          ageInMonths,
+          ageLabel:
+            child.birthStatus === "expected"
+              ? t("Expected date of birth")
+              : t("Child age in months", { count: ageInMonths }),
+          profilePicture: child.avatar?.url
+            ? {
+                uri: child.avatar.url,
+                cacheKey: `child-avatar:${child.id}:${child.avatar.attachmentId}`,
+              }
+            : null,
+        };
+      }),
+    [children, t],
+  );
+
+  const selectedChild = useMemo(
+    () =>
+      childPickerChildren.find((child) => child.id === selectedChildId) || null,
+    [childPickerChildren, selectedChildId],
+  );
 
   const homeData = mockHomeData;
 
@@ -51,12 +89,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleSelectChild = (child) => {
-    setSelectedChildId(child.id);
-
-    // Plus tard, tu pourras également :
-    // - récupérer les données de cet enfant ;
-    // - mettre à jour ton contexte global ;
-    // - rafraîchir le résumé de la page d'accueil.
+    dispatch(selectChild(child.id));
   };
 
   const handleAddChild = () => {
@@ -111,7 +144,7 @@ export default function HomeScreen({ navigation }) {
       >
         <HomeHeader
           parentFirstName={homeData.parent.firstName}
-          child={homeData.child}
+          child={selectedChild}
           onPressChild={handleOpenChildSelector}
           onPressNotifications={handleOpenNotifications}
           hasUnreadNotifications={hasUnreadNotifications}
@@ -142,7 +175,7 @@ export default function HomeScreen({ navigation }) {
 
       <ChildSelectorSheet
         ref={childSelectorSheetRef}
-        children={children}
+        children={childPickerChildren}
         selectedChildId={selectedChildId}
         onSelectChild={handleSelectChild}
         onAddChild={handleAddChild}

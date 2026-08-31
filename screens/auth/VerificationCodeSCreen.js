@@ -43,6 +43,7 @@ export default function VerificationCodeScreen({ navigation, route }) {
 
   const email = route.params?.email || "";
   const childProfile = route.params?.childProfile;
+  const googleIdToken = route.params?.googleIdToken;
 
   const mode = route.params?.mode || "signUp";
   const isSignIn = mode === "signIn";
@@ -130,6 +131,7 @@ export default function VerificationCodeScreen({ navigation, route }) {
         locale,
         platform: Platform.OS,
         appVersion: Constants.expoConfig?.version || "unknown",
+        googleIdToken,
       });
 
       Keyboard.dismiss();

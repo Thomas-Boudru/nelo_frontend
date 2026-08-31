@@ -1,3 +1,19 @@
+import { Platform } from "react-native";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
+
+import {
+  GoogleSignin,
+  isSuccessResponse,
+  isCancelledResponse,
+} from "@react-native-google-signin/google-signin";
+
+GoogleSignin.configure({
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  scopes: ["email", "profile"],
+});
+
 import {
   createContext,
   useCallback,
@@ -12,6 +28,8 @@ import {
   logoutAuthSession,
   refreshAuthSession,
   requestLoginCode as requestLoginCodeApi,
+  signInWithApple as signInWithAppleApi,
+  signInWithGoogle as signInWithGoogleApi,
   verifyLoginCode as verifyLoginCodeApi,
 } from "../api/authApi";
 
@@ -54,6 +72,24 @@ function authReducer(state, action) {
     default:
       return state;
   }
+}
+
+async function createAppleNonce() {
+  const randomBytes = await Crypto.getRandomBytesAsync(32);
+
+  const rawNonce = Array.from(randomBytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+  const hashedNonce = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    rawNonce,
+  );
+
+  return {
+    rawNonce,
+    hashedNonce,
+  };
 }
 
 export function AuthProvider({ children }) {
@@ -127,6 +163,152 @@ export function AuthProvider({ children }) {
 
     return result;
   }, []);
+
+  const signInWithApple = useCallback(
+    async ({
+      locale = "en",
+      deviceName,
+      platform = Platform.OS,
+      appVersion,
+    } = {}) => {
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+
+      if (!isAvailable) {
+        const error = new Error(
+          "Sign in with Apple is not available on this device.",
+        );
+
+        error.code = "APPLE_AUTHENTICATION_UNAVAILABLE";
+
+        throw error;
+      }
+
+      const { rawNonce, hashedNonce } = await createAppleNonce();
+
+      let credential;
+
+      try {
+        credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+
+          nonce: hashedNonce,
+        });
+      } catch (error) {
+        if (error.code === "ERR_REQUEST_CANCELED") {
+          return {
+            cancelled: true,
+          };
+        }
+
+        throw error;
+      }
+
+      if (!credential.identityToken || !credential.authorizationCode) {
+        const error = new Error(
+          "Apple did not return the required authentication information.",
+        );
+
+        error.code = "INCOMPLETE_APPLE_AUTHENTICATION";
+
+        throw error;
+      }
+
+      const result = await signInWithAppleApi({
+        identityToken: credential.identityToken,
+        authorizationCode: credential.authorizationCode,
+        nonce: rawNonce,
+        locale,
+        deviceName,
+        platform,
+        appVersion,
+      });
+
+      await saveRefreshToken(result.refreshToken);
+
+      dispatch({
+        type: "AUTHENTICATED",
+        payload: {
+          accessToken: result.accessToken,
+          user: result.user,
+        },
+      });
+
+      return {
+        ...result,
+        cancelled: false,
+      };
+    },
+    [],
+  );
+
+  const signInWithGoogle = useCallback(
+    async ({
+      locale = "en",
+      deviceName,
+      platform = Platform.OS,
+      appVersion,
+    } = {}) => {
+      if (Platform.OS === "android") {
+        await GoogleSignin.hasPlayServices({
+          showPlayServicesUpdateDialog: true,
+        });
+      }
+
+      const googleResponse = await GoogleSignin.signIn();
+
+      if (isCancelledResponse(googleResponse)) {
+        return {
+          cancelled: true,
+        };
+      }
+
+      if (!isSuccessResponse(googleResponse) || !googleResponse.data.idToken) {
+        const error = new Error(
+          "Google did not return the required authentication information.",
+        );
+
+        error.code = "INCOMPLETE_GOOGLE_AUTHENTICATION";
+
+        throw error;
+      }
+
+      const result = await signInWithGoogleApi({
+        idToken: googleResponse.data.idToken,
+        locale,
+        deviceName,
+        platform,
+        appVersion,
+      });
+
+      if (result.verificationRequired) {
+        return {
+          ...result,
+          googleIdToken: googleResponse.data.idToken,
+          cancelled: false,
+        };
+      }
+
+      await saveRefreshToken(result.refreshToken);
+
+      dispatch({
+        type: "AUTHENTICATED",
+        payload: {
+          accessToken: result.accessToken,
+          user: result.user,
+        },
+      });
+
+      return {
+        ...result,
+        cancelled: false,
+      };
+    },
+    [],
+  );
+
   const refreshSession = useCallback(async () => {
     const storedRefreshToken = await getRefreshToken();
 
@@ -185,6 +367,8 @@ export function AuthProvider({ children }) {
       accessToken: state.accessToken,
       requestLoginCode,
       verifyLoginCode,
+      signInWithApple,
+      signInWithGoogle,
       refreshSession,
       logout,
       updateAuthenticatedUser,
@@ -193,6 +377,8 @@ export function AuthProvider({ children }) {
       state,
       requestLoginCode,
       verifyLoginCode,
+      signInWithApple,
+      signInWithGoogle,
       refreshSession,
       logout,
       updateAuthenticatedUser,

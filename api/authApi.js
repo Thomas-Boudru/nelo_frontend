@@ -17,12 +17,56 @@ export function verifyLoginCode({
   deviceName,
   platform,
   appVersion,
+  googleIdToken,
 }) {
   return apiRequest("/api/auth/code/verify", {
     method: "POST",
     body: {
       email,
       code,
+      locale,
+      deviceName,
+      platform,
+      appVersion,
+      googleIdToken,
+    },
+  });
+}
+
+export function signInWithApple({
+  identityToken,
+  authorizationCode,
+  nonce,
+  locale,
+  deviceName,
+  platform,
+  appVersion,
+}) {
+  return apiRequest("/api/auth/apple", {
+    method: "POST",
+    body: {
+      identityToken,
+      authorizationCode,
+      nonce,
+      locale,
+      deviceName,
+      platform,
+      appVersion,
+    },
+  });
+}
+
+export function signInWithGoogle({
+  idToken,
+  locale,
+  deviceName,
+  platform,
+  appVersion,
+}) {
+  return apiRequest("/api/auth/google", {
+    method: "POST",
+    body: {
+      idToken,
       locale,
       deviceName,
       platform,

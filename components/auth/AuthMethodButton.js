@@ -44,29 +44,39 @@ export default function AuthMethodButton({
         style,
       ]}
     >
-      <View style={styles.leadingContainer}>
-        {loading ? (
+      {loading ? (
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={colors.primary} />
-        ) : imageSource ? (
-          <Image
-            source={imageSource}
-            resizeMode="contain"
-            style={[styles.image, imageStyle]}
-          />
-        ) : iconName ? (
-          <Ionicons name={iconName} size={iconSize} color={iconColor} />
-        ) : null}
-      </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.leadingContainer}>
+            {imageSource ? (
+              <Image
+                source={imageSource}
+                resizeMode="contain"
+                style={[styles.image, imageStyle]}
+              />
+            ) : iconName ? (
+              <Ionicons name={iconName} size={iconSize} color={iconColor} />
+            ) : null}
+          </View>
 
-      <Text numberOfLines={1} style={styles.title}>
-        {title}
-      </Text>
+          <Text numberOfLines={1} style={styles.title}>
+            {title}
+          </Text>
 
-      <View style={styles.trailingContainer}>
-        {showChevron && !loading ? (
-          <Ionicons name="chevron-forward" size={25} color={colors.primary} />
-        ) : null}
-      </View>
+          <View style={styles.trailingContainer}>
+            {showChevron ? (
+              <Ionicons
+                name="chevron-forward"
+                size={25}
+                color={colors.primary}
+              />
+            ) : null}
+          </View>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -92,6 +102,13 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
 
     elevation: 3,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   buttonPressed: {
