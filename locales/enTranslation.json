@@ -1596,5 +1596,17 @@
   "Delete custom milestone": "Delete custom milestone",
   "This milestone will no longer appear in your list. Previously created moments will not be deleted.": "This milestone will no longer appear in your list. Previously created moments will not be deleted.",
   "Unable to delete this milestone. Please try again.": "Unable to delete this milestone. Please try again.",
-  "Add milestone": "Add milestone"
+  "Add milestone": "Add milestone",
+  "Read-only child profile": "Read-only child profile",
+  "Only an owner can edit this child’s profile.": "Only an owner can edit this child’s profile.",
+  "Child profile": "Child profile",
+  "Owner access only": "Owner access only",
+  "A born child cannot be changed back to expected.": "A born child cannot be changed back to expected.",
+  "Unable to contact the server. Check your internet connection.": "Unable to contact the server. Check your internet connection.",
+  "Unable to update the child theme.": "Unable to update the child theme.",
+  "Theme not updated": "Theme not updated",
+  "Unable to update the tracking preferences.": "Unable to update the tracking preferences.",
+  "Tracking preferences not updated": "Tracking preferences not updated",
+  "Unable to update the feeding preferences.": "Unable to update the feeding preferences.",
+  "Feeding preferences not updated": "Feeding preferences not updated"
 }

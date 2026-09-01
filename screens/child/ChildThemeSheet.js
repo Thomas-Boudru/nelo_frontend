@@ -1,43 +1,58 @@
-import { forwardRef, useCallback, useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { forwardRef, useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { BottomSheetBackdrop, BottomSheetModal } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
+import { colorThemes } from "../../theme/colors.js";
 
 const THEMES = [
   {
     id: "blue",
     titleKey: "Blue",
-    primaryColor: "#4E83F7",
-    backgroundColor: "#EDF4FF",
   },
   {
     id: "pink",
     titleKey: "Pink",
-    primaryColor: "#F27BA6",
-    backgroundColor: "#FFF0F5",
   },
   {
     id: "green",
     titleKey: "Green",
-    primaryColor: "#55BE92",
-    backgroundColor: "#EAF9F3",
   },
 ];
 
-function ThemeRow({ theme, selected, onPress, colors, styles }) {
+function ThemeRow({
+  theme,
+  selected,
+  loading,
+  disabled,
+  onPress,
+  colors,
+  styles,
+}) {
   return (
     <Pressable
       accessibilityRole="radio"
       accessibilityLabel={theme.titleKey}
-      accessibilityState={{ selected }}
+      accessibilityState={{
+        selected,
+        disabled,
+        busy: loading,
+      }}
       onPress={() => onPress(theme.id)}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.themeRow,
         selected && styles.themeRowSelected,
-        pressed && styles.themeRowPressed,
+        pressed && !disabled && styles.themeRowPressed,
+        disabled && styles.themeRowDisabled,
       ]}
     >
       <View
@@ -52,19 +67,26 @@ function ThemeRow({ theme, selected, onPress, colors, styles }) {
         <Text style={styles.themeTitle}>{theme.titleKey}</Text>
       </View>
 
-      <View
-        style={[
-          styles.selectionCircle,
-          selected && {
-            borderColor: theme.primaryColor,
-            backgroundColor: theme.primaryColor,
-          },
-        ]}
-      >
-        {selected ? (
-          <Ionicons name="checkmark" size={15} color={colors.white} />
-        ) : null}
-      </View>
+      {loading ? (
+        <View style={styles.selectionLoader}>
+          <ActivityIndicator size="small" color={theme.primaryColor} />
+        </View>
+      ) : (
+        <View
+          style={[
+            styles.selectionCircle,
+
+            selected && {
+              borderColor: theme.primaryColor,
+              backgroundColor: theme.primaryColor,
+            },
+          ]}
+        >
+          {selected ? (
+            <Ionicons name="checkmark" size={15} color={colors.white} />
+          ) : null}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -77,6 +99,10 @@ const ChildThemeSheet = forwardRef(function ChildThemeSheet(
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [savingThemeId, setSavingThemeId] = useState(null);
+
+  const isSaving = savingThemeId !== null;
 
   const snapPoints = useMemo(() => ["43%"], []);
 
@@ -93,9 +119,28 @@ const ChildThemeSheet = forwardRef(function ChildThemeSheet(
     [],
   );
 
-  const handleSelectTheme = (themeId) => {
-    onSelectTheme?.(themeId);
-    ref?.current?.dismiss();
+  const handleSelectTheme = async (themeId) => {
+    if (isSaving) {
+      return;
+    }
+
+    if (themeId === selectedTheme) {
+      ref?.current?.dismiss();
+
+      return;
+    }
+
+    setSavingThemeId(themeId);
+
+    try {
+      const saved = await onSelectTheme?.(themeId);
+
+      if (saved !== false) {
+        ref?.current?.dismiss();
+      }
+    } finally {
+      setSavingThemeId(null);
+    }
   };
 
   return (
@@ -120,19 +165,27 @@ const ChildThemeSheet = forwardRef(function ChildThemeSheet(
         </View>
 
         <View style={styles.themeList}>
-          {THEMES.map((theme) => (
-            <ThemeRow
-              key={theme.id}
-              theme={{
-                ...theme,
-                titleKey: t(theme.titleKey),
-              }}
-              selected={theme.id === selectedTheme}
-              onPress={handleSelectTheme}
-              colors={colors}
-              styles={styles}
-            />
-          ))}
+          {THEMES.map((theme) => {
+            const themeColors = colorThemes[theme.id] ?? colorThemes.blue;
+
+            return (
+              <ThemeRow
+                key={theme.id}
+                theme={{
+                  ...theme,
+                  titleKey: t(theme.titleKey),
+                  primaryColor: themeColors.primary,
+                  backgroundColor: themeColors.background,
+                }}
+                selected={theme.id === selectedTheme}
+                loading={savingThemeId === theme.id}
+                disabled={isSaving}
+                onPress={handleSelectTheme}
+                colors={colors}
+                styles={styles}
+              />
+            );
+          })}
         </View>
       </View>
     </BottomSheetModal>
@@ -313,6 +366,10 @@ const createStyles = (colors) =>
       borderRadius: 12,
     },
 
+    themeRowDisabled: {
+      opacity: 0.68,
+    },
+
     themeCircle: {
       width: 35,
       height: 35,
@@ -333,5 +390,15 @@ const createStyles = (colors) =>
       shadowRadius: 2,
 
       elevation: 1,
+    },
+
+    selectionLoader: {
+      width: 24,
+      height: 24,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      marginLeft: 10,
     },
   });

@@ -35,7 +35,6 @@ import EditEmailSheet from "./Account/EditEmailSheet.js";
 import DeleteAccountSheet from "./Account/DeleteAccountSheet.js";
 import * as WebBrowser from "expo-web-browser";
 import DeleteChildProfileSheet from "./DeleteChildProfileSheet.js";
-import EditChildProfileScreen from "./ChildProfileFormScreen.js";
 import ChildPictureSheet from "./ChildPictureScreen.js";
 import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
@@ -47,6 +46,7 @@ import {
   removeChildAvatar,
   selectChild,
   updateChildAvatar,
+  updateChildPreferences,
 } from "../../store/slices/childrenSlice.js";
 
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
@@ -60,6 +60,28 @@ const WEIGHT_IMAGE = require("../../assets/illustrations/tracking/weightBlue.png
 const HEIGHT_IMAGE = require("../../assets/illustrations/tracking/height.png");
 
 const HEAD_CIRCUMFERENCE_IMAGE = require("../../assets/illustrations/tracking/headBlue.png");
+
+const DEFAULT_VISIBLE_TRACKING_TYPES = [
+  "feeding",
+  "sleep",
+  "diaper",
+  "mood",
+  "medication",
+  "temperature",
+  "symptoms",
+  "teething",
+  "weight",
+  "height",
+  "headCircumference",
+  "note",
+];
+
+const DEFAULT_VISIBLE_FEEDING_METHODS = [
+  "breastfeeding",
+  "bottle",
+  "solids",
+  "pumping",
+];
 
 const BABY_FALLBACK_IMAGES = {
   blue: require("../../assets/icons/header/babyBlue.png"),
@@ -270,13 +292,13 @@ export default function ChildProfileScreen({ navigation }) {
     () =>
       reduxChildren.map((reduxChild) => {
         const ageInMonths =
-          reduxChild.birthStatus === "born"
+          reduxChild.status === "born"
             ? calculateAgeInMonths(reduxChild.birthDate)
             : null;
 
         const relevantDate =
-          reduxChild.birthStatus === "expected"
-            ? reduxChild.expectedBirthDate
+          reduxChild.status === "expected"
+            ? reduxChild.expectedDueDate
             : reduxChild.birthDate;
 
         return {
@@ -287,7 +309,7 @@ export default function ChildProfileScreen({ navigation }) {
           ageInMonths,
 
           ageLabel:
-            reduxChild.birthStatus === "expected"
+            reduxChild.status === "expected"
               ? t("Expected date of birth")
               : ageInMonths !== null
                 ? t("Child age in months", {
@@ -326,8 +348,6 @@ export default function ChildProfileScreen({ navigation }) {
               date: null,
             },
           },
-
-          feedingMethods: reduxChild.feedingMethods || [],
 
           sharedPeopleCount: reduxChild.sharedPeopleCount ?? 0,
 
@@ -370,7 +390,6 @@ export default function ChildProfileScreen({ navigation }) {
   const editEmailSheetRef = useRef(null);
   const deleteAccountSheetRef = useRef(null);
   const deleteChildProfileSheetRef = useRef(null);
-  const editChildProfileSheetRef = useRef(null);
   const childPictureSheetRef = useRef(null);
   const relationshipSettingsSheetRef = useRef(null);
 
@@ -394,31 +413,31 @@ export default function ChildProfileScreen({ navigation }) {
     temperature: "celsius",
   });
 
-  const [visibleTrackingIds, setVisibleTrackingIds] = useState([
-    "feeding",
-    "sleep",
-    "diaper",
-    "medication",
-    "temperature",
-    "weight",
-    "height",
-    "headCircumference",
-    "note",
-  ]);
-
   const [selectedMember, setSelectedMember] = useState(null);
   const [isRemovingMember, setIsRemovingMember] = useState(false);
   const [members, setMembers] = useState(mockMembers);
 
+  const child =
+    children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
+
+  const canEditChild = child?.currentUserRole === "owner";
+
   const handleEditChild = () => {
+    if (!canEditChild) {
+      showToast({
+        type: "info",
+        title: t("Read-only child profile"),
+        message: t("Only an owner can edit this child’s profile."),
+      });
+
+      return;
+    }
+
     navigation.navigate("ChildProfileForm", {
       mode: "edit",
       child,
     });
   };
-
-  const child =
-    children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
 
   if (!child) {
     return (
@@ -435,6 +454,9 @@ export default function ChildProfileScreen({ navigation }) {
       </SafeAreaView>
     );
   }
+
+  const visibleTrackingTypes =
+    child.visibleTrackingTypes ?? DEFAULT_VISIBLE_TRACKING_TYPES;
 
   const displayedProfilePicture = child?.profilePicture || null;
 
@@ -462,20 +484,21 @@ export default function ChildProfileScreen({ navigation }) {
         ? t("Boy")
         : t("Not specified");
 
-  const feedingMethods = child.feedingMethods ?? ["bottle"];
+  const visibleFeedingMethods =
+    child.visibleFeedingMethods ?? DEFAULT_VISIBLE_FEEDING_METHODS;
 
   const feedingPreferencesLabel =
-    feedingMethods.length === 1
+    visibleFeedingMethods.length === 1
       ? t(
           {
             breastfeeding: "Breastfeeding",
             bottle: "Bottle",
             solids: "Solid foods",
             pumping: "Pumping",
-          }[feedingMethods[0]],
+          }[visibleFeedingMethods[0]],
         )
       : t("Number of feeding methods selected", {
-          count: feedingMethods.length,
+          count: visibleFeedingMethods.length,
         });
   const handleOpenGrowth = () => {
     console.log("Ouvrir l’écran de croissance");
@@ -485,17 +508,36 @@ export default function ChildProfileScreen({ navigation }) {
     feedingMethodSheetRef.current?.present();
   };
 
-  const handleSaveFeedingPreferences = (feedingMethods) => {
-    setChildren((currentChildren) =>
-      currentChildren.map((currentChild) =>
-        currentChild.id === reduxSelectedChildId
-          ? {
-              ...currentChild,
-              feedingMethods,
-            }
-          : currentChild,
-      ),
-    );
+  const handleSaveFeedingPreferences = async (nextVisibleFeedingMethods) => {
+    try {
+      await dispatch(
+        updateChildPreferences({
+          childId: child.id,
+
+          preferences: {
+            visibleFeedingMethods: nextVisibleFeedingMethods,
+          },
+
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
+      return true;
+    } catch (error) {
+      const message =
+        error?.code === "NETWORK_ERROR"
+          ? t("Unable to contact the server. Check your internet connection.")
+          : t("Unable to update the feeding preferences.");
+
+      showToast({
+        type: "error",
+        title: t("Feeding preferences not updated"),
+        message,
+      });
+
+      return false;
+    }
   };
 
   const handleChangePicture = () => {
@@ -505,17 +547,40 @@ export default function ChildProfileScreen({ navigation }) {
     childThemeSheetRef.current?.present();
   };
 
-  const handleSelectTheme = (themeMode) => {
-    setChildren((currentChildren) =>
-      currentChildren.map((currentChild) =>
-        currentChild.id === reduxSelectedChildId
-          ? {
-              ...currentChild,
-              themeMode,
-            }
-          : currentChild,
-      ),
-    );
+  const handleSelectTheme = async (themeMode) => {
+    if (themeMode === child.themeMode) {
+      return true;
+    }
+
+    try {
+      await dispatch(
+        updateChildPreferences({
+          childId: child.id,
+
+          preferences: {
+            themeMode,
+          },
+
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
+      return true;
+    } catch (error) {
+      const message =
+        error?.code === "NETWORK_ERROR"
+          ? t("Unable to contact the server. Check your internet connection.")
+          : t("Unable to update the child theme.");
+
+      showToast({
+        type: "error",
+        title: t("Theme not updated"),
+        message,
+      });
+
+      return false;
+    }
   };
 
   const handleOpenChildSelector = () => {
@@ -582,10 +647,36 @@ export default function ChildProfileScreen({ navigation }) {
     trackingPreferencesSheetRef.current?.present();
   };
 
-  const handleSaveTrackingPreferences = (nextVisibleTrackingIds) => {
-    setVisibleTrackingIds(nextVisibleTrackingIds);
+  const handleSaveTrackingPreferences = async (nextVisibleTrackingTypes) => {
+    try {
+      await dispatch(
+        updateChildPreferences({
+          childId: child.id,
 
-    console.log("Tracking visibles :", nextVisibleTrackingIds);
+          preferences: {
+            visibleTrackingTypes: nextVisibleTrackingTypes,
+          },
+
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
+      return true;
+    } catch (error) {
+      const message =
+        error?.code === "NETWORK_ERROR"
+          ? t("Unable to contact the server. Check your internet connection.")
+          : t("Unable to update the tracking preferences.");
+
+      showToast({
+        type: "error",
+        title: t("Tracking preferences not updated"),
+        message,
+      });
+
+      return false;
+    }
   };
 
   const handleLeaveChildProfile = () => {
@@ -856,7 +947,7 @@ export default function ChildProfileScreen({ navigation }) {
 
               <View style={styles.ageBadge}>
                 <Text style={styles.ageBadgeText}>
-                  {child.birthStatus === "expected"
+                  {child.status === "expected"
                     ? t("Baby expected")
                     : child.ageInMonths !== null
                       ? t("Child age in months", {
@@ -906,14 +997,25 @@ export default function ChildProfileScreen({ navigation }) {
           })}
           styles={styles}
         >
-          <ProfileSettingRow
-            icon="person-outline"
-            title={t("Edit child profile")}
-            value={t("Personal information")}
-            onPress={handleEditChild}
-            colors={colors}
-            styles={styles}
-          />
+          {canEditChild ? (
+            <ProfileSettingRow
+              icon="person-outline"
+              title={t("Edit child profile")}
+              value={t("Personal information")}
+              onPress={handleEditChild}
+              colors={colors}
+              styles={styles}
+            />
+          ) : (
+            <ProfileSettingRow
+              icon="lock-closed-outline"
+              title={t("Child profile")}
+              value={t("Owner access only")}
+              showChevron={false}
+              colors={colors}
+              styles={styles}
+            />
+          )}
           <ProfileSettingRow
             icon="color-palette-outline"
             title={t("Child theme", {
@@ -1137,20 +1239,20 @@ export default function ChildProfileScreen({ navigation }) {
 
       <ChildThemeSheet
         ref={childThemeSheetRef}
-        selectedTheme={child.themeMode}
+        selectedTheme={child.themeMode ?? "blue"}
         onSelectTheme={handleSelectTheme}
       />
 
       <FeedingPreferencesSheet
         ref={feedingMethodSheetRef}
-        selectedMethods={child.feedingMethods ?? ["bottle"]}
-        themeMode={child.themeMode}
+        selectedMethods={visibleFeedingMethods}
+        themeMode={child.themeMode ?? "blue"}
         onSave={handleSaveFeedingPreferences}
       />
 
       <TrackingPreferencesSheet
         ref={trackingPreferencesSheetRef}
-        visibleTrackingIds={visibleTrackingIds}
+        visibleTrackingIds={visibleTrackingTypes}
         onSave={handleSaveTrackingPreferences}
       />
 
@@ -1407,25 +1509,6 @@ export default function ChildProfileScreen({ navigation }) {
               childName,
             }),
           });
-        }}
-      />
-
-      <EditChildProfileScreen
-        ref={editChildProfileSheetRef}
-        child={child}
-        onSave={async (updatedChild) => {
-          setChildren((currentChildren) =>
-            currentChildren.map((currentChild) =>
-              currentChild.id === child.id
-                ? {
-                    ...currentChild,
-                    ...updatedChild,
-                  }
-                : currentChild,
-            ),
-          );
-
-          return true;
         }}
       />
 

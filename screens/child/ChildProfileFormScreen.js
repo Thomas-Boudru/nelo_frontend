@@ -17,6 +17,14 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useDispatch } from "react-redux";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+
+import {
+  createChild,
+  updateChildProfile,
+} from "../../store/slices/childrenSlice.js";
 
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
@@ -45,6 +53,10 @@ export default function ChildProfileFormScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
+
+  const dispatch = useDispatch();
+
+  const { accessToken, refreshSession } = useAuth();
 
   const routeMode = route?.params?.mode;
   const receivedChild = route?.params?.child ?? null;
@@ -314,10 +326,10 @@ export default function ChildProfileFormScreen({ navigation, route }) {
 
         gender,
 
-        birthDate: isBorn && birthDate ? birthDate.toISOString() : null,
+        birthDate: isBorn && birthDate ? formatDateForApi(birthDate) : null,
 
         expectedDueDate:
-          !isBorn && expectedDueDate ? expectedDueDate.toISOString() : null,
+          !isBorn && expectedDueDate ? formatDateForApi(expectedDueDate) : null,
 
         isPremature: isBorn ? isPremature : null,
 
@@ -325,52 +337,28 @@ export default function ChildProfileFormScreen({ navigation, route }) {
           isBorn && isPremature === true ? gestationalAgeWeeksNumber : null,
       };
 
-      let savedChild;
+      let response;
 
       if (isCreateMode) {
-        /*
-         * Plus tard :
-         *
-         * savedChild = await api.post(
-         *   "/children",
-         *   childPayload,
-         * );
-         *
-         * Le store global devra ensuite :
-         * - ajouter savedChild ;
-         * - sélectionner savedChild.id ;
-         * - rafraîchir les données de l’accueil.
-         */
-
-        savedChild = {
-          id: `child-${Date.now()}`,
-          themeMode: "blue",
-          profilePicture: null,
-          ...childPayload,
-        };
-
-        console.log("Created child profile:", savedChild);
+        response = await dispatch(
+          createChild({
+            childData: childPayload,
+            accessToken,
+            refreshSession,
+          }),
+        ).unwrap();
       } else {
-        /*
-         * Plus tard :
-         *
-         * savedChild = await api.patch(
-         *   `/children/${child.id}`,
-         *   childPayload,
-         * );
-         *
-         * Le store global devra remplacer l’enfant
-         * correspondant par savedChild.
-         */
-
-        savedChild = {
-          ...child,
-          ...childPayload,
-          id: child.id,
-        };
-
-        console.log("Updated child profile:", savedChild);
+        response = await dispatch(
+          updateChildProfile({
+            childId: child.id,
+            childData: childPayload,
+            accessToken,
+            refreshSession,
+          }),
+        ).unwrap();
       }
+
+      const savedChild = response.child;
 
       showToast({
         type: "success",
@@ -405,6 +393,18 @@ export default function ChildProfileFormScreen({ navigation, route }) {
 
       navigation.goBack();
     } catch (error) {
+      let errorMessage = t("Please try again in a moment.");
+
+      if (error?.code === "CHILD_OWNER_REQUIRED") {
+        errorMessage = t("Only an owner can edit this child’s profile.");
+      } else if (error?.code === "BIRTH_STATUS_CANNOT_BE_REVERSED") {
+        errorMessage = t("A born child cannot be changed back to expected.");
+      } else if (error?.code === "NETWORK_ERROR") {
+        errorMessage = t(
+          "Unable to contact the server. Check your internet connection.",
+        );
+      }
+
       showToast({
         type: "error",
 
@@ -412,7 +412,7 @@ export default function ChildProfileFormScreen({ navigation, route }) {
           ? t("Unable to add child")
           : t("Unable to update child profile"),
 
-        message: error?.message ?? t("Please try again in a moment."),
+        message: errorMessage,
       });
     } finally {
       setIsSaving(false);
@@ -740,6 +740,18 @@ function ErrorMessage({ message }) {
       <Text style={styles.errorText}>{message}</Text>
     </View>
   );
+}
+
+function formatDateForApi(date) {
+  if (!date) {
+    return null;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function parseStoredDate(value) {

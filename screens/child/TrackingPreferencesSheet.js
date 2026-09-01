@@ -239,6 +239,7 @@ const TrackingPreferencesSheet = forwardRef(function TrackingPreferencesSheet(
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [draftVisibleIds, setDraftVisibleIds] = useState(visibleTrackingIds);
+  const [isSaving, setIsSaving] = useState(false);
 
   const snapPoints = useMemo(() => ["92%"], []);
 
@@ -252,14 +253,18 @@ const TrackingPreferencesSheet = forwardRef(function TrackingPreferencesSheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleToggle = (trackingId) => {
+    if (isSaving) {
+      return;
+    }
+
     setDraftVisibleIds((currentIds) => {
       const isCurrentlyVisible = currentIds.includes(trackingId);
 
@@ -271,21 +276,34 @@ const TrackingPreferencesSheet = forwardRef(function TrackingPreferencesSheet(
     });
   };
 
-  const handleSave = () => {
-    onSave?.(draftVisibleIds);
-    ref?.current?.dismiss();
-  };
-
   const hasChanges =
     JSON.stringify([...draftVisibleIds].sort()) !==
     JSON.stringify([...visibleTrackingIds].sort());
+
+  const handleSave = async () => {
+    if (isSaving || !hasChanges) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const saved = await onSave?.(draftVisibleIds);
+
+      if (saved !== false) {
+        ref?.current?.dismiss();
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <BottomSheetModal
       ref={ref}
       index={0}
       snapPoints={snapPoints}
-      enablePanDownToClose
+      enablePanDownToClose={!isSaving}
       enableDynamicSizing={false}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
@@ -335,7 +353,8 @@ const TrackingPreferencesSheet = forwardRef(function TrackingPreferencesSheet(
           <PrimaryButton
             title={t("Save")}
             onPress={handleSave}
-            disabled={!hasChanges}
+            loading={isSaving}
+            disabled={!hasChanges || isSaving}
           />
         </View>
       </View>

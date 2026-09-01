@@ -37,6 +37,13 @@ const FEEDING_IMAGES = {
   },
 };
 
+const DEFAULT_VISIBLE_FEEDING_METHODS = [
+  "breastfeeding",
+  "bottle",
+  "solids",
+  "pumping",
+];
+
 const FEEDING_METHODS = [
   {
     id: "breastfeeding",
@@ -67,7 +74,9 @@ function normalizeSelectedMethods(methods) {
     ? methods.filter((methodId) => validIds.has(methodId))
     : [];
 
-  return normalizedMethods.length > 0 ? normalizedMethods : ["bottle"];
+  return normalizedMethods.length > 0
+    ? normalizedMethods
+    : DEFAULT_VISIBLE_FEEDING_METHODS;
 }
 
 function FeedingMethodRow({
@@ -116,7 +125,11 @@ function FeedingMethodRow({
 }
 
 const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
-  { selectedMethods = ["breastfeeding", "bottle"], themeMode = "blue", onSave },
+  {
+    selectedMethods = DEFAULT_VISIBLE_FEEDING_METHODS,
+    themeMode = "blue",
+    onSave,
+  },
   ref,
 ) {
   const { t } = useTranslation();
@@ -127,6 +140,8 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
   const [draftMethods, setDraftMethods] = useState(() =>
     normalizeSelectedMethods(selectedMethods),
   );
+
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setDraftMethods(normalizeSelectedMethods(selectedMethods));
@@ -142,14 +157,18 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleToggleMethod = (methodId) => {
+    if (isSaving) {
+      return;
+    }
+
     setDraftMethods((currentMethods) => {
       const selected = currentMethods.includes(methodId);
 
@@ -158,23 +177,39 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
       }
 
       return selected
-        ? currentMethods.filter((currentMethodId) => {
-            return currentMethodId !== methodId;
-          })
+        ? currentMethods.filter(
+            (currentMethodId) => currentMethodId !== methodId,
+          )
         : [...currentMethods, methodId];
     });
   };
 
-  const handleSave = () => {
-    onSave?.(draftMethods);
-    ref?.current?.dismiss();
-  };
+  const hasChanges =
+    JSON.stringify([...draftMethods].sort()) !==
+    JSON.stringify([...selectedMethods].sort());
 
+  const handleSave = async () => {
+    if (isSaving || !hasChanges) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const saved = await onSave?.(draftMethods);
+
+      if (saved !== false) {
+        ref?.current?.dismiss();
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
   return (
     <BottomSheetModal
       ref={ref}
       enableDynamicSizing
-      enablePanDownToClose
+      enablePanDownToClose={!isSaving}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
       handleStyle={styles.handle}
@@ -198,7 +233,8 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
               FEEDING_IMAGES[method.id]?.blue;
 
             const selected = draftMethods.includes(method.id);
-            const disabled = selected && draftMethods.length === 1;
+            const disabled =
+              isSaving || (selected && draftMethods.length === 1);
 
             return (
               <FeedingMethodRow
@@ -229,7 +265,12 @@ const FeedingPreferencesSheet = forwardRef(function FeedingPreferencesSheet(
         </View>
 
         <View style={styles.saveButtonContainer}>
-          <PrimaryButton title={t("Save")} onPress={handleSave} />
+          <PrimaryButton
+            title={t("Save")}
+            onPress={handleSave}
+            loading={isSaving}
+            disabled={!hasChanges || isSaving}
+          />
         </View>
       </BottomSheetView>
     </BottomSheetModal>

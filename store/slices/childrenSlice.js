@@ -1,8 +1,11 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 import {
+  createChild as createChildApi,
   deleteChildAvatar as deleteChildAvatarApi,
   getAccessibleChildren,
+  updateChild as updateChildApi,
+  updateChildPreferences as updateChildPreferencesApi,
   uploadChildAvatar as uploadChildAvatarApi,
 } from "../../api/childrenApi.js";
 
@@ -120,6 +123,142 @@ export const loadChildren = createAsyncThunk(
   },
 );
 
+export const createChild = createAsyncThunk(
+  "children/createChild",
+
+  async (
+    { childData, accessToken, refreshSession },
+    { signal, rejectWithValue },
+  ) => {
+    try {
+      const response = await executeWithRefreshedAccessToken({
+        accessToken,
+        refreshSession,
+
+        request: (currentAccessToken) =>
+          createChildApi({
+            childData,
+            accessToken: currentAccessToken,
+            signal,
+          }),
+      });
+
+      if (!response?.child?.id) {
+        const responseError = new Error(
+          "The server did not return the created child.",
+        );
+
+        responseError.code = "INVALID_CHILD_RESPONSE";
+
+        throw responseError;
+      }
+
+      await persistSelection(response.child.id);
+
+      return {
+        child: response.child,
+      };
+    } catch (error) {
+      return rejectWithValue({
+        code: error.code || "CHILD_CREATION_FAILED",
+
+        message: error.message || "Unable to create the child.",
+      });
+    }
+  },
+);
+
+export const updateChildProfile = createAsyncThunk(
+  "children/updateChildProfile",
+
+  async (
+    { childId, childData, accessToken, refreshSession },
+    { signal, rejectWithValue },
+  ) => {
+    try {
+      const response = await executeWithRefreshedAccessToken({
+        accessToken,
+        refreshSession,
+
+        request: (currentAccessToken) =>
+          updateChildApi({
+            childId,
+            childData,
+            accessToken: currentAccessToken,
+            signal,
+          }),
+      });
+
+      if (!response?.child?.id) {
+        const responseError = new Error(
+          "The server did not return the updated child.",
+        );
+
+        responseError.code = "INVALID_CHILD_RESPONSE";
+
+        throw responseError;
+      }
+
+      return {
+        child: response.child,
+      };
+    } catch (error) {
+      return rejectWithValue({
+        code: error.code || "CHILD_UPDATE_FAILED",
+
+        message: error.message || "Unable to update the child.",
+      });
+    }
+  },
+);
+
+export const updateChildPreferences = createAsyncThunk(
+  "children/updateChildPreferences",
+
+  async (
+    { childId, preferences, accessToken, refreshSession },
+    { signal, getState, rejectWithValue },
+  ) => {
+    try {
+      const response = await executeWithRefreshedAccessToken({
+        accessToken,
+        refreshSession,
+
+        request: (currentAccessToken) =>
+          updateChildPreferencesApi({
+            childId,
+            preferences,
+            accessToken: currentAccessToken,
+            signal,
+          }),
+      });
+
+      if (!response?.preferences) {
+        const responseError = new Error(
+          "The server did not return the updated child preferences.",
+        );
+
+        responseError.code = "INVALID_CHILD_PREFERENCES_RESPONSE";
+
+        throw responseError;
+      }
+
+      return {
+        childId,
+        preferences: response.preferences,
+
+        isSelected: getState().children.selectedChildId === childId,
+      };
+    } catch (error) {
+      return rejectWithValue({
+        code: error.code || "CHILD_PREFERENCES_UPDATE_FAILED",
+
+        message: error.message || "Unable to update the child preferences.",
+      });
+    }
+  },
+);
+
 export const updateChildAvatar = createAsyncThunk(
   "children/updateChildAvatar",
 
@@ -204,7 +343,7 @@ const childrenSlice = createSlice({
 
   reducers: {
     childSelected(state, action) {
-      const childId = action.payload;
+      const childId = action.payload.childId;
 
       const isAccessible = state.children.some((child) => child.id === childId);
 
@@ -261,6 +400,57 @@ const childrenSlice = createSlice({
         state.activeRequestId = null;
       })
 
+      .addCase(createChild.fulfilled, (state, action) => {
+        const createdChild = action.payload.child;
+
+        const alreadyExists = state.children.some(
+          (child) => child.id === createdChild.id,
+        );
+
+        if (alreadyExists) {
+          return;
+        }
+
+        state.children.push(createdChild);
+        state.selectedChildId = createdChild.id;
+        state.lastSyncAt = new Date().toISOString();
+      })
+
+      .addCase(updateChildProfile.fulfilled, (state, action) => {
+        const updatedChild = action.payload.child;
+
+        const childIndex = state.children.findIndex(
+          (child) => child.id === updatedChild.id,
+        );
+
+        if (childIndex === -1) {
+          return;
+        }
+
+        state.children[childIndex] = updatedChild;
+        state.lastSyncAt = new Date().toISOString();
+      })
+
+      .addCase(updateChildPreferences.fulfilled, (state, action) => {
+        const child = state.children.find(
+          (currentChild) => currentChild.id === action.payload.childId,
+        );
+
+        if (!child) {
+          return;
+        }
+
+        child.themeMode = action.payload.preferences.themeMode;
+
+        child.visibleTrackingTypes =
+          action.payload.preferences.visibleTrackingTypes;
+
+        child.visibleFeedingMethods =
+          action.payload.preferences.visibleFeedingMethods;
+
+        child.updatedAt = new Date().toISOString();
+      })
+
       .addCase(updateChildAvatar.fulfilled, (state, action) => {
         const child = state.children.find(
           (currentChild) => currentChild.id === action.payload.childId,
@@ -289,19 +479,25 @@ const childrenSlice = createSlice({
   },
 });
 
-const { childSelected, clearChildren } = childrenSlice.actions;
+export const { childSelected, clearChildren } = childrenSlice.actions;
 
 export function selectChild(childId) {
   return async (dispatch, getState) => {
-    const isAccessible = getState().children.children.some(
-      (child) => child.id === childId,
+    const child = getState().children.children.find(
+      (currentChild) => currentChild.id === childId,
     );
 
-    if (!isAccessible) {
+    if (!child) {
       return false;
     }
 
-    dispatch(childSelected(childId));
+    dispatch(
+      childSelected({
+        childId,
+        themeMode: child.themeMode ?? "blue",
+      }),
+    );
+
     await persistSelection(childId);
 
     return true;

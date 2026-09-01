@@ -23,6 +23,65 @@ export function getAccessibleChildren({ accessToken, signal }) {
   });
 }
 
+export function createChild({ childData, accessToken, signal }) {
+  if (!childData || typeof childData !== "object" || Array.isArray(childData)) {
+    throw new Error("Missing child data.");
+  }
+
+  return apiRequest("/api/children", {
+    method: "POST",
+    body: childData,
+    accessToken,
+    signal,
+  });
+}
+
+export function updateChild({ childId, childData, accessToken, signal }) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  if (!childData || typeof childData !== "object" || Array.isArray(childData)) {
+    throw new Error("Missing child data.");
+  }
+
+  return apiRequest(`/api/children/${encodeURIComponent(childId)}`, {
+    method: "PATCH",
+    body: childData,
+    accessToken,
+    signal,
+  });
+}
+
+export function updateChildPreferences({
+  childId,
+  preferences,
+  accessToken,
+  signal,
+}) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  if (
+    !preferences ||
+    typeof preferences !== "object" ||
+    Array.isArray(preferences)
+  ) {
+    throw new Error("Missing child preferences.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(childId)}/preferences`,
+    {
+      method: "PATCH",
+      body: preferences,
+      accessToken,
+      signal,
+    },
+  );
+}
+
 export function uploadChildAvatar({ childId, accessToken, image, signal }) {
   if (!childId) {
     throw new Error("Missing child ID.");
