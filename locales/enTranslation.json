@@ -1608,5 +1608,8 @@
   "Unable to update the tracking preferences.": "Unable to update the tracking preferences.",
   "Tracking preferences not updated": "Tracking preferences not updated",
   "Unable to update the feeding preferences.": "Unable to update the feeding preferences.",
-  "Feeding preferences not updated": "Feeding preferences not updated"
+  "Feeding preferences not updated": "Feeding preferences not updated",
+  "Unable to refresh child profile": "Unable to refresh child profile",
+  "Check your internet connection and try again.": "Check your internet connection and try again.",
+  "Unable to refresh tracking data": "Unable to refresh tracking data"
 }

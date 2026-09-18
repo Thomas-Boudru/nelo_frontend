@@ -56,7 +56,7 @@ export default function ChildProfileFormScreen({ navigation, route }) {
 
   const dispatch = useDispatch();
 
-  const { accessToken, refreshSession } = useAuth();
+  const { user, accessToken, refreshSession } = useAuth();
 
   const routeMode = route?.params?.mode;
   const receivedChild = route?.params?.child ?? null;
@@ -350,6 +350,7 @@ export default function ChildProfileFormScreen({ navigation, route }) {
       } else {
         response = await dispatch(
           updateChildProfile({
+            userId: user.id,
             childId: child.id,
             childData: childPayload,
             accessToken,
@@ -358,7 +359,12 @@ export default function ChildProfileFormScreen({ navigation, route }) {
         ).unwrap();
       }
 
-      const savedChild = response.child;
+      const savedChild = isCreateMode
+        ? response.child
+        : {
+            ...child,
+            ...response.childData,
+          };
 
       showToast({
         type: "success",

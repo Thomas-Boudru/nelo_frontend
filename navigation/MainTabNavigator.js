@@ -39,6 +39,41 @@ import AddTrackingSheet from "../screens/addTracking/AddTrackingSheet.js";
 import { navigateToTrackingHistory } from "./trackingHistoryDestinations.js";
 import { useThemeColors } from "../theme/useThemeColors.js";
 
+const DEFAULT_VISIBLE_TRACKING_TYPES = [
+  "feeding",
+  "sleep",
+  "diaper",
+  "mood",
+  "medication",
+  "temperature",
+  "symptoms",
+  "teething",
+  "weight",
+  "height",
+  "headCircumference",
+  "note",
+];
+
+const ALL_ADD_TRACKING_TYPES = [
+  "feeding",
+  "sleep",
+  "diaper",
+  "mood",
+  "medication",
+  "temperature",
+  "symptoms",
+  "teething",
+  "growth",
+  "note",
+];
+
+const DEFAULT_VISIBLE_FEEDING_METHODS = [
+  "breastfeeding",
+  "bottle",
+  "solids",
+  "pumping",
+];
+
 const homeActive = require("../assets/icons/tabBar/homeActive.png");
 const homeInactive = require("../assets/icons/tabBar/homeInactive.png");
 
@@ -268,6 +303,26 @@ export default function MainTabNavigator() {
 
   const selectedChild =
     children.find((child) => child.id === selectedChildId) || null;
+
+  const visibleTrackingTypes =
+    selectedChild?.visibleTrackingTypes ?? DEFAULT_VISIBLE_TRACKING_TYPES;
+
+  const visibleMeasurementTypes = visibleTrackingTypes.filter((trackingType) =>
+    ["weight", "height", "headCircumference"].includes(trackingType),
+  );
+
+  const isGrowthVisible = visibleMeasurementTypes.length > 0;
+
+  const visibleAddTrackingTypes = isGrowthVisible
+    ? [...visibleTrackingTypes, "growth"]
+    : visibleTrackingTypes;
+
+  const hiddenTrackingItems = ALL_ADD_TRACKING_TYPES.filter(
+    (trackingType) => !visibleAddTrackingTypes.includes(trackingType),
+  );
+
+  const visibleFeedingMethods =
+    selectedChild?.visibleFeedingMethods ?? DEFAULT_VISIBLE_FEEDING_METHODS;
 
   const childName = selectedChild?.displayName || t("Child");
 
@@ -757,6 +812,7 @@ export default function MainTabNavigator() {
         ref={addTrackingSheetRef}
         childName={childName}
         isPremiumUser={false}
+        hiddenTrackingItems={hiddenTrackingItems}
         onPressPremium={() => {
           console.log("Ouvrir la présentation Premium");
         }}
@@ -772,6 +828,7 @@ export default function MainTabNavigator() {
       <FeedingEntrySheet
         ref={feedingSheetRef}
         childName={childName}
+        visibleFeedingMethods={visibleFeedingMethods}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
       />
@@ -1025,6 +1082,7 @@ export default function MainTabNavigator() {
       <GrowthEntrySheet
         ref={growthEntrySheetRef}
         childName={childName}
+        visibleMeasurementTypes={visibleMeasurementTypes}
         previousMeasurements={{
           weight: 5.18,
           height: 57.2,

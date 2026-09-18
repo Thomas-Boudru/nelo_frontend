@@ -5,9 +5,26 @@ import {
   deleteChildAvatar as deleteChildAvatarApi,
   getAccessibleChildren,
   updateChild as updateChildApi,
-  updateChildPreferences as updateChildPreferencesApi,
   uploadChildAvatar as uploadChildAvatarApi,
 } from "../../api/childrenApi.js";
+
+import { setThemeMode } from "./themeSlice.js";
+
+import { saveChildPreferencesLocally } from "../../database/childPreferencesRepository.js";
+
+import {
+  getLocalChildProfiles,
+  saveChildProfileLocally,
+} from "../../database/childProfileRepository.js";
+
+import {
+  getLocalChildRelationships,
+  saveChildRelationshipLocally,
+} from "../../database/childRelationshipRepository.js";
+
+import { enqueueSyncOperation } from "../../sync/syncQueueRepository.js";
+
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 import {
   getSelectedChildId,
@@ -79,10 +96,29 @@ async function executeWithRefreshedAccessToken({
 export const loadChildren = createAsyncThunk(
   "children/loadChildren",
 
-  async ({ accessToken, refreshSession }, { signal, rejectWithValue }) => {
+  async (
+    { userId, accessToken, refreshSession },
+    { signal, rejectWithValue },
+  ) => {
     try {
-      const storedSelectedChildIdPromise = readStoredSelection();
+      if (!userId) {
+        const error = new Error("Missing user ID.");
+        error.code = "MISSING_USER_ID";
+        throw error;
+      }
 
+      /*
+       * On lance en parallèle :
+       * - la lecture de l'enfant sélectionné ;
+       * - la lecture des modifications locales.
+       */
+      const storedSelectedChildIdPromise = readStoredSelection();
+      const localProfilesPromise = getLocalChildProfiles(userId);
+      const localRelationshipsPromise = getLocalChildRelationships(userId);
+
+      /*
+       * On récupère les enfants depuis le backend.
+       */
       const response = await executeWithRefreshedAccessToken({
         accessToken,
         refreshSession,
@@ -94,11 +130,51 @@ export const loadChildren = createAsyncThunk(
           }),
       });
 
-      const children = Array.isArray(response?.children)
+      const serverChildren = Array.isArray(response?.children)
         ? response.children
         : [];
 
-      const storedSelectedChildId = await storedSelectedChildIdPromise;
+      const [storedSelectedChildId, localProfiles, localRelationships] =
+        await Promise.all([
+          storedSelectedChildIdPromise,
+          localProfilesPromise,
+          localRelationshipsPromise,
+        ]);
+
+      /*
+       * Si un profil local est encore "pending",
+       * ses informations passent devant celles du serveur.
+       */
+      const children = serverChildren.map((serverChild) => {
+        const localProfile = localProfiles.find(
+          (currentLocalChild) =>
+            currentLocalChild.id === serverChild.id &&
+            currentLocalChild.profileSyncStatus === "pending",
+        );
+
+        const localRelationship = localRelationships.find(
+          (currentRelationship) =>
+            currentRelationship.childId === serverChild.id &&
+            currentRelationship.syncStatus === "pending",
+        );
+
+        return {
+          ...serverChild,
+
+          ...(localProfile || {}),
+
+          ...(localRelationship
+            ? {
+                currentUserRelationship: localRelationship.relationship,
+
+                currentUserRelationshipLabel:
+                  localRelationship.relationshipLabel,
+
+                relationshipSyncStatus: localRelationship.syncStatus,
+              }
+            : {}),
+        };
+      });
 
       const selectedChildId = children.some(
         (child) => child.id === storedSelectedChildId,
@@ -116,7 +192,6 @@ export const loadChildren = createAsyncThunk(
     } catch (error) {
       return rejectWithValue({
         code: error.code || "CHILDREN_LOAD_FAILED",
-
         message: error.message || "Unable to load children.",
       });
     }
@@ -172,41 +247,119 @@ export const updateChildProfile = createAsyncThunk(
   "children/updateChildProfile",
 
   async (
-    { childId, childData, accessToken, refreshSession },
-    { signal, rejectWithValue },
+    { userId, childId, childData, accessToken, refreshSession },
+    { rejectWithValue },
   ) => {
     try {
-      const response = await executeWithRefreshedAccessToken({
-        accessToken,
-        refreshSession,
-
-        request: (currentAccessToken) =>
-          updateChildApi({
-            childId,
-            childData,
-            accessToken: currentAccessToken,
-            signal,
-          }),
-      });
-
-      if (!response?.child?.id) {
-        const responseError = new Error(
-          "The server did not return the updated child.",
-        );
-
-        responseError.code = "INVALID_CHILD_RESPONSE";
-
-        throw responseError;
+      if (!userId) {
+        const error = new Error("Missing user ID.");
+        error.code = "MISSING_USER_ID";
+        throw error;
       }
 
+      const localChild = await saveChildProfileLocally({
+        userId,
+        childId,
+        childData,
+        syncStatus: "pending",
+      });
+
+      await enqueueSyncOperation({
+        userId,
+        entityType: "child_profile",
+        entityId: childId,
+        operation: "update",
+        endpoint: `/api/children/${encodeURIComponent(childId)}`,
+        method: "PATCH",
+        payload: childData,
+      });
+
+      processSyncQueue({
+        userId,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize child profile:", error);
+      });
+
       return {
-        child: response.child,
+        childId,
+        childData: localChild,
+        syncStatus: "pending",
       };
     } catch (error) {
       return rejectWithValue({
         code: error.code || "CHILD_UPDATE_FAILED",
-
         message: error.message || "Unable to update the child.",
+      });
+    }
+  },
+);
+
+export const updateCurrentUserRelationship = createAsyncThunk(
+  "children/updateCurrentUserRelationship",
+
+  async (
+    { userId, childId, relationship, accessToken, refreshSession },
+    { rejectWithValue },
+  ) => {
+    try {
+      if (!userId) {
+        const error = new Error("Missing user ID.");
+        error.code = "MISSING_USER_ID";
+        throw error;
+      }
+
+      if (!childId) {
+        const error = new Error("Missing child ID.");
+        error.code = "MISSING_CHILD_ID";
+        throw error;
+      }
+
+      if (!relationship) {
+        const error = new Error("Missing relationship.");
+        error.code = "MISSING_RELATIONSHIP";
+        throw error;
+      }
+
+      await saveChildRelationshipLocally({
+        userId,
+        childId,
+        relationship,
+        relationshipLabel: null,
+        syncStatus: "pending",
+      });
+
+      await enqueueSyncOperation({
+        userId,
+        entityType: "child_relationship",
+        entityId: childId,
+        operation: "update",
+        endpoint: `/api/children/${encodeURIComponent(childId)}/members/me`,
+        method: "PATCH",
+        payload: {
+          relationship,
+        },
+      });
+
+      processSyncQueue({
+        userId,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize child relationship:", error);
+      });
+
+      return {
+        childId,
+        relationship,
+        relationshipLabel: null,
+        syncStatus: "pending",
+      };
+    } catch (error) {
+      return rejectWithValue({
+        code: error.code || "CHILD_RELATIONSHIP_UPDATE_FAILED",
+        message: error.message || "Unable to update the child relationship.",
       });
     }
   },
@@ -216,38 +369,57 @@ export const updateChildPreferences = createAsyncThunk(
   "children/updateChildPreferences",
 
   async (
-    { childId, preferences, accessToken, refreshSession },
-    { signal, getState, rejectWithValue },
+    { userId, childId, preferences, accessToken, refreshSession },
+    { rejectWithValue },
   ) => {
     try {
-      const response = await executeWithRefreshedAccessToken({
-        accessToken,
-        refreshSession,
+      if (!userId) {
+        const userError = new Error("Missing user ID.");
 
-        request: (currentAccessToken) =>
-          updateChildPreferencesApi({
-            childId,
-            preferences,
-            accessToken: currentAccessToken,
-            signal,
-          }),
-      });
+        userError.code = "MISSING_USER_ID";
 
-      if (!response?.preferences) {
-        const responseError = new Error(
-          "The server did not return the updated child preferences.",
-        );
-
-        responseError.code = "INVALID_CHILD_PREFERENCES_RESPONSE";
-
-        throw responseError;
+        throw userError;
       }
 
+      /*
+       * 1. Sauvegarde durable sur le téléphone.
+       */
+      await saveChildPreferencesLocally({
+        userId,
+        childId,
+        preferences,
+        syncStatus: "pending",
+      });
+
+      /*
+       * 2. Préparation de la synchronisation serveur.
+       */
+      await enqueueSyncOperation({
+        userId,
+        entityType: "child_preferences",
+        entityId: childId,
+        operation: "update",
+        endpoint: `/api/children/${encodeURIComponent(childId)}/preferences`,
+        method: "PATCH",
+        payload: preferences,
+      });
+
+      processSyncQueue({
+        userId,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize child preferences:", error);
+      });
+
+      /*
+       * 3. Redux est mis à jour immédiatement.
+       * SyncManager s'occupera du backend.
+       */
       return {
         childId,
-        preferences: response.preferences,
-
-        isSelected: getState().children.selectedChildId === childId,
+        preferences,
+        syncStatus: "pending",
       };
     } catch (error) {
       return rejectWithValue({
@@ -417,18 +589,37 @@ const childrenSlice = createSlice({
       })
 
       .addCase(updateChildProfile.fulfilled, (state, action) => {
-        const updatedChild = action.payload.child;
-
         const childIndex = state.children.findIndex(
-          (child) => child.id === updatedChild.id,
+          (child) => child.id === action.payload.childId,
         );
 
         if (childIndex === -1) {
           return;
         }
 
-        state.children[childIndex] = updatedChild;
-        state.lastSyncAt = new Date().toISOString();
+        state.children[childIndex] = {
+          ...state.children[childIndex],
+          ...action.payload.childData,
+          profileSyncStatus: action.payload.syncStatus,
+        };
+      })
+
+      .addCase(updateCurrentUserRelationship.fulfilled, (state, action) => {
+        const child = state.children.find(
+          (currentChild) => currentChild.id === action.payload.childId,
+        );
+
+        if (!child) {
+          return;
+        }
+
+        child.currentUserRelationship = action.payload.relationship;
+
+        child.currentUserRelationshipLabel = action.payload.relationshipLabel;
+
+        child.relationshipSyncStatus = action.payload.syncStatus;
+
+        child.updatedAt = new Date().toISOString();
       })
 
       .addCase(updateChildPreferences.fulfilled, (state, action) => {
@@ -440,13 +631,21 @@ const childrenSlice = createSlice({
           return;
         }
 
-        child.themeMode = action.payload.preferences.themeMode;
+        const preferences = action.payload.preferences;
 
-        child.visibleTrackingTypes =
-          action.payload.preferences.visibleTrackingTypes;
+        if (preferences.themeMode !== undefined) {
+          child.themeMode = preferences.themeMode;
+        }
 
-        child.visibleFeedingMethods =
-          action.payload.preferences.visibleFeedingMethods;
+        if (preferences.visibleTrackingTypes !== undefined) {
+          child.visibleTrackingTypes = preferences.visibleTrackingTypes;
+        }
+
+        if (preferences.visibleFeedingMethods !== undefined) {
+          child.visibleFeedingMethods = preferences.visibleFeedingMethods;
+        }
+
+        child.preferencesSyncStatus = action.payload.syncStatus;
 
         child.updatedAt = new Date().toISOString();
       })
@@ -497,6 +696,8 @@ export function selectChild(childId) {
         themeMode: child.themeMode ?? "blue",
       }),
     );
+
+    dispatch(setThemeMode(child.themeMode ?? "blue"));
 
     await persistSelection(childId);
 

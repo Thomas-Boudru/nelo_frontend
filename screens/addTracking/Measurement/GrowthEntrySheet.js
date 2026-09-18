@@ -30,6 +30,12 @@ const EMPTY_MEASUREMENTS = {
   headCircumference: null,
 };
 
+const DEFAULT_VISIBLE_MEASUREMENT_TYPES = [
+  "weight",
+  "height",
+  "headCircumference",
+];
+
 const WEIGHT_IMAGE = require("../../../assets/illustrations/tracking/weightBlue.png");
 
 const HEIGHT_IMAGE = require("../../../assets/illustrations/tracking/height.png");
@@ -145,6 +151,9 @@ function normalizeMeasurements(measurements = {}) {
 const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   {
     childName,
+
+    visibleMeasurementTypes = DEFAULT_VISIBLE_MEASUREMENT_TYPES,
+
     previousMeasurements = EMPTY_MEASUREMENTS,
     onSave,
     onDismiss,
@@ -172,6 +181,44 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   const [editingEntry, setEditingEntry] = useState(null);
 
   const isEditMode = sheetMode === "edit";
+
+  const availableMeasurementTypes = useMemo(() => {
+    const validMeasurementTypes = DEFAULT_VISIBLE_MEASUREMENT_TYPES;
+
+    if (!Array.isArray(visibleMeasurementTypes)) {
+      return validMeasurementTypes;
+    }
+
+    const filteredMeasurementTypes = visibleMeasurementTypes.filter((type) =>
+      validMeasurementTypes.includes(type),
+    );
+
+    return filteredMeasurementTypes.length > 0
+      ? filteredMeasurementTypes
+      : validMeasurementTypes;
+  }, [visibleMeasurementTypes]);
+
+  const displayedMeasurementOptions = useMemo(() => {
+    return MEASUREMENT_OPTIONS.filter((option) => {
+      /*
+       * En création, seules les préférences choisies
+       * sont affichées.
+       */
+      if (!isEditMode) {
+        return availableMeasurementTypes.includes(option.id);
+      }
+
+      /*
+       * En édition, on affiche également une ancienne
+       * mesure déjà présente, même si elle a depuis été
+       * masquée dans les préférences.
+       */
+      return (
+        availableMeasurementTypes.includes(option.id) ||
+        isDefined(measurements[option.id])
+      );
+    });
+  }, [availableMeasurementTypes, isEditMode, measurements]);
 
   const hasMeasurement = useMemo(
     () => Object.values(measurements).some(isDefined),
@@ -436,7 +483,7 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
 
           <View style={styles.body}>
             <View style={styles.measurementList}>
-              {MEASUREMENT_OPTIONS.map((option) => (
+              {displayedMeasurementOptions.map((option) => (
                 <MeasurementRow
                   key={option.id}
                   option={option}

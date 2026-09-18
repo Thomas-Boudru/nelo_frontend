@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import BottleIcon from "../../../assets/illustrations/tracking/feeding/bottle.svg";
 import BreastfeedingIcon from "../../../assets/illustrations/tracking/feeding/breastfeeding.svg";
@@ -8,32 +9,57 @@ import PumpingIcon from "../../../assets/illustrations/tracking/feeding/pumping.
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
+const DEFAULT_VISIBLE_FEEDING_METHODS = [
+  "breastfeeding",
+  "bottle",
+  "solids",
+  "pumping",
+];
+
 const FEEDING_TYPES = [
   {
     id: "bottle",
-    label: "Bottle",
+    labelKey: "Bottle",
     Icon: BottleIcon,
   },
   {
     id: "breastfeeding",
-    label: "Breastfeeding",
+    labelKey: "Breastfeeding",
     Icon: BreastfeedingIcon,
   },
   {
     id: "solids",
-    label: "Solids",
+    labelKey: "Solid foods",
     Icon: SolidsIcon,
   },
   {
     id: "pumping",
-    label: "Pumping",
+    labelKey: "Pumping",
     Icon: PumpingIcon,
   },
 ];
 
-export default function FeedingTypeTabs({ value, onChange }) {
+export default function FeedingTypeTabs({
+  value,
+  visibleMethods = DEFAULT_VISIBLE_FEEDING_METHODS,
+  onChange,
+}) {
+  const { t } = useTranslation();
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const displayedFeedingTypes = useMemo(() => {
+    const validVisibleMethods = Array.isArray(visibleMethods)
+      ? visibleMethods
+      : DEFAULT_VISIBLE_FEEDING_METHODS;
+
+    const filteredTypes = FEEDING_TYPES.filter((type) =>
+      validVisibleMethods.includes(type.id),
+    );
+
+    return filteredTypes.length > 0 ? filteredTypes : FEEDING_TYPES;
+  }, [visibleMethods]);
 
   return (
     <View style={styles.wrapper}>
@@ -42,8 +68,9 @@ export default function FeedingTypeTabs({ value, onChange }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        {FEEDING_TYPES.map((type) => {
+        {displayedFeedingTypes.map((type) => {
           const isSelected = value === type.id;
+
           const iconColor = isSelected ? colors.primary : colors.textSecondary;
 
           const Icon = type.Icon;
@@ -52,7 +79,10 @@ export default function FeedingTypeTabs({ value, onChange }) {
             <Pressable
               key={type.id}
               accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
+              accessibilityLabel={t(type.labelKey)}
+              accessibilityState={{
+                selected: isSelected,
+              }}
               onPress={() => onChange?.(type.id)}
               style={[styles.tab, isSelected && styles.tabSelected]}
             >
@@ -61,7 +91,7 @@ export default function FeedingTypeTabs({ value, onChange }) {
               </View>
 
               <Text style={[styles.label, isSelected && styles.labelSelected]}>
-                {type.label}
+                {t(type.labelKey)}
               </Text>
             </Pressable>
           );

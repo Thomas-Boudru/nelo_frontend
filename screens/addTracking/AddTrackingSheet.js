@@ -645,7 +645,7 @@ const createStyles = (colors) =>
     optionsGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      justifyContent: "center",
+      justifyContent: "flex-start",
       columnGap: 10,
       rowGap: 12,
     },

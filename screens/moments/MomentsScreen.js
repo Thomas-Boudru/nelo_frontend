@@ -5,6 +5,7 @@ import {
   Alert,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,7 +19,10 @@ import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import AddMomentSheet from "./AddMomentSheet.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
 import MomentsFilterSheet from "./MomentsFilterSheet.js";
-import { selectChild } from "../../store/slices/childrenSlice.js";
+import { loadChildren, selectChild } from "../../store/slices/childrenSlice.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 const MOCK_MEMBERS = [
   {
@@ -125,6 +129,10 @@ export default function MomentsScreen({ navigation }) {
 
   const dispatch = useDispatch();
 
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const children = useSelector((state) => state.children.children);
 
   const selectedChildId = useSelector(
@@ -192,6 +200,58 @@ export default function MomentsScreen({ navigation }) {
       }),
     [children, t],
   );
+
+  const handleRefresh = async () => {
+    if (isRefreshing || !user?.id || !accessToken) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      /*
+       * Envoie d'abord les modifications locales :
+       * nouveaux moments, modifications, etc.
+       */
+      await processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      });
+
+      /*
+       * Recharge les informations des enfants.
+       */
+      await dispatch(
+        loadChildren({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
+      /*
+       * Lorsque les moments seront connectés :
+       *
+       * await dispatch(
+       *   loadMoments({
+       *     childId: selectedChildId,
+       *     accessToken,
+       *     refreshSession,
+       *   }),
+       * ).unwrap();
+       */
+    } catch (error) {
+      console.error("Unable to refresh moments:", error);
+
+      Alert.alert(
+        t("Unable to refresh"),
+        t("Check your internet connection and try again."),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const selectedChild = useMemo(
     () =>
@@ -336,6 +396,14 @@ export default function MomentsScreen({ navigation }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         <View style={styles.header}>
           <View style={styles.headerTextContainer}>

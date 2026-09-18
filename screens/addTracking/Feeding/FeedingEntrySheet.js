@@ -275,12 +275,12 @@ function createSolidsEntryFromTrackingEntry(entry) {
 const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   {
     childName,
+    visibleFeedingMethods = ["breastfeeding", "bottle", "solids", "pumping"],
 
     onSaveBottle,
     onSaveBreastfeeding,
     onSaveSolids,
     onSavePumping,
-
     onRequestDelete,
     onPressHistory,
   },
@@ -382,44 +382,75 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     }
   }, []);
 
+  const availableFeedingMethods = useMemo(() => {
+    const validMethods = ["bottle", "breastfeeding", "solids", "pumping"];
+
+    const filteredMethods = Array.isArray(visibleFeedingMethods)
+      ? visibleFeedingMethods.filter((method) => validMethods.includes(method))
+      : [];
+
+    return filteredMethods.length > 0 ? filteredMethods : validMethods;
+  }, [visibleFeedingMethods]);
+
+  useEffect(() => {
+    if (
+      sheetMode === "create" &&
+      !availableFeedingMethods.includes(selectedType)
+    ) {
+      const nextType = availableFeedingMethods[0];
+
+      setSelectedType(nextType);
+      resetEntryForType(nextType);
+    }
+  }, [availableFeedingMethods, resetEntryForType, selectedType, sheetMode]);
+
   useImperativeHandle(
     ref,
     () => ({
       present(options = {}) {
         /*
-         * Conserve temporairement la compatibilité
-         * avec present("bottle").
+         * Compatibilité temporaire avec present("bottle").
          */
         if (typeof options === "string") {
-          const feedingType = options;
+          const requestedType = options;
+
+          const resolvedFeedingType = availableFeedingMethods.includes(
+            requestedType,
+          )
+            ? requestedType
+            : availableFeedingMethods[0];
 
           setSheetMode("create");
           setEditingEntry(null);
-          setSelectedType(feedingType);
-
-          resetEntryForType(feedingType);
+          setSelectedType(resolvedFeedingType);
+          resetEntryForType(resolvedFeedingType);
 
           modalRef.current?.present();
           return;
         }
 
-        const {
-          mode = "create",
-          feedingType = "bottle",
-          entry = null,
-        } = options;
+        const { mode = "create", feedingType, entry = null } = options;
+
+        /*
+         * En édition, on conserve toujours le type de l’entrée existante,
+         * même si cette méthode est maintenant masquée.
+         */
+        const resolvedFeedingType =
+          mode === "edit" && feedingType
+            ? feedingType
+            : availableFeedingMethods.includes(feedingType)
+              ? feedingType
+              : availableFeedingMethods[0];
 
         setSheetMode(mode);
-        setSelectedType(feedingType);
+        setSelectedType(resolvedFeedingType);
 
         if (mode === "edit" && entry) {
           setEditingEntry(entry);
-
-          loadEntryForType(feedingType, entry);
+          loadEntryForType(resolvedFeedingType, entry);
         } else {
           setEditingEntry(null);
-
-          resetEntryForType(feedingType);
+          resetEntryForType(resolvedFeedingType);
         }
 
         modalRef.current?.present();
@@ -429,7 +460,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
         modalRef.current?.dismiss();
       },
     }),
-    [loadEntryForType, resetEntryForType],
+    [availableFeedingMethods, loadEntryForType, resetEntryForType],
   );
 
   const renderBackdrop = useCallback(
@@ -740,6 +771,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
         {!isEditMode ? (
           <FeedingTypeTabs
             value={selectedType}
+            visibleMethods={availableFeedingMethods}
             onChange={(feedingType) => {
               setSelectedType(feedingType);
               resetEntryForType(feedingType);
@@ -985,6 +1017,5 @@ function createStyles(colors) {
       flex: 1,
       paddingRight: 12,
     },
-
   });
 }

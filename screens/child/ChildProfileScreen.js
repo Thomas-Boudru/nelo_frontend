@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,11 +44,17 @@ import RelationshipSettingsSheet from "./RelationshipSettingsSheet.js";
 import { useAuth } from "../../auth/AuthProvider.js";
 
 import {
+  loadChildren,
   removeChildAvatar,
   selectChild,
   updateChildAvatar,
   updateChildPreferences,
+  updateCurrentUserRelationship,
 } from "../../store/slices/childrenSlice.js";
+
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
+
+import { setThemeMode } from "../../store/slices/themeSlice.js";
 
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
 
@@ -279,7 +286,7 @@ export default function ChildProfileScreen({ navigation }) {
   const languageSelectionSheetRef = useRef(null);
 
   const [selectedLanguage, setSelectedLanguage] = useState("fr");
-  const { accessToken, logout, refreshSession } = useAuth();
+  const { user, accessToken, logout, refreshSession } = useAuth();
 
   const dispatch = useDispatch();
 
@@ -351,13 +358,9 @@ export default function ChildProfileScreen({ navigation }) {
 
           sharedPeopleCount: reduxChild.sharedPeopleCount ?? 0,
 
-          currentUserRelationship:
-            reduxChild.relationship ||
-            reduxChild.currentUserRelationship ||
-            null,
+          currentUserRelationship: reduxChild.currentUserRelationship ?? null,
 
-          currentUserRole:
-            reduxChild.role || reduxChild.currentUserRole || "contributor",
+          currentUserRole: reduxChild.role || "contributor",
         };
       }),
     [i18n.language, reduxChildren, t],
@@ -406,6 +409,7 @@ export default function ChildProfileScreen({ navigation }) {
   const [isUpdatingChildPicture, setIsUpdatingChildPicture] = useState(false);
   const [activeShareLinks, setActiveShareLinks] = useState([]);
   const [isSavingRelationship, setIsSavingRelationship] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [measurementUnits, setMeasurementUnits] = useState({
     weight: "kg",
@@ -421,6 +425,48 @@ export default function ChildProfileScreen({ navigation }) {
     children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
 
   const canEditChild = child?.currentUserRole === "owner";
+
+  const handleRefresh = async () => {
+    if (isRefreshing || !user?.id || !accessToken) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      /*
+       * Envoie d'abord les modifications locales
+       * qui attendent une synchronisation.
+       */
+      await processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      });
+
+      /*
+       * Recharge ensuite les données éventuellement
+       * modifiées par un autre membre.
+       */
+      await dispatch(
+        loadChildren({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+    } catch (error) {
+      console.error("Unable to refresh child profile:", error);
+
+      showToast({
+        type: "error",
+        title: t("Unable to refresh child profile"),
+        message: t("Check your internet connection and try again."),
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleEditChild = () => {
     if (!canEditChild) {
@@ -512,6 +558,7 @@ export default function ChildProfileScreen({ navigation }) {
     try {
       await dispatch(
         updateChildPreferences({
+          userId: user.id,
           childId: child.id,
 
           preferences: {
@@ -555,6 +602,7 @@ export default function ChildProfileScreen({ navigation }) {
     try {
       await dispatch(
         updateChildPreferences({
+          userId: user.id,
           childId: child.id,
 
           preferences: {
@@ -565,6 +613,8 @@ export default function ChildProfileScreen({ navigation }) {
           refreshSession,
         }),
       ).unwrap();
+
+      dispatch(setThemeMode(themeMode));
 
       return true;
     } catch (error) {
@@ -592,32 +642,28 @@ export default function ChildProfileScreen({ navigation }) {
   }
 
   async function handleSaveRelationship({ relationship }) {
+    if (relationship === child.currentUserRelationship) {
+      return true;
+    }
+
     setIsSavingRelationship(true);
 
     try {
-      /*
-      Plus tard :
-
-      await api.patch(
-        `/children/${child.id}/members/me`,
-        {
+      await dispatch(
+        updateCurrentUserRelationship({
+          userId: user.id,
+          childId: child.id,
           relationship,
-        },
-      );
-    */
-
-      setChildren((currentChildren) =>
-        currentChildren.map((currentChild) =>
-          currentChild.id === child.id
-            ? {
-                ...currentChild,
-                currentUserRelationship: relationship,
-              }
-            : currentChild,
-        ),
-      );
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
 
       return true;
+    } catch (error) {
+      console.error("Unable to update relationship:", error);
+
+      throw error;
     } finally {
       setIsSavingRelationship(false);
     }
@@ -651,6 +697,7 @@ export default function ChildProfileScreen({ navigation }) {
     try {
       await dispatch(
         updateChildPreferences({
+          userId: user.id,
           childId: child.id,
 
           preferences: {
@@ -834,11 +881,40 @@ export default function ChildProfileScreen({ navigation }) {
     await i18n.changeLanguage(language.id);
   };
 
+  const visibleMeasurements = [
+    {
+      id: "weight",
+      image: WEIGHT_IMAGE,
+      label: t("Weight"),
+      value: child.measurements.weight.value,
+    },
+    {
+      id: "height",
+      image: HEIGHT_IMAGE,
+      label: t("Height"),
+      value: child.measurements.height.value,
+    },
+    {
+      id: "headCircumference",
+      image: HEAD_CIRCUMFERENCE_IMAGE,
+      label: t("Head circumference"),
+      value: child.measurements.headCircumference.value,
+    },
+  ].filter((measurement) => visibleTrackingTypes.includes(measurement.id));
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         <View style={styles.profileHeader}>
           <View pointerEvents="none" style={styles.headerDecorations}>
@@ -960,36 +1036,25 @@ export default function ChildProfileScreen({ navigation }) {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("Latest measurements")}</Text>
+        {visibleMeasurements.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t("Latest measurements")}</Text>
 
-          <View style={styles.measurementsCard}>
-            <MeasurementItem
-              image={WEIGHT_IMAGE}
-              value={child.measurements.weight.value}
-              label={t("Weight")}
-              onPress={() => handleOpenGrowthHistory("weight")}
-              styles={styles}
-            />
-
-            <MeasurementItem
-              image={HEIGHT_IMAGE}
-              value={child.measurements.height.value}
-              label={t("Height")}
-              onPress={() => handleOpenGrowthHistory("height")}
-              styles={styles}
-            />
-
-            <MeasurementItem
-              image={HEAD_CIRCUMFERENCE_IMAGE}
-              value={child.measurements.headCircumference.value}
-              label={t("Head circumference")}
-              isLast
-              onPress={() => handleOpenGrowthHistory("headCircumference")}
-              styles={styles}
-            />
+            <View style={styles.measurementsCard}>
+              {visibleMeasurements.map((measurement, index) => (
+                <MeasurementItem
+                  key={measurement.id}
+                  image={measurement.image}
+                  value={measurement.value}
+                  label={measurement.label}
+                  onPress={() => handleOpenGrowthHistory(measurement.id)}
+                  isLast={index === visibleMeasurements.length - 1}
+                  styles={styles}
+                />
+              ))}
+            </View>
           </View>
-        </View>
+        ) : null}
 
         <SettingsSection
           title={t("Child preferences", {

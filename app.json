@@ -8,7 +8,9 @@
     "orientation": "portrait",
     "icon": "./assets/icons/logo.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.thomasboudru.nelo",
@@ -48,7 +50,8 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.461926871954-o3t2vg867n97ei4iegj0sp4934rknif8"
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

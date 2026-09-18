@@ -1,5 +1,12 @@
-import { useMemo, useRef } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+
+import {
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
 
@@ -16,13 +23,23 @@ import DailyMessageDetailScreen from "./DailyMessageDetailsScreen.js";
 import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import { mockHomeData } from "../../data/mockHomeData.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
-import { selectChild } from "../../store/slices/childrenSlice.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+
+import { loadChildren, selectChild } from "../../store/slices/childrenSlice.js";
+
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 const MOCK_UNREAD_NOTIFICATION_COUNT = 2;
 
 export default function HomeScreen({ navigation }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
+
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const children = useSelector((state) => state.children.children);
@@ -30,6 +47,47 @@ export default function HomeScreen({ navigation }) {
     (state) => state.children.selectedChildId,
   );
   const childSelectorSheetRef = useRef(null);
+
+  const handleRefresh = async () => {
+    if (isRefreshing || !user?.id || !accessToken) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      /*
+       * On envoie d'abord les modifications locales
+       * qui attendent encore leur synchronisation.
+       */
+      await processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      });
+
+      /*
+       * Ensuite, on récupère les dernières informations
+       * enregistrées par tous les membres.
+       */
+      await dispatch(
+        loadChildren({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+    } catch (error) {
+      console.error("Unable to refresh home data:", error);
+
+      Alert.alert(
+        t("Unable to refresh"),
+        t("Check your internet connection and try again."),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const childPickerChildren = useMemo(
     () =>
@@ -141,6 +199,14 @@ export default function HomeScreen({ navigation }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         <HomeHeader
           parentFirstName={homeData.parent.firstName}

@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +17,9 @@ import DateTimePicker, {
 } from "@react-native-community/datetimepicker";
 import { useTranslation } from "react-i18next";
 
+import { useAuth } from "../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
+
 import TrackingHeader from "../../components/tracking/byDay/TrackingHeader.js";
 import TrackingViewSwitcher from "../../components/tracking/byDay/TrackingViewSwitcher.js";
 import TrackingDayToolbar from "../../components/tracking/byDay/TrackingDayToolbar.js";
@@ -26,7 +30,7 @@ import TrackingByTypeView from "../../components/tracking/byTracking/TrackingByT
 
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import ShareChildDataSheet from "../child/Share/ShareChildDataSheet.js";
-import { selectChild } from "../../store/slices/childrenSlice.js";
+import { loadChildren, selectChild } from "../../store/slices/childrenSlice.js";
 
 import { getTrackingHistoryDestination } from "../../navigation/trackingHistoryDestinations.js";
 
@@ -132,6 +136,10 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   const { t, i18n } = useTranslation();
 
   const dispatch = useDispatch();
+
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const children = useSelector((state) => state.children.children);
 
@@ -468,12 +476,73 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
     return true;
   };
 
+  const handleRefresh = async () => {
+    if (isRefreshing || !user?.id || !accessToken) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      /*
+       * Envoie les suivis et autres modifications
+       * qui attendent dans SQLite.
+       */
+      await processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      });
+
+      /*
+       * Recharge les informations générales de l'enfant.
+       */
+      await dispatch(
+        loadChildren({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
+      /*
+       * Lorsque les vrais suivis seront connectés :
+       *
+       * await dispatch(
+       *   loadTrackingDay({
+       *     childId: selectedChildId,
+       *     date: selectedDateKey,
+       *     accessToken,
+       *     refreshSession,
+       *   }),
+       * ).unwrap();
+       */
+    } catch (error) {
+      console.error("Unable to refresh tracking data:", error);
+
+      Alert.alert(
+        t("Unable to refresh tracking data"),
+        t("Check your internet connection and try again."),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         {selectedChild ? (
           <>
