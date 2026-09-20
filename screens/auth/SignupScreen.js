@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Alert,
@@ -17,12 +17,21 @@ import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useDispatch, useSelector } from "react-redux";
 
 import BackButton from "../../components/ui/BackButton.js";
 import AuthMethodButton from "../../components/auth/AuthMethodButton.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 
 import { useAuth } from "../../auth/AuthProvider.js";
+import {
+  resolveRouteAfterAuthentication,
+  resolveStepAfterAuthentication,
+} from "../../navigation/onboardingFlow.js";
+import {
+  selectChildStatus,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -63,17 +72,74 @@ const BENEFITS = [
 
 export default function SignUpScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
-  const { signInWithApple, signInWithGoogle } = useAuth();
+  const dispatch = useDispatch();
+
+  const { signInWithApple, signInWithGoogle, isAuthenticated, user } = useAuth();
+
+  const childStatus = useSelector(selectChildStatus);
 
   const [isAppleAvailable, setIsAppleAvailable] = useState(false);
   const [isSigningInWithApple, setIsSigningInWithApple] = useState(false);
   const [isSigningInWithGoogle, setIsSigningInWithGoogle] = useState(false);
   const isAuthenticating = isSigningInWithApple || isSigningInWithGoogle;
 
-  const childProfile = route.params?.childProfile;
-
   const mode = route.params?.mode || "signUp";
   const isSignIn = mode === "signIn";
+
+  /*
+   * Empêche une double navigation lorsque l'authentification est lancée
+   * depuis cet écran : le garde de reprise ci-dessous et le gestionnaire
+   * de connexion viseraient sinon la même destination.
+   */
+  const hasLeftScreenRef = useRef(false);
+
+  /*
+   * Garde de reprise : une session restaurée peut afficher cet écran alors
+   * que l'utilisateur est déjà connecté. On le renvoie directement à
+   * l'étape suivante plutôt que de lui redemander une authentification.
+   *
+   * Le parcours invitation est exclu : RootNavigator bascule alors sur
+   * InvitationNavigator, et toute navigation impérative serait perdue.
+   */
+  useEffect(() => {
+    if (hasLeftScreenRef.current || childStatus === "join") {
+      return;
+    }
+
+    if (!isAuthenticated || user?.onboardingCompletedAt) {
+      return;
+    }
+
+    hasLeftScreenRef.current = true;
+
+    dispatch(setStep(resolveStepAfterAuthentication(user)));
+    navigation.replace(resolveRouteAfterAuthentication(user));
+  }, [childStatus, dispatch, isAuthenticated, navigation, user]);
+
+  /*
+   * Poursuite du parcours après une authentification réussie.
+   */
+  function continueAfterAuthentication(authenticatedUser) {
+    if (authenticatedUser?.onboardingCompletedAt) {
+      /*
+       * RootNavigator affiche automatiquement l'application principale.
+       */
+      return;
+    }
+
+    if (childStatus === "join") {
+      /*
+       * RootNavigator bascule sur InvitationNavigator : naviguer ici
+       * produirait une action abandonnée par tous les navigateurs.
+       */
+      return;
+    }
+
+    hasLeftScreenRef.current = true;
+
+    dispatch(setStep(resolveStepAfterAuthentication(authenticatedUser)));
+    navigation.replace(resolveRouteAfterAuthentication(authenticatedUser));
+  }
 
   async function handleGoogleSignIn() {
     if (isSigningInWithGoogle) {
@@ -100,19 +166,12 @@ export default function SignUpScreen({ navigation, route }) {
           mode,
           email: result.email,
           googleIdToken: result.googleIdToken,
-          childProfile,
         });
 
         return;
       }
 
-      if (result.user.onboardingCompletedAt) {
-        return;
-      }
-
-      navigation.replace("ParentName", {
-        childProfile,
-      });
+      continueAfterAuthentication(result.user);
     } catch (error) {
       console.error("Unable to sign in with Google:", error);
 
@@ -149,13 +208,7 @@ export default function SignUpScreen({ navigation, route }) {
         return;
       }
 
-      if (result.user.onboardingCompletedAt) {
-        return;
-      }
-
-      navigation.replace("ParentName", {
-        childProfile,
-      });
+      continueAfterAuthentication(result.user);
     } catch (error) {
       console.error("Unable to sign in with Apple:", error);
 
@@ -171,7 +224,6 @@ export default function SignUpScreen({ navigation, route }) {
   function handleEmailSignIn() {
     navigation.navigate("Email", {
       mode,
-      childProfile,
     });
   }
 
@@ -240,8 +292,8 @@ export default function SignUpScreen({ navigation, route }) {
 
             {!isSignIn ? (
               <OnboardingProgressBar
-                currentStep={4}
-                totalSteps={5}
+                currentStep={3}
+                totalSteps={6}
                 style={styles.progressBar}
               />
             ) : null}

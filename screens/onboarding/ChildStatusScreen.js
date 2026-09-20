@@ -15,7 +15,8 @@ import OnboardingProgressBar from "../../components/onboarding/OnboardingProgres
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 import { useDispatch } from "react-redux";
-import { setChildStatus } from "../../store/slices/onboardingSlice.js";
+import { setChildStatus, setStep } from "../../store/slices/onboardingSlice.js";
+import { ONBOARDING_STEPS } from "../../navigation/onboardingFlow.js";
 
 const colors = onboardingColors;
 
@@ -29,26 +30,39 @@ export default function ChildStatusScreen({ navigation }) {
 
   function handleBornChild() {
     dispatch(setChildStatus("born"));
+    dispatch(setStep(ONBOARDING_STEPS.childProfile));
     navigation.navigate("BornChildProfile");
   }
 
   function handleExpectedChild() {
     dispatch(setChildStatus("expected"));
+    dispatch(setStep(ONBOARDING_STEPS.childProfile));
     navigation.navigate("ExpectedChildProfile");
   }
 
   function handleInvitation() {
     dispatch(setChildStatus("join"));
+    dispatch(setStep(ONBOARDING_STEPS.auth));
 
     navigation.navigate("SignUp", {
-      onboardingMode: "invitation",
+      mode: "invitation",
     });
   }
 
   function handleGoBack() {
+    /*
+     * Navigation normale lorsque Welcome existe encore
+     * dans la pile.
+     */
     if (navigation.canGoBack()) {
+      dispatch(setStep(null));
       navigation.goBack();
+      return;
     }
+    dispatch(setChildStatus(null));
+    dispatch(setStep(null));
+
+    navigation.replace("Welcome");
   }
 
   return (

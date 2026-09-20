@@ -8,19 +8,54 @@ import {
   View,
 } from "react-native";
 import { useTranslation } from "react-i18next";
+import { useDispatch, useSelector } from "react-redux";
 
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
+import { useAuth } from "../../auth/AuthProvider.js";
+import {
+  ONBOARDING_STEPS,
+  findMissingOnboardingStep,
+} from "../../navigation/onboardingFlow.js";
+import {
+  selectOnboarding,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
 import { onboardingColors, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
 
 export default function WelcomeScreen({ navigation }) {
   const { t } = useTranslation();
+  const dispatch = useDispatch();
+
+  const { isAuthenticated, user } = useAuth();
+
+  const onboarding = useSelector(selectOnboarding);
 
   function handleStart() {
+    dispatch(setStep(ONBOARDING_STEPS.childStatus));
     navigation.navigate("ChildStatus");
   }
 
   function handleLogin() {
+    /*
+     * Une session restaurée peut afficher cet écran alors que
+     * l'utilisateur est déjà connecté. On reprend alors son onboarding
+     * à l'étape manquante au lieu de lui redemander de s'authentifier.
+     */
+    if (isAuthenticated && !user?.onboardingCompletedAt) {
+      const missingStep = findMissingOnboardingStep(onboarding);
+
+      if (missingStep) {
+        dispatch(setStep(missingStep.step));
+        navigation.navigate(missingStep.route);
+        return;
+      }
+
+      dispatch(setStep(ONBOARDING_STEPS.submitting));
+      navigation.navigate("OnboardingComplete");
+      return;
+    }
+
     navigation.navigate("SignUp", {
       mode: "signIn",
     });

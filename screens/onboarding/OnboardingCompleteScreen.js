@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -14,7 +14,16 @@ import { useDispatch, useSelector } from "react-redux";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 
-import { completeOnboarding } from "../../store/slices/onboardingSlice.js";
+import {
+  completeOnboarding,
+  resetOnboarding,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
+
+import {
+  findMissingOnboardingStep,
+  isClassicChildStatus,
+} from "../../navigation/onboardingFlow.js";
 
 import { useAuth } from "../../auth/AuthProvider.js";
 
@@ -32,11 +41,22 @@ const LANDSCAPE_IMAGE = require("../../assets/illustrations/onboarding/landscape
 
 const MINIMUM_LOADING_DURATION = 3000;
 
-export default function OnboardingCompleteScreen() {
+export default function OnboardingCompleteScreen({ navigation }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
 
   const onboarding = useSelector((state) => state.onboarding);
+
+  /*
+   * Garde de cohérence : le backend rejetterait un payload incomplet en
+   * 400 INVALID_ONBOARDING_DATA, sans jamais écrire users.display_name,
+   * et le bouton « Réessayer » rejouerait indéfiniment le même échec.
+   * On préfère renvoyer l'utilisateur sur l'écran qui manque.
+   */
+  const missingStep = useMemo(
+    () => findMissingOnboardingStep(onboarding),
+    [onboarding],
+  );
 
   const { accessToken, refreshSession, user, updateAuthenticatedUser } =
     useAuth();
@@ -55,7 +75,12 @@ export default function OnboardingCompleteScreen() {
   const contentOpacity = useRef(new Animated.Value(0)).current;
 
   function createPayload() {
-    const shouldCreateChild = onboarding.childStatus !== "join";
+    /*
+     * On teste la valeur attendue, et non la négation de "join" :
+     * un childStatus absent produisait auparavant un enfant fantôme
+     * avec status: null, systématiquement rejeté par le backend.
+     */
+    const shouldCreateChild = isClassicChildStatus(onboarding.childStatus);
 
     return {
       user: {
@@ -138,13 +163,36 @@ export default function OnboardingCompleteScreen() {
     const updatedDisplayName =
       result?.onboarding?.user?.displayName || onboarding.parentFirstName;
 
+    /*
+     * L'ordre est important.
+     *
+     * 1. La session authentifiée est marquée comme onboardée. C'est ce
+     *    que RootNavigator lit en priorité pour afficher AppNavigator.
+     * 2. Le brouillon est effacé.
+     * 3. `completed` est reposé : resetOnboarding le remet à false, et
+     *    cet indicateur sert de filet si updateAuthenticatedUser n'était
+     *    pas encore visible dans le même rendu.
+     *
+     * Sans ces deux dernières étapes dans cet ordre, l'effacement du
+     * brouillon pouvait faire repasser RootNavigator par WelcomeScreen.
+     */
     updateAuthenticatedUser({
       ...(user || {}),
       displayName: updatedDisplayName,
       onboardingCompletedAt: completedAt,
     });
 
+    dispatch(resetOnboarding());
     dispatch(completeOnboarding());
+  }
+
+  function handleCompleteMissingStep() {
+    if (!missingStep) {
+      return;
+    }
+
+    dispatch(setStep(missingStep.step));
+    navigation.replace(missingStep.route);
   }
 
   function handleSubmissionError(error) {
@@ -163,7 +211,7 @@ export default function OnboardingCompleteScreen() {
   }
 
   async function handleRetry() {
-    if (isRetrying) {
+    if (isRetrying || missingStep) {
       return;
     }
 
@@ -215,7 +263,18 @@ export default function OnboardingCompleteScreen() {
     };
   }, [rotation]);
 
+  const hasSubmittedRef = useRef(false);
+
   useEffect(() => {
+    /*
+     * Aucun appel réseau tant que l'état est incomplet.
+     */
+    if (missingStep || hasSubmittedRef.current) {
+      return undefined;
+    }
+
+    hasSubmittedRef.current = true;
+
     let isMounted = true;
 
     async function initializeOnboarding() {
@@ -241,7 +300,7 @@ export default function OnboardingCompleteScreen() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [missingStep]);
 
   const loaderRotation = rotation.interpolate({
     inputRange: [0, 1],
@@ -313,7 +372,29 @@ export default function OnboardingCompleteScreen() {
           </View>
 
           <View style={styles.loadingSection}>
-            {submissionError ? (
+            {missingStep ? (
+              <>
+                <Text style={styles.errorText}>
+                  {t(
+                    "Some information is still missing to create the profile.",
+                  )}
+                </Text>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t("Complete my information")}
+                  onPress={handleCompleteMissingStep}
+                  style={({ pressed }) => [
+                    styles.retryButton,
+                    pressed && styles.retryButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.retryButtonText}>
+                    {t("Complete my information")}
+                  </Text>
+                </Pressable>
+              </>
+            ) : submissionError ? (
               <>
                 <Text style={styles.errorText}>{submissionError}</Text>
 

@@ -6,5 +6,9 @@
   "Personalized guidance": "Conseils personnalisés",
   "Important reminders": "Rappels importants",
   "Get started": "Commencer",
-  "I already have an account": "J’ai déjà un compte"
+  "I already have an account": "J’ai déjà un compte",
+  "Some information is still missing to create the profile.": "Il manque encore des informations pour créer le profil.",
+  "Complete my information": "Compléter mes informations",
+  "Please enter your preferred name before joining.": "Indiquez le prénom que Nelo doit utiliser avant de rejoindre.",
+  "Please choose your relationship with the child before joining.": "Choisissez votre relation avec l'enfant avant de rejoindre."
 }

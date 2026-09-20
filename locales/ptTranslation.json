@@ -1,3 +1,7 @@
 {
-  "Hello": "Hello"
+  "Hello": "Hello",
+  "Some information is still missing to create the profile.": "Ainda faltam informações para criar o perfil.",
+  "Complete my information": "Completar as minhas informações",
+  "Please enter your preferred name before joining.": "Indique o nome que prefere antes de aderir.",
+  "Please choose your relationship with the child before joining.": "Escolha a sua relação com a criança antes de aderir."
 }

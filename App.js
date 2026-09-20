@@ -8,6 +8,7 @@ import { ActivityIndicator, View } from "react-native";
 
 import { NavigationContainer } from "@react-navigation/native";
 import { Provider } from "react-redux";
+import { PersistGate } from "redux-persist/integration/react";
 import { StatusBar } from "expo-status-bar";
 import {
   SafeAreaProvider,
@@ -20,10 +21,25 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider } from "./auth/AuthProvider.js";
 import { initializeLocalDatabase } from "./database/localDatabase.js";
 import RootNavigator from "./navigation/RootNavigator.js";
-import { store } from "./store/store.js";
+import { persistor, store } from "./store/store.js";
 import ChildrenBootstrap from "./store/ChildrenBootstrap.js";
 import { useAppFonts } from "./theme/fonts.js";
 import ToastProvider from "./components/ui/toast/ToastProvider.js";
+
+function LoadingScreen() {
+  return (
+    <View
+      style={{
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#EDF1FA",
+      }}
+    >
+      <ActivityIndicator />
+    </View>
+  );
+}
 
 export default function App() {
   const [fontsLoaded] = useAppFonts();
@@ -77,17 +93,7 @@ export default function App() {
   }
 
   if (!fontsLoaded || !isLocalDatabaseReady) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ActivityIndicator />
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
   return (
@@ -95,18 +101,27 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <Provider store={store}>
-            <ChildrenBootstrap />
-            <SyncManager />
+            {/*
+             * PersistGate retarde le montage de RootNavigator jusqu'à la
+             * réhydratation du slice onboarding. C'est indispensable :
+             * OnboardingNavigator calcule sa route de reprise au montage,
+             * à partir de onboarding.step. Sans cette attente, il
+             * démarrerait toujours sur WelcomeScreen.
+             */}
+            <PersistGate loading={<LoadingScreen />} persistor={persistor}>
+              <ChildrenBootstrap />
+              <SyncManager />
 
-            <BottomSheetModalProvider>
-              <ToastProvider>
-                <NavigationContainer>
-                  <StatusBar style="dark" />
+              <BottomSheetModalProvider>
+                <ToastProvider>
+                  <NavigationContainer>
+                    <StatusBar style="dark" />
 
-                  <RootNavigator />
-                </NavigationContainer>
-              </ToastProvider>
-            </BottomSheetModalProvider>
+                    <RootNavigator />
+                  </NavigationContainer>
+                </ToastProvider>
+              </BottomSheetModalProvider>
+            </PersistGate>
           </Provider>
         </SafeAreaProvider>
       </GestureHandlerRootView>

@@ -18,7 +18,12 @@ import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
 
-import { setRelationship } from "../../store/slices/onboardingSlice.js";
+import {
+  selectChildStatus,
+  setRelationship,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
+import { ONBOARDING_STEPS } from "../../navigation/onboardingFlow.js";
 
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
 
@@ -34,6 +39,8 @@ export default function RelationshipScreen({ navigation }) {
   const childFirstName = useSelector(
     (state) => state.onboarding.childFirstName,
   );
+
+  const childStatus = useSelector(selectChildStatus);
 
   const [selectedRelationship, setSelectedRelationship] = useState(null);
 
@@ -85,7 +92,16 @@ export default function RelationshipScreen({ navigation }) {
     }
 
     dispatch(setRelationship(selectedRelationship));
-    navigation.replace("OnboardingComplete");
+    dispatch(setStep(ONBOARDING_STEPS.submitting));
+
+    /*
+     * Destination explicite selon le parcours : AcceptInvitation existe
+     * dans InvitationNavigator, OnboardingComplete dans
+     * OnboardingNavigator. Cet écran est partagé par les deux.
+     */
+    navigation.replace(
+      childStatus === "join" ? "AcceptInvitation" : "OnboardingComplete",
+    );
   }
 
   function handleGoBack() {

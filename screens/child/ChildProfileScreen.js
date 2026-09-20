@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,6 +11,10 @@ import {
 } from "react-native";
 
 import { useDispatch, useSelector } from "react-redux";
+
+import { resetOnboarding } from "../../store/slices/onboardingSlice.js";
+
+import { clearInvitations } from "../../store/slices/invitationsSlice.js";
 
 import { Image as ExpoImage } from "expo-image";
 
@@ -41,7 +45,15 @@ import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
 import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import RelationshipSettingsSheet from "./RelationshipSettingsSheet.js";
+import {
+  createChildInvitation,
+  getChildSharing,
+  removeChildMember,
+  resendChildInvitation,
+  revokeChildInvitation,
+} from "../../api/childrenApi.js";
 import { useAuth } from "../../auth/AuthProvider.js";
+import PendingInvitationDetailsSheet from "./Share/PendingInvitationDetailsSheet.js";
 
 import {
   loadChildren,
@@ -95,19 +107,6 @@ const BABY_FALLBACK_IMAGES = {
   pink: require("../../assets/icons/header/babyPink.png"),
   green: require("../../assets/icons/header/babyGreen.png"),
 };
-
-const mockMembers = [
-  {
-    id: "thomas",
-    firstName: "Thomas",
-    role: "owner",
-  },
-  {
-    id: "julie",
-    firstName: "Julie",
-    role: "contributor",
-  },
-];
 
 function ProfileSettingRow({
   icon,
@@ -287,6 +286,7 @@ export default function ChildProfileScreen({ navigation }) {
 
   const [selectedLanguage, setSelectedLanguage] = useState("fr");
   const { user, accessToken, logout, refreshSession } = useAuth();
+  const [isSendingInvitation, setIsSendingInvitation] = useState(false);
 
   const dispatch = useDispatch();
 
@@ -369,15 +369,23 @@ export default function ChildProfileScreen({ navigation }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
+    if (isLoggingOut) {
+      return;
+    }
+
     setIsLoggingOut(true);
 
     try {
+      dispatch(clearInvitations());
+      dispatch(resetOnboarding());
+
       await logout();
+    } catch (error) {
+      console.error("Unable to log out:", error);
     } finally {
       setIsLoggingOut(false);
     }
   };
-
   const childSelectorSheetRef = useRef(null);
   const childThemeSheetRef = useRef(null);
   const feedingMethodSheetRef = useRef(null);
@@ -387,6 +395,7 @@ export default function ChildProfileScreen({ navigation }) {
   const memberDetailsSheetRef = useRef(null);
   const measurementUnitsSheetRef = useRef(null);
   const shareChildDataSheetRef = useRef(null);
+  const pendingInvitationDetailsSheetRef = useRef(null);
 
   const myAccountSheetRef = useRef(null);
   const editFirstNameSheetRef = useRef(null);
@@ -419,12 +428,20 @@ export default function ChildProfileScreen({ navigation }) {
 
   const [selectedMember, setSelectedMember] = useState(null);
   const [isRemovingMember, setIsRemovingMember] = useState(false);
-  const [members, setMembers] = useState(mockMembers);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [isLoadingSharing, setIsLoadingSharing] = useState(false);
 
   const child =
     children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
 
   const canEditChild = child?.currentUserRole === "owner";
+
+  const [selectedInvitation, setSelectedInvitation] = useState(null);
+
+  const [isResendingInvitation, setIsResendingInvitation] = useState(false);
+
+  const [isCancellingInvitation, setIsCancellingInvitation] = useState(false);
 
   const handleRefresh = async () => {
     if (isRefreshing || !user?.id || !accessToken) {
@@ -594,6 +611,163 @@ export default function ChildProfileScreen({ navigation }) {
     childThemeSheetRef.current?.present();
   };
 
+  const executeWithValidAccessToken = useCallback(
+    async (request) => {
+      try {
+        return await request(accessToken);
+      } catch (error) {
+        if (error?.code !== "ACCESS_TOKEN_EXPIRED") {
+          throw error;
+        }
+
+        const refreshedAccessToken = await refreshSession();
+
+        if (!refreshedAccessToken) {
+          const authenticationError = new Error(t("Your session has expired"));
+
+          authenticationError.code = "AUTHENTICATION_REQUIRED";
+
+          throw authenticationError;
+        }
+
+        return request(refreshedAccessToken);
+      }
+    },
+    [accessToken, refreshSession, t],
+  );
+
+  const handleResendInvitation = useCallback(
+    async (invitation) => {
+      if (!child?.id || !invitation?.id) {
+        return false;
+      }
+
+      setIsResendingInvitation(true);
+
+      try {
+        const response = await executeWithValidAccessToken((token) =>
+          resendChildInvitation({
+            childId: child.id,
+            invitationId: invitation.id,
+            locale: i18n.resolvedLanguage || i18n.language || "en",
+            accessToken: token,
+          }),
+        );
+
+        const updatedInvitation = response.invitation;
+
+        setPendingInvitations((currentInvitations) =>
+          currentInvitations.map((currentInvitation) =>
+            currentInvitation.id === updatedInvitation.id
+              ? {
+                  ...currentInvitation,
+                  ...updatedInvitation,
+                }
+              : currentInvitation,
+          ),
+        );
+
+        setSelectedInvitation((currentInvitation) =>
+          currentInvitation?.id === updatedInvitation.id
+            ? {
+                ...currentInvitation,
+                ...updatedInvitation,
+              }
+            : currentInvitation,
+        );
+
+        showToast({
+          type: "success",
+          title: t("Invitation resent"),
+          message: t("A new invitation was sent to email", {
+            email: updatedInvitation.email,
+          }),
+        });
+
+        return true;
+      } catch (error) {
+        showToast({
+          type: "error",
+          title: t("Unable to resend invitation"),
+          message: error?.message || t("An unexpected error occurred"),
+        });
+
+        return false;
+      } finally {
+        setIsResendingInvitation(false);
+      }
+    },
+    [
+      child?.id,
+      executeWithValidAccessToken,
+      i18n.language,
+      i18n.resolvedLanguage,
+      showToast,
+      t,
+    ],
+  );
+
+  const handleCancelInvitation = useCallback(
+    async (invitation) => {
+      if (!child?.id || !invitation?.id) {
+        return false;
+      }
+
+      setIsCancellingInvitation(true);
+
+      try {
+        await executeWithValidAccessToken((token) =>
+          revokeChildInvitation({
+            childId: child.id,
+            invitationId: invitation.id,
+            accessToken: token,
+          }),
+        );
+
+        setPendingInvitations((currentInvitations) =>
+          currentInvitations.filter(
+            (currentInvitation) => currentInvitation.id !== invitation.id,
+          ),
+        );
+
+        pendingInvitationDetailsSheetRef.current?.dismiss();
+
+        showToast({
+          type: "success",
+          title: t("Invitation cancelled"),
+          message: t("Invitation for email was cancelled", {
+            email: invitation.email,
+          }),
+        });
+
+        setSelectedInvitation(null);
+
+        return true;
+      } catch (error) {
+        showToast({
+          type: "error",
+          title: t("Unable to cancel invitation"),
+          message: error?.message || t("An unexpected error occurred"),
+        });
+
+        return false;
+      } finally {
+        setIsCancellingInvitation(false);
+      }
+    },
+    [child?.id, executeWithValidAccessToken, showToast, t],
+  );
+
+  const handlePressInvitation = (invitation) => {
+    setSelectedInvitation(invitation);
+
+    shareChildProfileSheetRef.current?.dismiss();
+
+    setTimeout(() => {
+      pendingInvitationDetailsSheetRef.current?.present();
+    }, 250);
+  };
+
   const handleSelectTheme = async (themeMode) => {
     if (themeMode === child.themeMode) {
       return true;
@@ -733,9 +907,52 @@ export default function ChildProfileScreen({ navigation }) {
     // leaveChildProfileSheetRef.current?.present();
   };
 
-  const handleOpenShareChildProfile = () => {
-    shareChildProfileSheetRef.current?.present();
+  const handleOpenShareChildProfile = async () => {
+    if (!child?.id || isLoadingSharing) {
+      return;
+    }
+
+    setIsLoadingSharing(true);
+
+    try {
+      const response = await executeWithValidAccessToken((token) =>
+        getChildSharing({
+          childId: child.id,
+          accessToken: token,
+        }),
+      );
+
+      const sharing = response.sharing;
+
+      setMembers(sharing.members ?? []);
+      setPendingInvitations(sharing.pendingInvitations ?? []);
+
+      shareChildProfileSheetRef.current?.present();
+    } catch (error) {
+      showToast({
+        type: "error",
+        title: t("Unable to load sharing information"),
+        message: error?.message || t("An unexpected error occurred"),
+      });
+    } finally {
+      setIsLoadingSharing(false);
+    }
   };
+  const handleBackToSharing = useCallback(() => {
+    pendingInvitationDetailsSheetRef.current?.dismiss();
+
+    setTimeout(() => {
+      shareChildProfileSheetRef.current?.present();
+    }, 250);
+  }, []);
+
+  const handleBackFromMemberDetails = useCallback(() => {
+    memberDetailsSheetRef.current?.dismiss();
+
+    setTimeout(() => {
+      shareChildProfileSheetRef.current?.present();
+    }, 250);
+  }, []);
 
   const handlePressMember = (member) => {
     setSelectedMember(member);
@@ -830,36 +1047,45 @@ export default function ChildProfileScreen({ navigation }) {
     });
   };
 
-  const handleRemoveMember = async ({ memberId }) => {
+  const handleRemoveMember = async () => {
+    if (!child?.id || !selectedMember?.childMemberId || isRemovingMember) {
+      return false;
+    }
+
     setIsRemovingMember(true);
 
     try {
-      // Plus tard :
-      // await api.delete(
-      //   `/children/${child.id}/members/${memberId}`,
-      // );
-
-      setMembers((currentMembers) =>
-        currentMembers.filter((member) => member.id !== memberId),
+      await executeWithValidAccessToken((token) =>
+        removeChildMember({
+          childId: child.id,
+          childMemberId: selectedMember.childMemberId,
+          accessToken: token,
+        }),
       );
 
-      setChildren((currentChildren) =>
-        currentChildren.map((currentChild) =>
-          currentChild.id === reduxSelectedChildId
-            ? {
-                ...currentChild,
-                sharedPeopleCount: Math.max(
-                  1,
-                  currentChild.sharedPeopleCount - 1,
-                ),
-              }
-            : currentChild,
+      setMembers((currentMembers) =>
+        currentMembers.filter(
+          (member) => member.childMemberId !== selectedMember.childMemberId,
         ),
       );
 
+      /*
+       * Recharge les enfants afin que memberCount soit également
+       * mis à jour dans Redux et dans la ligne du profil.
+       */
+      await dispatch(
+        loadChildren({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }),
+      ).unwrap();
+
       return true;
     } catch (error) {
-      throw new Error(t("Unable to remove member"));
+      console.error("Unable to remove child member:", error);
+
+      throw new Error(error?.message || t("Unable to remove member"));
     } finally {
       setIsRemovingMember(false);
     }
@@ -1137,9 +1363,10 @@ export default function ChildProfileScreen({ navigation }) {
               childName: child.firstName,
             })}
             value={t("Shared people count", {
-              count: child.sharedPeopleCount,
+              count: child.memberCount ?? 1,
             })}
             isLast
+            loading={isLoadingSharing}
             onPress={handleOpenShareChildProfile}
             colors={colors}
             styles={styles}
@@ -1338,27 +1565,100 @@ export default function ChildProfileScreen({ navigation }) {
         ref={shareChildProfileSheetRef}
         childName={child.firstName}
         members={members}
-        currentUserId="thomas"
+        pendingInvitations={pendingInvitations}
+        currentUserId={user?.id}
         canManageMembers={child.currentUserRole === "owner"}
         onPressMember={handlePressMember}
+        onPressInvitation={handlePressInvitation}
         onInviteSomeone={handleInviteSomeone}
+      />
+
+      <PendingInvitationDetailsSheet
+        ref={pendingInvitationDetailsSheetRef}
+        invitation={selectedInvitation}
+        childName={child.firstName}
+        isResending={isResendingInvitation}
+        isCancelling={isCancellingInvitation}
+        onBack={handleBackToSharing}
+        onResend={handleResendInvitation}
+        onCancel={handleCancelInvitation}
       />
 
       <InviteMemberSheet
         ref={inviteMemberSheetRef}
         childName={child.firstName}
+        isSubmitting={isSendingInvitation}
         onSendInvitation={async ({ email }) => {
-          console.log("Send invitation to:", email);
+          if (isSendingInvitation) {
+            return false;
+          }
 
-          return true;
+          setIsSendingInvitation(true);
+
+          const sendInvitation = (token) =>
+            createChildInvitation({
+              childId: child.id,
+              email,
+              locale: i18n.resolvedLanguage || i18n.language || "en",
+              accessToken: token,
+            });
+
+          try {
+            let response;
+
+            try {
+              response = await sendInvitation(accessToken);
+            } catch (error) {
+              if (error?.code !== "ACCESS_TOKEN_EXPIRED") {
+                throw error;
+              }
+
+              const refreshedAccessToken = await refreshSession();
+
+              if (!refreshedAccessToken) {
+                const authenticationError = new Error(
+                  t("Your session has expired. Please sign in again."),
+                );
+
+                authenticationError.code = "AUTHENTICATION_REQUIRED";
+
+                throw authenticationError;
+              }
+
+              response = await sendInvitation(refreshedAccessToken);
+            }
+
+            return response.invitation;
+          } catch (error) {
+            const invitationError = new Error(
+              error?.code === "NETWORK_ERROR"
+                ? t("An internet connection is required to send an invitation")
+                : error?.message || t("Unable to send invitation"),
+            );
+
+            invitationError.code = error?.code;
+
+            throw invitationError;
+          } finally {
+            setIsSendingInvitation(false);
+          }
         }}
-        onInvitationSent={({ email, childName }) => {
+        onInvitationSent={(invitation) => {
+          setPendingInvitations((currentInvitations) => {
+            const otherInvitations = currentInvitations.filter(
+              (item) =>
+                item.email.toLowerCase() !== invitation.email.toLowerCase(),
+            );
+
+            return [...otherInvitations, invitation];
+          });
+
           showToast({
             type: "success",
             title: t("Invitation sent"),
             message: t("Invitation sent to email for child profile", {
-              email,
-              childName,
+              email: invitation.email,
+              childName: invitation.childName,
             }),
           });
         }}
@@ -1373,8 +1673,9 @@ export default function ChildProfileScreen({ navigation }) {
       <MemberDetailsSheet
         ref={memberDetailsSheetRef}
         member={selectedMember}
+        onBack={handleBackFromMemberDetails}
         childName={child.firstName}
-        currentUserId="thomas"
+        currentUserId={user?.id}
         canManageMembers={child.currentUserRole === "owner"}
         isRemoving={isRemovingMember}
         onRemoveMember={handleRemoveMember}
@@ -1915,6 +2216,7 @@ const createStyles = (colors) =>
       flexDirection: "row",
 
       marginTop: 8,
+      paddingVertical: 18,
 
       borderRadius: 24,
       backgroundColor: colors.white,
@@ -1988,8 +2290,6 @@ const createStyles = (colors) =>
     measurementItemBorder: {
       borderRightWidth: StyleSheet.hairlineWidth,
       borderRightColor: colors.border,
-
-      marginVertical: 18,
     },
     measurementIconContainer: {
       width: 56,

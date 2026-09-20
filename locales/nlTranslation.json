@@ -1,3 +1,7 @@
 {
-  "hello": "Hello"
+  "hello": "Hello",
+  "Some information is still missing to create the profile.": "Er ontbreekt nog informatie om het profiel aan te maken.",
+  "Complete my information": "Mijn gegevens aanvullen",
+  "Please enter your preferred name before joining.": "Vul je voorkeursnaam in voordat je deelneemt.",
+  "Please choose your relationship with the child before joining.": "Kies je relatie met het kind voordat je deelneemt."
 }

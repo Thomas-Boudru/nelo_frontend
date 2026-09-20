@@ -32,7 +32,6 @@ export default function EmailScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
   const { requestLoginCode } = useAuth();
 
-  const childProfile = route.params?.childProfile;
   const mode = route.params?.mode || "signUp";
   const isSignIn = mode === "signIn";
 
@@ -125,7 +124,6 @@ export default function EmailScreen({ navigation, route }) {
       navigation.navigate("VerificationCode", {
         mode,
         email: normalizedEmail,
-        childProfile,
       });
     } catch (error) {
       console.error("Unable to send verification code", error);
@@ -182,8 +180,8 @@ export default function EmailScreen({ navigation, route }) {
 
                 {!isSignIn ? (
                   <OnboardingProgressBar
-                    currentStep={4}
-                    totalSteps={5}
+                    currentStep={3}
+                    totalSteps={6}
                     style={styles.progressBar}
                   />
                 ) : null}

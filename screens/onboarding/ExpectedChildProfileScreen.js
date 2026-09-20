@@ -27,7 +27,17 @@ import OnboardingProgressBar from "../../components/onboarding/OnboardingProgres
 import SelectionCard from "../../components/onboarding/SelectionCard.js";
 
 import { useDispatch } from "react-redux";
-import { setExpectedChildProfile } from "../../store/slices/onboardingSlice.js";
+import {
+  setExpectedChildProfile,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+import {
+  ONBOARDING_STEPS,
+  resolveRouteAfterAuthentication,
+  resolveStepAfterAuthentication,
+} from "../../navigation/onboardingFlow.js";
 
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -41,6 +51,8 @@ const YELLOW_STAR_IMAGE = require("../../assets/illustrations/onboarding/starYel
 export default function ExpectedChildProfileScreen({ navigation }) {
   const { t, i18n } = useTranslation();
   const dispatch = useDispatch();
+
+  const { isAuthenticated, user } = useAuth();
 
   const insets = useSafeAreaInsets();
 
@@ -162,8 +174,20 @@ export default function ExpectedChildProfileScreen({ navigation }) {
       }),
     );
 
+    /*
+     * Après une reprise d'onboarding, l'utilisateur est déjà authentifié :
+     * on ne lui redemande pas de créer un compte.
+     */
+    if (isAuthenticated && !user?.onboardingCompletedAt) {
+      dispatch(setStep(resolveStepAfterAuthentication(user)));
+      navigation.navigate(resolveRouteAfterAuthentication(user));
+      return;
+    }
+
+    dispatch(setStep(ONBOARDING_STEPS.auth));
+
     navigation.navigate("SignUp", {
-      onboardingMode: "signUp",
+      mode: "signUp",
     });
   }
 

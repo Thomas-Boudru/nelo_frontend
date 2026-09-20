@@ -30,7 +30,22 @@ function createInitialState() {
     // Thème associé au profil de l’enfant
     themeMode: "blue",
 
-    // Passe à true après la réussite de POST /api/onboarding
+    /*
+     * Dernière étape atteinte, cf. navigation/onboardingFlow.js.
+     * Persistée : elle permet de reprendre le parcours au bon écran
+     * après un redémarrage de l’application.
+     */
+    step: null,
+
+    /*
+     * Passe à true après la réussite de POST /api/onboarding ou de
+     * l’acceptation d’une invitation.
+     *
+     * Volontairement exclu de la persistance (cf. store.js) : cet
+     * indicateur est recalculé à chaque démarrage depuis
+     * user.onboardingCompletedAt. Le persister ferait sauter
+     * l’onboarding du prochain compte utilisé sur l’appareil.
+     */
     completed: false,
   };
 }
@@ -43,6 +58,10 @@ const onboardingSlice = createSlice({
   reducers: {
     setChildStatus(state, action) {
       state.childStatus = action.payload;
+    },
+
+    setStep(state, action) {
+      state.step = action.payload;
     },
 
     setBornChildProfile(state, action) {
@@ -105,6 +124,19 @@ const onboardingSlice = createSlice({
       state.completed = true;
     },
 
+    /*
+     * `completed` n’est pas persisté mais survit à une déconnexion
+     * dans la même session. RootNavigator le remet à zéro dès que la
+     * session est perdue, sans toucher au brouillon en cours de saisie.
+     */
+    clearOnboardingCompletion(state) {
+      state.completed = false;
+    },
+
+    /*
+     * Efface le brouillon. Appelé après un onboarding réussi, une fois
+     * la session authentifiée déjà marquée comme onboardée.
+     */
     resetOnboarding() {
       return createInitialState();
     },
@@ -113,13 +145,21 @@ const onboardingSlice = createSlice({
 
 export const {
   setChildStatus,
+  setStep,
   setBornChildProfile,
   setExpectedChildProfile,
   setRelationship,
   setParentFirstName,
   setThemeMode,
   completeOnboarding,
+  clearOnboardingCompletion,
   resetOnboarding,
 } = onboardingSlice.actions;
+
+export const selectOnboarding = (state) => state.onboarding;
+
+export const selectOnboardingStep = (state) => state.onboarding.step;
+
+export const selectChildStatus = (state) => state.onboarding.childStatus;
 
 export default onboardingSlice.reducer;

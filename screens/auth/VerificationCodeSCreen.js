@@ -19,11 +19,21 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import Constants from "expo-constants";
+import { useDispatch, useSelector } from "react-redux";
 import { useAuth } from "../../auth/AuthProvider.js";
 
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
+
+import {
+  resolveRouteAfterAuthentication,
+  resolveStepAfterAuthentication,
+} from "../../navigation/onboardingFlow.js";
+import {
+  selectChildStatus,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
 
 import { onboardingColors, radius, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -37,12 +47,14 @@ const RESEND_DELAY = 30;
 
 export default function VerificationCodeScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
+  const dispatch = useDispatch();
   const { requestLoginCode, verifyLoginCode } = useAuth();
+
+  const childStatus = useSelector(selectChildStatus);
 
   const inputRef = useRef(null);
 
   const email = route.params?.email || "";
-  const childProfile = route.params?.childProfile;
   const googleIdToken = route.params?.googleIdToken;
 
   const mode = route.params?.mode || "signUp";
@@ -145,13 +157,23 @@ export default function VerificationCodeScreen({ navigation, route }) {
       }
 
       /*
-       * Pour un nouvel utilisateur ou un onboarding interrompu,
-       * on continue le parcours existant.
+       * Parcours invitation : l'authentification vient de faire basculer
+       * RootNavigator sur InvitationNavigator, qui a démonté ce
+       * navigateur. Toute navigation impérative ici serait abandonnée ;
+       * l'étape persistée suffit à reprendre au bon écran.
        */
-      navigation.navigate("ParentName", {
-        email,
-        childProfile,
-      });
+      if (childStatus === "join") {
+        return;
+      }
+
+      /*
+       * Pour un nouvel utilisateur ou un onboarding interrompu,
+       * on continue le parcours existant. ParentNameScreen n'est sauté
+       * que si le compte possède déjà un prénom.
+       */
+      dispatch(setStep(resolveStepAfterAuthentication(result.user)));
+
+      navigation.navigate(resolveRouteAfterAuthentication(result.user));
     } catch (requestError) {
       console.error("Unable to verify code", requestError);
 
@@ -255,8 +277,8 @@ export default function VerificationCodeScreen({ navigation, route }) {
 
               {!isSignIn ? (
                 <OnboardingProgressBar
-                  currentStep={4}
-                  totalSteps={5}
+                  currentStep={3}
+                  totalSteps={6}
                   style={styles.progressBar}
                 />
               ) : null}

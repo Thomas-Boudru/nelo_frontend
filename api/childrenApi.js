@@ -126,3 +126,129 @@ export function deleteChildAvatar({ childId, accessToken, signal }) {
     signal,
   });
 }
+
+export function getChildSharing({ childId, accessToken, signal }) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  return apiRequest(`/api/children/${encodeURIComponent(childId)}/sharing`, {
+    accessToken,
+    signal,
+  });
+}
+
+export function removeChildMember({
+  childId,
+  childMemberId,
+  accessToken,
+  signal,
+}) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  if (!childMemberId) {
+    throw new Error("Missing child member ID.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(
+      childId,
+    )}/members/${encodeURIComponent(childMemberId)}`,
+    {
+      method: "DELETE",
+      accessToken,
+      signal,
+    },
+  );
+}
+
+export function createChildInvitation({
+  childId,
+  email,
+  locale,
+  accessToken,
+  signal,
+}) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error("Missing invitation email.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(childId)}/invitations`,
+    {
+      method: "POST",
+      body: {
+        email: normalizedEmail,
+        locale: locale || "en",
+      },
+      accessToken,
+      signal,
+    },
+  );
+}
+
+export function resendChildInvitation({
+  childId,
+  invitationId,
+  locale,
+  accessToken,
+  signal,
+}) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  if (!invitationId) {
+    throw new Error("Missing invitation ID.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(
+      childId,
+    )}/invitations/${encodeURIComponent(invitationId)}/resend`,
+    {
+      method: "POST",
+      body: {
+        locale: locale || "en",
+      },
+      accessToken,
+      signal,
+    },
+  );
+}
+
+export function revokeChildInvitation({
+  childId,
+  invitationId,
+  accessToken,
+  signal,
+}) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  if (!invitationId) {
+    throw new Error("Missing invitation ID.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(
+      childId,
+    )}/invitations/${encodeURIComponent(invitationId)}`,
+    {
+      method: "DELETE",
+      accessToken,
+      signal,
+    },
+  );
+}

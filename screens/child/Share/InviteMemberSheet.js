@@ -1,5 +1,12 @@
-import { forwardRef, useCallback, useMemo, useState, useEffect } from "react";
-import { Keyboard, StyleSheet, Text, View } from "react-native";
+import { forwardRef, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Keyboard,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -8,6 +15,7 @@ import {
 } from "@gorhom/bottom-sheet";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import QRCode from "react-native-qrcode-svg";
 
 import FormField from "../../../components/onboarding/FormField";
 import PrimaryButton from "../../../components/ui/PrimaryButton";
@@ -27,17 +35,27 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
   const colors = useThemeColors();
 
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [isInputFocused, setIsInputFocused] = useState(false);
+
+  const [step, setStep] = useState("form");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
 
+  const [invitation, setInvitation] = useState(null);
+  const [isSharing, setIsSharing] = useState(false);
+
   const normalizedEmail = email.trim().toLowerCase();
 
-  const resetForm = useCallback(() => {
+  const isSuccessStep = step === "success";
+  const inviteUrl = invitation?.inviteUrl ?? "";
+
+  const resetSheet = useCallback(() => {
+    setStep("form");
     setEmail("");
     setError("");
+    setInvitation(null);
+    setIsSharing(false);
   }, []);
 
   const renderBackdrop = useCallback(
@@ -46,17 +64,17 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior={isSubmitting ? "none" : "close"}
+        pressBehavior={isSubmitting || isSharing ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [isSubmitting],
+    [isSharing, isSubmitting],
   );
 
   const handleDismiss = useCallback(() => {
     Keyboard.dismiss();
-    resetForm();
-  }, [resetForm]);
+    resetSheet();
+  }, [resetSheet]);
 
   const handleChangeEmail = useCallback(
     (value) => {
@@ -70,21 +88,25 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
   );
 
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
       setKeyboardVisible(true);
     });
 
-    const hide = Keyboard.addListener("keyboardDidHide", () => {
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
       setKeyboardVisible(false);
     });
 
     return () => {
-      show.remove();
-      hide.remove();
+      showSubscription.remove();
+      hideSubscription.remove();
     };
   }, []);
 
   const handleSendInvitation = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     if (!normalizedEmail) {
       setError(t("Email address is required"));
       return;
@@ -99,19 +121,30 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
     setError("");
 
     try {
-      const invitationSent = await onSendInvitation?.({
+      const createdInvitation = await onSendInvitation?.({
         email: normalizedEmail,
         childName,
       });
 
-      if (invitationSent === false) {
+      if (createdInvitation === false || !createdInvitation) {
         return;
       }
 
-      ref?.current?.dismiss();
+      if (!createdInvitation.inviteUrl) {
+        setError(t("Invitation link is missing"));
+        return;
+      }
+
+      const invitationData = {
+        ...createdInvitation,
+        email: createdInvitation.email ?? normalizedEmail,
+      };
+
+      setInvitation(invitationData);
+      setStep("success");
 
       onInvitationSent?.({
-        email: normalizedEmail,
+        ...invitationData,
         childName,
       });
     } catch (invitationError) {
@@ -119,13 +152,46 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
     }
   };
 
+  const handleShareInvitation = async () => {
+    if (!inviteUrl || isSharing) {
+      return;
+    }
+
+    setIsSharing(true);
+
+    try {
+      await Share.share({
+        title: t("Join child profile on Nelo", {
+          childName,
+        }),
+        message: t("Child profile invitation sharing message", {
+          childName,
+          inviteUrl,
+        }),
+        url: inviteUrl,
+      });
+    } catch (shareError) {
+      console.error("Unable to share invitation:", shareError);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleDone = () => {
+    if (isSubmitting || isSharing) {
+      return;
+    }
+
+    ref?.current?.dismiss();
+  };
+
   return (
     <BottomSheetModal
       ref={ref}
       index={0}
-      enablePanDownToClose={!isSubmitting}
+      enablePanDownToClose={!isSubmitting && !isSharing}
       enableDynamicSizing
-      maxDynamicContentSize={600}
+      maxDynamicContentSize={700}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
@@ -139,82 +205,158 @@ const InviteMemberSheet = forwardRef(function InviteMemberSheet(
       <BottomSheetView
         style={[
           styles.container,
-          keyboardVisible
+          keyboardVisible && !isSuccessStep
             ? styles.containerKeyboardVisible
             : styles.containerKeyboardHidden,
         ]}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {t("Invite someone to child profile", {
-              childName,
-            })}
-          </Text>
+        {isSuccessStep ? (
+          <View style={styles.successContent}>
+            <Text style={styles.successTitle}>{t("Invitation sent")}</Text>
 
-          <Text style={styles.description}>
-            {t(
-              "Share child profile with another parent grandparent or family member",
-              {
-                childName,
-              },
-            )}
-          </Text>
-        </View>
+            <Text style={styles.successDescription}>
+              {t("Invitation sent for child profile to")}
+            </Text>
 
-        <View style={styles.form}>
-          <FormField
-            InputComponent={BottomSheetTextInput}
-            label={t("Email address")}
-            value={email}
-            onChangeText={handleChangeEmail}
-            placeholder={t("Email address placeholder")}
-            error={error}
-            iconName="mail-outline"
-            editable={!isSubmitting}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            autoComplete="email"
-            returnKeyType="send"
-            blurOnSubmit
-            onSubmitEditing={handleSendInvitation}
-          />
-        </View>
+            <View style={styles.emailContainer}>
+              <Ionicons name="mail-outline" size={18} color={colors.primary} />
 
-        <View style={styles.bottomContent}>
-          <View style={styles.informationCard}>
-            <View style={styles.informationIconContainer}>
-              <Ionicons
-                name="mail-unread-outline"
-                size={19}
-                color={colors.primary}
+              <Text style={styles.emailText} numberOfLines={1}>
+                {invitation?.email}
+              </Text>
+            </View>
+
+            <View style={styles.qrSection}>
+              <View style={styles.qrCodeContainer}>
+                <QRCode
+                  value={inviteUrl}
+                  size={190}
+                  color={colors.textPrimary}
+                  backgroundColor={colors.white}
+                  quietZone={4}
+                />
+              </View>
+
+              <Text style={styles.qrTitle}>
+                {t("Scan to join child profile", {
+                  childName,
+                })}
+              </Text>
+
+              <Text style={styles.qrDescription}>
+                {t("Ask the invited person to scan this QR code")}
+              </Text>
+            </View>
+
+            <View style={styles.securityCard}>
+              <View style={styles.securityIconContainer}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={19}
+                  color={colors.primary}
+                />
+              </View>
+
+              <Text style={styles.securityText}>
+                {t("Invitation intended for email", {
+                  email: invitation?.email,
+                })}
+              </Text>
+            </View>
+
+            <View style={styles.successActions}>
+              <PrimaryButton
+                title={t("Share invitation")}
+                loading={isSharing}
+                disabled={!inviteUrl || isSharing}
+                onPress={handleShareInvitation}
+                icon={
+                  !isSharing ? (
+                    <Ionicons
+                      name="share-social-outline"
+                      size={19}
+                      color="#FFFFFF"
+                    />
+                  ) : null
+                }
+              />
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.header}>
+              <Text style={styles.title}>
+                {t("Invite someone to child profile", {
+                  childName,
+                })}
+              </Text>
+
+              <Text style={styles.description}>
+                {t(
+                  "Share child profile with another parent grandparent or family member",
+                  {
+                    childName,
+                  },
+                )}
+              </Text>
+            </View>
+
+            <View style={styles.form}>
+              <FormField
+                InputComponent={BottomSheetTextInput}
+                label={t("Email address")}
+                value={email}
+                onChangeText={handleChangeEmail}
+                placeholder={t("Email address placeholder")}
+                error={error}
+                iconName="mail-outline"
+                editable={!isSubmitting}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                returnKeyType="send"
+                blurOnSubmit
+                onSubmitEditing={handleSendInvitation}
               />
             </View>
 
-            <Text style={styles.informationText}>
-              {t("Secure invitation email explanation", {
-                childName,
-              })}
-            </Text>
-          </View>
+            <View style={styles.bottomContent}>
+              <View style={styles.informationCard}>
+                <View style={styles.informationIconContainer}>
+                  <Ionicons
+                    name="mail-unread-outline"
+                    size={19}
+                    color={colors.primary}
+                  />
+                </View>
 
-          <PrimaryButton
-            title={t("Send invitation")}
-            loading={isSubmitting}
-            disabled={!normalizedEmail}
-            onPress={handleSendInvitation}
-            icon={
-              !isSubmitting ? (
-                <Ionicons
-                  name="paper-plane-outline"
-                  size={19}
-                  color="#FFFFFF"
-                />
-              ) : null
-            }
-          />
-        </View>
+                <Text style={styles.informationText}>
+                  {t("Secure invitation email explanation", {
+                    childName,
+                  })}
+                </Text>
+              </View>
+
+              <PrimaryButton
+                title={t("Send invitation")}
+                loading={isSubmitting}
+                disabled={!normalizedEmail || isSubmitting}
+                onPress={handleSendInvitation}
+                icon={
+                  !isSubmitting ? (
+                    <Ionicons
+                      name="paper-plane-outline"
+                      size={19}
+                      color="#FFFFFF"
+                    />
+                  ) : null
+                }
+              />
+            </View>
+          </>
+        )}
       </BottomSheetView>
     </BottomSheetModal>
   );
@@ -258,6 +400,7 @@ const createStyles = (colors) =>
     containerKeyboardVisible: {
       paddingBottom: 8,
     },
+
     header: {
       paddingTop: 6,
     },
@@ -288,6 +431,7 @@ const createStyles = (colors) =>
 
     bottomContent: {
       marginTop: 18,
+
       gap: 14,
     },
 
@@ -327,5 +471,196 @@ const createStyles = (colors) =>
       lineHeight: 18,
 
       color: colors.textSecondary,
+    },
+
+    successContent: {
+      alignItems: "center",
+
+      paddingTop: 6,
+    },
+
+    successIconContainer: {
+      width: 66,
+      height: 66,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      borderRadius: 33,
+
+      backgroundColor: colors.selectedBackground,
+    },
+
+    successTitle: {
+      marginTop: 14,
+
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 22,
+      lineHeight: 30,
+
+      color: colors.textPrimary,
+    },
+
+    successDescription: {
+      maxWidth: 340,
+
+      marginTop: 15,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 20,
+
+      textAlign: "center",
+
+      color: colors.textSecondary,
+    },
+
+    emailContainer: {
+      maxWidth: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      marginTop: 5,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+
+      borderRadius: 15,
+
+      backgroundColor: colors.selectedBackground,
+    },
+
+    emailText: {
+      flexShrink: 1,
+
+      marginLeft: 8,
+
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 12,
+      lineHeight: 18,
+
+      color: colors.primary,
+    },
+
+    qrSection: {
+      width: "100%",
+
+      alignItems: "center",
+
+      marginTop: 18,
+      paddingHorizontal: 16,
+      paddingVertical: 18,
+
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 22,
+
+      backgroundColor: colors.white,
+    },
+
+    qrCodeContainer: {
+      padding: 10,
+
+      borderRadius: 16,
+
+      backgroundColor: colors.white,
+    },
+
+    qrTitle: {
+      marginTop: 12,
+
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 14,
+      lineHeight: 20,
+
+      textAlign: "center",
+
+      color: colors.textPrimary,
+    },
+
+    qrDescription: {
+      maxWidth: 280,
+
+      marginTop: 3,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      lineHeight: 17,
+
+      textAlign: "center",
+
+      color: colors.textSecondary,
+    },
+
+    securityCard: {
+      width: "100%",
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      marginTop: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+
+      borderRadius: 17,
+
+      backgroundColor: colors.selectedBackground,
+    },
+
+    securityIconContainer: {
+      width: 30,
+      height: 30,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      marginRight: 10,
+
+      borderRadius: 15,
+
+      backgroundColor: colors.white,
+    },
+
+    securityText: {
+      flex: 1,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      lineHeight: 17,
+
+      color: colors.textSecondary,
+    },
+
+    successActions: {
+      width: "100%",
+
+      marginTop: 16,
+
+      gap: 9,
+    },
+
+    doneButton: {
+      minHeight: 48,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      borderRadius: 16,
+    },
+
+    doneButtonPressed: {
+      backgroundColor: colors.selectedBackground,
+    },
+
+    doneButtonDisabled: {
+      opacity: 0.5,
+    },
+
+    doneButtonText: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 14,
+      lineHeight: 20,
+
+      color: colors.primary,
     },
   });

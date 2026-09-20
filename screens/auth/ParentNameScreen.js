@@ -19,8 +19,13 @@ import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import FormField from "../../components/onboarding/FormField.js";
 import OnboardingProgressBar from "../../components/onboarding/OnboardingProgressBar.js";
-import { useDispatch } from "react-redux";
-import { setParentFirstName } from "../../store/slices/onboardingSlice.js";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  setParentFirstName,
+  setStep,
+} from "../../store/slices/onboardingSlice.js";
+import { ONBOARDING_STEPS } from "../../navigation/onboardingFlow.js";
+import { useAuth } from "../../auth/AuthProvider.js";
 
 import { onboardingColors, spacing } from "../../theme/index.js";
 const colors = onboardingColors;
@@ -33,7 +38,19 @@ export default function ParentNameScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
 
-  const [displayName, setDisplayName] = useState("");
+  const { user } = useAuth();
+
+  const storedParentFirstName = useSelector(
+    (state) => state.onboarding.parentFirstName,
+  );
+
+  /*
+   * Réhydrate le champ après une reprise d'onboarding, ou depuis le
+   * prénom déjà connu du compte.
+   */
+  const [displayName, setDisplayName] = useState(
+    () => storedParentFirstName?.trim() || user?.displayName?.trim() || "",
+  );
   const trimmedDisplayName = displayName.trim();
   const [nameError, setNameError] = useState("");
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -93,6 +110,7 @@ export default function ParentNameScreen({ navigation }) {
 
     Keyboard.dismiss();
     dispatch(setParentFirstName(trimmedDisplayName));
+    dispatch(setStep(ONBOARDING_STEPS.relationship));
     navigation.navigate("Relationship");
   }
   function handleGoBack() {

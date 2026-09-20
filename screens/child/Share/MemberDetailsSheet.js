@@ -34,6 +34,7 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
     currentUserId,
     canManageMembers = false,
     isRemoving = false,
+    onBack,
     onRemoveMember,
     onMemberRemoved,
   },
@@ -101,6 +102,19 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
     setStep("details");
   };
 
+  const handleBack = () => {
+    if (isRemoving) {
+      return;
+    }
+
+    if (step === "confirmRemove") {
+      handleCancelRemove();
+      return;
+    }
+
+    onBack?.();
+  };
+
   const handleRemoveMember = async () => {
     if (!member?.id || !canRemoveMember) {
       return;
@@ -152,6 +166,25 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
         {step === "details" ? (
           <>
             <View style={styles.memberHeader}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("Back")}
+                disabled={isRemoving}
+                hitSlop={8}
+                onPress={handleBack}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && !isRemoving && styles.backButtonPressed,
+                  isRemoving && styles.backButtonDisabled,
+                ]}
+              >
+                <Ionicons
+                  name="arrow-back"
+                  size={20}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+
               <View style={styles.avatarContainer}>
                 <Text style={styles.avatarInitial}>
                   {getInitial(member.firstName)}
@@ -264,6 +297,27 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
           </>
         ) : (
           <>
+            <View style={styles.confirmationBackRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("Back")}
+                disabled={isRemoving}
+                hitSlop={8}
+                onPress={handleBack}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && !isRemoving && styles.backButtonPressed,
+                  isRemoving && styles.backButtonDisabled,
+                ]}
+              >
+                <Ionicons
+                  name="arrow-back"
+                  size={20}
+                  color={colors.textPrimary}
+                />
+              </Pressable>
+            </View>
+
             <View style={styles.confirmationHeader}>
               <View style={styles.warningIconContainer}>
                 <Ionicons
@@ -376,7 +430,7 @@ const createStyles = (colors) =>
       alignItems: "center",
       justifyContent: "center",
 
-      marginRight: 14,
+      marginRight: 12,
 
       borderWidth: 3,
       borderColor: colors.white,
@@ -689,5 +743,36 @@ const createStyles = (colors) =>
 
     removeButtonContainer: {
       flex: 1,
+    },
+
+    backButton: {
+      width: 38,
+      height: 38,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      marginRight: 10,
+
+      borderRadius: 19,
+
+      backgroundColor: colors.selectedBackground,
+    },
+
+    backButtonPressed: {
+      opacity: 0.7,
+
+      transform: [{ scale: 0.96 }],
+    },
+
+    backButtonDisabled: {
+      opacity: 0.5,
+    },
+
+    confirmationBackRow: {
+      flexDirection: "row",
+      alignItems: "center",
+
+      paddingTop: 4,
     },
   });

@@ -26,15 +26,7 @@ function getRoleLabel(role, t) {
   return t("Viewer");
 }
 
-function MemberRow({
-  member,
-  index,
-  currentUserId,
-  onPress,
-  colors,
-  styles,
-  t,
-}) {
+function MemberRow({ member, currentUserId, onPress, colors, styles, t }) {
   const isCurrentUser = member.id === currentUserId;
 
   return (
@@ -87,13 +79,58 @@ function MemberRow({
   );
 }
 
+function PendingInvitationRow({ invitation, onPress, colors, styles, t }) {
+  const canOpenInvitation = typeof onPress === "function";
+
+  return (
+    <Pressable
+      accessibilityRole={canOpenInvitation ? "button" : undefined}
+      accessibilityLabel={invitation.email}
+      disabled={!canOpenInvitation}
+      onPress={() => onPress?.(invitation)}
+      style={({ pressed }) => [
+        styles.invitationRow,
+        pressed && styles.invitationRowPressed,
+      ]}
+    >
+      <View style={styles.invitationIconContainer}>
+        <Ionicons name="mail-unread-outline" size={21} color={colors.primary} />
+      </View>
+
+      <View style={styles.invitationInformation}>
+        <Text style={styles.invitationEmail} numberOfLines={1}>
+          {invitation.email}
+        </Text>
+
+        <View style={styles.invitationStatusRow}>
+          <View style={styles.pendingDot} />
+
+          <Text style={styles.invitationStatus} numberOfLines={1}>
+            {t("Invitation pending")}
+          </Text>
+        </View>
+      </View>
+
+      {canOpenInvitation ? (
+        <Ionicons
+          name="chevron-forward"
+          size={17}
+          color={colors.textSecondary}
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
 const ShareChildProfileSheet = forwardRef(function ShareChildProfileSheet(
   {
     childName,
     members = [],
+    pendingInvitations = [],
     currentUserId,
     canManageMembers = false,
     onPressMember,
+    onPressInvitation,
     onInviteSomeone,
   },
   ref,
@@ -104,21 +141,27 @@ const ShareChildProfileSheet = forwardRef(function ShareChildProfileSheet(
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const totalItems = members.length + pendingInvitations.length;
+
   const snapPoints = useMemo(() => {
-    if (members.length <= 1) {
+    if (totalItems <= 1) {
       return ["35%"];
     }
 
-    if (members.length === 2) {
+    if (totalItems === 2) {
       return ["43%"];
     }
 
-    if (members.length === 3) {
+    if (totalItems === 3) {
       return ["51%"];
     }
 
+    if (totalItems === 4) {
+      return ["60%"];
+    }
+
     return ["70%"];
-  }, [members.length]);
+  }, [totalItems]);
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -133,10 +176,9 @@ const ShareChildProfileSheet = forwardRef(function ShareChildProfileSheet(
     [],
   );
 
-  const renderMember = ({ item, index }) => (
+  const renderMember = ({ item }) => (
     <MemberRow
       member={item}
-      index={index}
       currentUserId={currentUserId}
       onPress={onPressMember}
       colors={colors}
@@ -144,6 +186,29 @@ const ShareChildProfileSheet = forwardRef(function ShareChildProfileSheet(
       t={t}
     />
   );
+
+  const renderPendingInvitations = () => {
+    if (pendingInvitations.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.pendingSection}>
+        <Text style={styles.sectionTitle}>{t("Pending invitations")}</Text>
+
+        {pendingInvitations.map((invitation) => (
+          <PendingInvitationRow
+            key={invitation.id}
+            invitation={invitation}
+            onPress={onPressInvitation}
+            colors={colors}
+            styles={styles}
+            t={t}
+          />
+        ))}
+      </View>
+    );
+  };
 
   const handleInviteSomeone = () => {
     ref?.current?.dismiss();
@@ -177,6 +242,12 @@ const ShareChildProfileSheet = forwardRef(function ShareChildProfileSheet(
           renderItem={renderMember}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            members.length > 0 ? (
+              <Text style={styles.sectionTitle}>{t("People with access")}</Text>
+            ) : null
+          }
+          ListFooterComponent={renderPendingInvitations}
         />
 
         {canManageMembers ? (
@@ -268,6 +339,21 @@ const createStyles = (colors) =>
       lineHeight: 28,
 
       color: colors.textPrimary,
+    },
+
+    sectionTitle: {
+      marginTop: 4,
+      marginBottom: 8,
+      paddingHorizontal: 3,
+
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 11,
+      lineHeight: 16,
+
+      color: colors.textSecondary,
+
+      textTransform: "uppercase",
+      letterSpacing: 0.7,
     },
 
     listContent: {
@@ -376,6 +462,92 @@ const createStyles = (colors) =>
       gap: 8,
 
       marginLeft: 10,
+    },
+
+    pendingSection: {
+      marginTop: 8,
+    },
+
+    invitationRow: {
+      minHeight: 68,
+
+      flexDirection: "row",
+      alignItems: "center",
+
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      marginBottom: 7,
+
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 20,
+
+      backgroundColor: colors.white,
+    },
+
+    invitationRowPressed: {
+      backgroundColor: colors.selectedBackground,
+
+      transform: [{ scale: 0.985 }],
+    },
+
+    invitationIconContainer: {
+      width: 46,
+      height: 46,
+
+      alignItems: "center",
+      justifyContent: "center",
+
+      marginRight: 12,
+
+      borderWidth: 1.5,
+      borderStyle: "dashed",
+      borderColor: colors.primary,
+      borderRadius: 23,
+
+      backgroundColor: colors.selectedBackground,
+    },
+
+    invitationInformation: {
+      flex: 1,
+
+      minWidth: 0,
+    },
+
+    invitationEmail: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      lineHeight: 19,
+
+      color: colors.textPrimary,
+    },
+
+    invitationStatusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+
+      marginTop: 3,
+    },
+
+    pendingDot: {
+      width: 6,
+      height: 6,
+
+      marginRight: 6,
+
+      borderRadius: 3,
+
+      backgroundColor: colors.primary,
+    },
+
+    invitationStatus: {
+      flexShrink: 1,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 11,
+      lineHeight: 16,
+
+      color: colors.textSecondary,
     },
 
     footer: {

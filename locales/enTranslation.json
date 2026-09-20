@@ -131,35 +131,28 @@
   "Open notifications": "Open notifications",
   "Child age in months_one": "{{count}} month",
   "Child age in months_other": "{{count}} months",
-
   "Ask Nelo a question": "Ask Nelo a question",
   "Ask Nelo placeholder": "Ask Nelo a question…",
   "Ask Nelo with voice": "Ask Nelo a question with your voice",
-
   "Daily summary": "Daily summary",
   "Updated at": "Updated at {{time}}",
   "Refresh daily summary": "Refresh daily summary",
-
   "Bottles": "Bottles",
   "Sleep": "Sleep",
   "Diapers": "Diapers",
   "Meals": "Meals",
   "Mood": "Mood",
-
   "Sleep duration": "{{hours}} h {{minutes}}",
   "Mood good": "Good",
   "Mood neutral": "Neutral",
   "Mood bad": "Difficult",
-
   "Next nap": "Next nap",
   "In minutes_one": "In {{count}} min",
   "In minutes_other": "In {{count}} min",
   "Ideal window": "Ideal window",
   "Open next nap details": "Open next nap details",
-
   "A little note for today": "A little note for today",
   "Open daily message": "Open daily message",
-
   "Months ago_one": "{{count}} month ago…",
   "Months ago_other": "{{count}} months ago…",
   "View memory": "View memory",
@@ -171,16 +164,13 @@
   "Describe what just happened and Nelo will record it": "Describe what just happened and Nelo will record it.",
   "Describe what child just did and Nelo handles the rest": "Describe what {{childName}} just did and Nelo will handle the rest.",
   "New": "New",
-
   "Daily tracking": "Daily tracking",
   "Feeding": "Feeding",
   "Bottle breastfeeding meals and water": "Bottle, breastfeeding, meals and water",
   "Nap and night sleep": "Naps and nighttime sleep",
   "Diaper": "Diaper",
   "Wet dirty or both": "Wet, dirty or both",
-
   "Mood and emotions": "Mood and emotions",
-
   "Health": "Health",
   "Medication": "Medication",
   "Medication and care": "Medication and care",
@@ -190,7 +180,6 @@
   "Cough cold fever and more": "Cough, cold, fever and more",
   "Teething": "Teething",
   "Teething progress": "Teething progress",
-
   "Growth and memories": "Growth and memories",
   "Growth": "Growth",
   "Weight height and measurements": "Weight, height and measurements",
@@ -200,37 +189,29 @@
   "Write a free note": "Write a free note",
   "More tracking options": "More",
   "See all tracking options": "See other tracking options",
-
   "You can edit or delete a tracking entry later": "You can edit or delete a tracking entry later.",
   "Talk to Nelo": "Talk to Nelo",
   "Hold to talk": "Hold to talk",
-
   "Not specified": "Not specified",
-
   "Change child picture": "Change child picture",
   "Edit child profile": "Edit child profile",
-
   "Latest measurements": "Latest measurements",
   "View growth": "View growth",
   "Current weight": "Current weight",
   "Current height": "Current height",
   "Head circumference": "Head circumference",
-
   "Child preferences": "{{childName}}'s preferences",
   "Child theme": "{{childName}}'s theme",
   "Theme blue": "Blue",
   "Theme pink": "Pink",
   "Theme green": "Green",
-
   "Main feeding type": "Main feeding type",
   "Mixed feeding": "Mixed",
   "Bottle feeding": "Bottle",
   "Breastfeeding": "Breastfeeding",
-
   "Share child profile": "Share {{childName}}'s profile",
   "Shared people count_one": "{{count}} person",
   "Shared people count_other": "{{count}} people",
-
   "Application settings": "Application settings",
   "Notifications": "Notifications",
   "Language": "Language",
@@ -240,13 +221,11 @@
   "Privacy": "Privacy",
   "Subscription": "Subscription",
   "Premium": "Premium",
-
   "Account": "Account",
   "My account": "My account",
   "Security": "Security",
   "Help center": "Help center",
   "Log out": "Log out",
-
   "App version": "Nelo v{{version}}",
   "Switch child profile": "Changer de profil enfant",
   "Tracking preferences": "Tracking preferences",
@@ -327,28 +306,23 @@
   "General": "General",
   "Allow notifications": "Allow notifications",
   "Receive useful updates and reminders from Nelo": "Receive useful updates and reminders from Nelo.",
-
   "Child tracking": "Child tracking",
   "Choose which reminders you want to receive about your child's activity": "Choose which reminders you want to receive about your child's activity.",
   "Tracking reminders": "Tracking reminders",
   "Receive a gentle reminder when no activity has been recorded for a while": "Receive a gentle reminder when no activity has been recorded for a while.",
-
   "Nelo messages": "Nelo messages",
   "Receive occasional content adapted to your child's age": "Receive occasional content tailored to your child's age.",
   "Daily Nelo message": "Daily Nelo message",
   "Receive an occasional practical tip or reassuring message": "Receive an occasional practical tip or reassuring message.",
-
   "Family and sharing": "Family & sharing",
   "Stay informed about important changes to shared profiles": "Stay informed about important changes to shared profiles.",
   "Invitation accepted": "Invitation accepted",
   "Be notified when someone joins a child profile you shared": "Be notified when someone joins a child profile you've shared.",
   "Important shared activity": "Important shared activity",
   "Be notified when another member adds important information": "Be notified when another member adds important information.",
-
   "Notifications are disabled on this device": "Notifications are disabled on this device.",
   "Enable notifications in your phone settings to receive updates from Nelo": "Enable notifications in your device settings to receive updates from Nelo.",
   "Open settings": "Open settings",
-
   "Nelo will not notify you for every bottle diaper or tracking entry": "Nelo won't notify you about every bottle, diaper change, or tracking entry.",
   "Receive notifications from Nelo": "Receive notifications from Nelo.",
   "Remind me if I have not logged anything for a while": "Remind me if I haven't logged anything for a while.",
@@ -378,7 +352,6 @@
   "Privacy and data": "Privacy & data",
   "Your family data is private": "Your family data is private",
   "Only people you explicitly invite can access your child profile": "Only people you explicitly invite can access your child's profile.",
-
   "Data and diagnostics": "Data & diagnostics",
   "Usage analytics": "Usage analytics",
   "Help improve Nelo with anonymous usage statistics": "Help improve Nelo with anonymous usage statistics.",
@@ -386,13 +359,11 @@
   "Automatically send reports when an unexpected error occurs": "Automatically send reports when an unexpected error occurs.",
   "Improve AI responses": "Improve AI responses",
   "Allow anonymous questions to help improve future responses": "Allow anonymous questions to help improve future responses.",
-
   "Your data": "Your data",
   "Export your data": "Export your data",
   "Download the information associated with your account": "Download the information associated with your account.",
   "Delete account": "Delete account",
   "Permanently delete your account and associated data": "Permanently delete your account and associated data.",
-
   "You remain in control of your information and privacy preferences": "You remain in control of your information and privacy preferences.",
   "Privacy preference updated": "Privacy preference updated",
   "Your preference has been saved": "Your preference has been saved.",
@@ -405,14 +376,12 @@
   "Everything you need to support your parenting journey": "Everything you need to support your parenting journey.",
   "Welcome to Nelo Premium": "Welcome to Nelo Premium",
   "Enjoy all Premium features without limits": "Enjoy all Premium features without limits.",
-
   "Yearly": "Yearly",
   "Monthly": "Monthly",
   "per year": "per year",
   "per month": "per month",
   "Best value": "Best value",
   "Save 33 percent": "Save 33%",
-
   "Everything included": "Everything included",
   "Unlimited AI Copilot": "Unlimited AI Copilot",
   "Unlimited voice tracking": "Unlimited voice tracking",
@@ -420,19 +389,16 @@
   "Advanced sleep insights": "Advanced sleep insights",
   "Personalized recommendations": "Personalized recommendations",
   "Future Premium features included": "Future Premium features included",
-
   "Continue with selected plan": "Continue with {{plan}}",
   "Restore purchases": "Restore purchases",
   "Restoring purchases": "Restoring purchases...",
   "Subscriptions are managed by Apple or Google and can be cancelled at any time": "Subscriptions are managed by Apple or Google and can be cancelled at any time.",
-
   "Subscription purchase": "Subscription purchase",
   "The store purchase screen will open here": "The store purchase screen will open here.",
   "Unable to start purchase": "Unable to start purchase",
   "Purchases restored": "Purchases restored",
   "Your previous purchases have been checked": "Your previous purchases have been checked.",
   "Unable to restore purchases": "Unable to restore purchases",
-
   "Your subscription is active": "Your subscription is active",
   "Current plan": "Current plan",
   "Renews on": "Renews on",
@@ -442,10 +408,6 @@
   "Manage your personal information and account": "Manage your personal information and account.",
   "Personal information": "Personal information",
   "First name": "First name",
-  "Email address": "Email address",
-  "Danger zone": "Danger zone",
-  "Delete account": "Delete account",
-
   "Edit first name": "Edit first name",
   "This name will be displayed throughout Nelo": "This name will be displayed throughout Nelo.",
   "First name is required": "First name is required.",
@@ -453,7 +415,6 @@
   "Save changes": "Save changes",
   "First name updated": "First name updated",
   "Your first name is now first name": "Your first name is now {{firstName}}.",
-
   "Change email address": "Change email address",
   "We will send a verification code to your new email address": "We'll send a verification code to your new email address.",
   "Current email": "Current email",
@@ -461,7 +422,6 @@
   "Enter a different email address": "Enter an email address different from your current one.",
   "Send verification code": "Send verification code",
   "Unable to send verification code": "Unable to send the verification code. Please try again.",
-
   "Verify your new email": "Verify your new email",
   "Enter the verification code sent to email": "Enter the verification code sent to {{email}}.",
   "Verification code": "Verification code",
@@ -471,7 +431,6 @@
   "Verify email": "Verify email",
   "Email address updated": "Email address updated",
   "Your new email address is email": "Your email address is now {{email}}.",
-
   "Delete your account": "Delete your account",
   "Deleting your account will permanently remove all associated information": "Deleting your account will permanently remove all associated information.",
   "Child profiles": "Child profiles",
@@ -563,7 +522,6 @@
   "Write down a small memory or anecdote": "Write down a small memory or anecdote.",
   "Milestone": "Milestone",
   "Save an important first or achievement": "Save an important first or achievement.",
-
   "Add photos": "Add photos",
   "Save photos and the story behind them": "Save photos and the story behind them",
   "Add a note": "Add a note",
@@ -691,7 +649,6 @@
   "Apply filters": "Apply filters",
   "Moment happened on date at time": "{{date}} at {{time}}",
   "Child was age when added by author": "{{childName}} was {{childAge}} · By {{authorName}}",
-
   "Create a memory card": "Create a memory card",
   "Share this moment with family and friends": "Share this moment with family and friends",
   "Modern": "Moderne",
@@ -741,7 +698,6 @@
   "Yogurt": "Yogurt",
   "Sweet potato": "Sweet potato",
   "Zucchini": "Zucchini",
-
   "Add a food": "Add a food",
   "Search for the food baby ate": "Search for the food your baby ate.",
   "Search for a food": "Search for a food",
@@ -749,13 +705,11 @@
   "You can add this food yourself": "You can add this food yourself.",
   "Add \"{{foodName}}\"": "Add \"{{foodName}}\"",
   "Create a custom food": "Create a custom food",
-
   "Food details": "Food details",
   "Quantity is optional": "Quantity is optional",
   "Quick quantity": "Quick quantity",
   "Precise quantity": "Precise quantity",
   "Add this food": "Add this food",
-
   "Piece": "Piece",
   "piece": "piece",
   "Teaspoon": "Teaspoon",
@@ -1065,14 +1019,12 @@
   "Child's mood was saved successfully": "{{childName}}’s mood was saved successfully.",
   "Medicine": "Medicine",
   "Vaccine": "Vaccine",
-
   "Add medication": "Add medication",
   "Add a vaccine": "Add a vaccine",
   "Record medication given to child": "Record medication given to {{childName}}",
   "Keep child vaccination history up to date": "Keep {{childName}}'s vaccination history up to date",
   "Save medication": "Save medication",
   "Save vaccine": "Save vaccine",
-
   "Which medication was given?": "Which medication was given?",
   "Enter the exact name shown on the medication": "Enter the exact name shown on the medication",
   "Recently used": "Recently used",
@@ -1084,7 +1036,6 @@
   "Suppository": "Suppository",
   "Dose": "Dose",
   "Nelo records the amount you enter and does not recommend a dosage": "Nelo records the amount you enter and does not recommend a dosage.",
-
   "Which vaccine was given?": "Which vaccine was given?",
   "Enter the name written in the child health record": "Enter the name written in the child's health record",
   "Vaccine name": "Vaccine name",
@@ -1097,7 +1048,6 @@
   "Add a date if one was provided": "Add a date if one was provided",
   "Add photo": "Add photo",
   "Change photo": "Change photo",
-
   "Medication saved": "Medication saved",
   "Child's medication was saved successfully": "{{childName}}'s medication was saved successfully.",
   "Vaccine saved": "Vaccine saved",
@@ -1108,11 +1058,9 @@
   "Add an optional detail about this medication": "Add an optional detail about this medication",
   "For example, how it was taken or any reaction observed": "For example, how it was taken or any reaction observed",
   "Feeding note": "Feeding note",
-
   "Diaper note": "Diaper note",
   "Add an optional detail about this diaper": "Add an optional detail about this diaper.",
   "For example, unusual color, irritation or discomfort": "For example, unusual color, irritation or discomfort.",
-
   "Potty note": "Potty note",
   "Add an optional detail about this potty time": "Add an optional detail about this potty time.",
   "For example, urgency, discomfort or difficulty": "For example, urgency, discomfort or difficulty.",
@@ -1124,7 +1072,6 @@
   "No medication found": "No medication found.",
   "Add a new medication": "Add a new medication",
   "This medication will be added to your list": "This medication will be added to your list.",
-
   "Paracetamol": "Paracetamol",
   "Ibuprofen": "Ibuprofen",
   "Amoxicillin": "Amoxicillin",
@@ -1146,7 +1093,6 @@
   "Macrogol": "Macrogol",
   "Vitamin D": "Vitamin D",
   "Iron supplement": "Iron supplement",
-
   "Pain and fever": "Pain and fever",
   "Antibiotic": "Antibiotic",
   "Allergy": "Allergy",
@@ -1171,9 +1117,7 @@
   "Rename or delete this medication": "Rename or delete this medication",
   "A medication with this name already exists": "A medication with this name already exists",
   "Delete this medication": "Delete this medication",
-
   "Search results": "Search results",
-
   "Choose a vaccine": "Choose a vaccine",
   "Search for a vaccine": "Search for a vaccine",
   "Search by vaccine or brand name": "Search by vaccine or brand name",
@@ -1191,7 +1135,6 @@
   "A vaccine with this name already exists": "A vaccine with this name already exists",
   "Delete custom vaccine": "Delete custom vaccine",
   "This vaccine will no longer appear in your list. Previously recorded entries will not be deleted.": "This vaccine will no longer appear in your list. Previously recorded entries will not be deleted.",
-
   "Hexavalent vaccine (diphtheria, tetanus, pertussis, polio, Hib and hepatitis B)": "Hexavalent vaccine (diphtheria, tetanus, pertussis, polio, Hib and hepatitis B)",
   "Pneumococcal conjugate vaccine": "Pneumococcal conjugate vaccine",
   "Rotavirus vaccine": "Rotavirus vaccine",
@@ -1204,21 +1147,18 @@
   "Influenza vaccine": "Influenza vaccine",
   "Hepatitis B vaccine": "Hepatitis B vaccine",
   "BCG vaccine against tuberculosis": "BCG vaccine against tuberculosis",
-
   "Search vaccine": "Search vaccine",
   "Change vaccine": "Change vaccine",
   "Now": "Now",
   "Choose a date": "Choose a date",
   "Date and time": "Date and time",
   "Clear": "Clear",
-
   "Add note or photo": "Add note or photo",
   "Edit note or photo": "Edit note or photo",
   "Note or photo added": "Note or photo added",
   "Add an optional note or a photo": "Add an optional note or a photo",
   "Note and photo added": "Note and photo added",
   "Photo added": "Photo added",
-
   "Vaccine details": "Vaccine details",
   "Add an optional note or photo for this vaccine": "Add an optional note or photo for this vaccine",
   "For example, reaction observed after vaccination": "For example, reaction observed after vaccination",
@@ -1226,7 +1166,6 @@
   "Replace photo": "Replace photo",
   "Replace": "Replace",
   "Remove note and photo": "Remove note and photo",
-
   "Routine childhood vaccine": "Routine childhood vaccine",
   "Additional childhood vaccine": "Additional childhood vaccine",
   "Childhood vaccine": "Childhood vaccine",
@@ -1271,14 +1210,12 @@
   "Save symptoms": "Save symptoms",
   "Add teething": "Add teething",
   "Select the teeth that have appeared.": "Select the teeth that have appeared.",
-
   "Teething note": "Teething note",
   "Add an optional detail about these new teeth": "Add an optional detail about these new teeth.",
   "For example, when you first noticed them": "For example, when you first noticed them.",
   "Save teething": "Save teething",
   "Teething saved": "Teething saved",
   "Child's teething was saved successfully": "{{childName}}'s teething was saved successfully.",
-
   "Add growth": "Add growth",
   "Record one or more measurements": "Record one or more measurements.",
   "Previous measurement value": "Previous: {{value}} {{unit}}",
@@ -1335,7 +1272,6 @@
   "By tracking": "By tracking",
   "Previous day": "Previous day.",
   "Next day": "Next day.",
-
   "Close date picker": "Close date picker.",
   "Edit entry": "Edit entry",
   "The editing form will open here.": "The editing form will open here.",
@@ -1356,10 +1292,8 @@
   "Edit potty time": "Edit potty time",
   "Update child's diaper change": "Update {{childName}}'s diaper change.",
   "Update child's potty time": "Update {{childName}}'s potty time.",
-
   "Diaper updated": "Diaper updated",
   "Child's diaper change was updated successfully": "{{childName}}'s diaper change was updated successfully.",
-
   "Potty time updated": "Potty time updated",
   "Child's potty time was updated successfully": "{{childName}}'s potty time was updated successfully.",
   "Edit mood": "Edit mood",
@@ -1369,7 +1303,6 @@
   "Edit sleep": "Edit sleep",
   "Update the sleep period and details": "Update the sleep period and details.",
   "This tracking entry will be permanently deleted.": "This tracking entry will be permanently deleted.",
-
   "Sleep note": "Sleep note",
   "Add an optional detail about this sleep": "Add an optional detail about this sleep.",
   "For example, wake-ups, restlessness or unusual sleep": "For example, wake-ups, restlessness or unusual sleep",
@@ -1405,7 +1338,6 @@
   "Latest entry": "Latest entry",
   "No entries yet": "No entries yet",
   "The entries recorded for this tracking type will appear here.": "The entries recorded for this tracking type will appear here.",
-
   "Tracking entry": "Tracking entry",
   "New tooth": "New tooth",
   "Dose {{doseNumber}}": "Dose {{doseNumber}}",
@@ -1495,41 +1427,33 @@
   "Confirm period": "Confirm period",
   "The start date must be before the end date.": "The start date must be before the end date.",
   "The selected period cannot exceed {{count}} days.": "The selected period cannot exceed {{count}} days.",
-  "Next nap": "Next nap",
   "Bedtime": "Bedtime",
   "In about {{count}} minutes": "In about {{count}} minutes",
   "The ideal window starts now": "The ideal window starts now",
   "Start the sleep routine around {{time}}": "Start the sleep routine around {{time}}",
   "Start the bedtime routine around {{time}}": "Start the bedtime routine around {{time}}",
-
   "Why this estimate?": "Why this estimate?",
   "Awake for {{duration}}": "Awake for {{duration}}",
   "Last nap lasted {{duration}}": "Last nap lasted {{duration}}",
   "Usual wake window: {{minimum}}–{{maximum}}": "Usual wake window: {{minimum}}–{{maximum}}",
   "Daytime sleep: {{duration}}": "Daytime sleep: {{duration}}",
   "Usual bedtime: {{time}}": "Usual bedtime: {{time}}",
-
   "High confidence": "High confidence",
   "Good estimate": "Good estimate",
   "Early estimate": "Early estimate",
-
   "Nelo's advice": "Nelo's advice",
   "Reduce stimulation and watch for early signs of tiredness.": "Reduce stimulation and watch for early signs of tiredness.",
   "Dim the lights and begin the usual bedtime routine.": "Dim the lights and begin the usual bedtime routine.",
   "The last nap was short, so tiredness may appear a little earlier.": "The last nap was short, so tiredness may appear a little earlier.",
   "Watch for yawning, eye rubbing or a sudden change in mood.": "Watch for yawning, eye rubbing or a sudden change in mood.",
-
   "This estimate will adjust as new sleep is recorded. Always follow your baby's signs of tiredness first.": "This estimate will adjust as new sleep is recorded. Always follow your baby's signs of tiredness first.",
-
   "Start sleep": "Start sleep",
   "Adjust time": "Adjust time",
   "Adjust the suggested sleep time": "Adjust the suggested sleep time",
-
   "{{count}} min": "{{count}} min",
   "{{count}} h": "{{count}} hr",
   "{{hours}} h {{minutes}} min": "{{hours}} hr {{minutes}} min",
   "Synced at {{time}}": "Synced at {{time}}",
-
   "View history": "View history",
   "View feeding history": "View feeding history",
   "View sleep history": "View sleep history",
@@ -1549,7 +1473,6 @@
   "Ou": "Or",
   "J’ai été invité à rejoindre un enfant": "I’ve been invited to join an existing child profile",
   "Retrouver une invitation envoyée par un proche.": "Find an invitation sent by someone close to you.",
-
   "this child": "this child",
   "What is your relationship with {{childName}}?": "What is your relationship with {{childName}}?",
   "This helps Nelo personalize your experience and how it speaks to you.": "This helps Nelo personalize your experience and how it speaks to you.",
@@ -1611,5 +1534,65 @@
   "Feeding preferences not updated": "Feeding preferences not updated",
   "Unable to refresh child profile": "Unable to refresh child profile",
   "Check your internet connection and try again.": "Check your internet connection and try again.",
-  "Unable to refresh tracking data": "Unable to refresh tracking data"
+  "Unable to refresh tracking data": "Unable to refresh tracking data",
+  "Invitation link is missing": "Invitation link is missing.",
+  "Join child profile on Nelo": "Join {{childName}}’s profile on Nelo",
+  "Child profile invitation sharing message": "You have been invited to join {{childName}}’s profile on Nelo: {{inviteUrl}}",
+  "Scan to join child profile": "Scan to join {{childName}}’s profile",
+  "Ask the invited person to scan this QR code": "Ask the invited person to scan this QR code with their phone.",
+  "Invitation intended for email": "This invitation is intended for {{email}}.",
+  "Share invitation": "Share invitation",
+  "People with access": "People with access",
+  "Pending invitations": "Pending invitations",
+  "Invitation pending": "Invitation pending",
+  "An internet connection is required to send an invitation": "An internet connection is required to send an invitation.",
+  "Invitation sent for child profile to": "Invitation sent for child profile to",
+  "Invitation pending for child profile": "The invitation to {{childName}}’s profile has not been accepted yet.",
+  "Expiration date": "Expiration date",
+  "Expiration date unavailable": "Expiration date unavailable",
+  "Waiting for invited person to accept": "Waiting for the invited person to accept the invitation.",
+  "Resend invitation": "Resend invitation",
+  "Cancel invitation": "Cancel invitation",
+  "Cancel invitation confirmation message": "Cancel the invitation sent to {{email}} for {{childName}}’s profile?",
+  "Cancelled invitation link will no longer work": "The invitation link will stop working immediately.",
+  "Confirm invitation cancellation": "Confirm invitation cancellation",
+  "Keep invitation": "Keep invitation",
+  "Your session has expired. Please sign in again.": "Your session has expired. Please sign in again.",
+  "Your session has expired": "Your session has expired.",
+  "Invitation resent": "Invitation resent",
+  "A new invitation was sent to email": "A new invitation was sent to {{email}}.",
+  "Unable to resend invitation": "Unable to resend the invitation.",
+  "Invitation cancelled": "Invitation cancelled",
+  "Invitation for email was cancelled": "The invitation for {{email}} was cancelled.",
+  "Unable to cancel invitation": "Unable to cancel the invitation.",
+  "An unexpected error occurred": "An unexpected error occurred.",
+  "Unable to load sharing information": "Unable to load sharing information.",
+  "No invitation found": "No invitation found",
+  "We could not find an active invitation for this email address.": "We could not find an active invitation for this email address.",
+  "Make sure you signed in with the same email address that received the invitation.": "Make sure you signed in with the same email address that received the invitation.",
+  "Try again": "Try again",
+  "Continue to Nelo": "Continue to Nelo",
+  "Create a child profile instead": "Create a child profile instead",
+  "Everything is ready": "Everything is ready",
+  "Join {{childName}} on Nelo": "Join {{childName}} on Nelo",
+  "Once you join, you will be able to follow and share this child's daily moments.": "Once you join, you will be able to follow and share this child's daily moments.",
+  "Join child profile": "Join child profile",
+  "This invitation has expired. Ask the profile owner to send a new invitation.": "This invitation has expired. Ask the profile owner to send a new invitation.",
+  "This invitation has been cancelled.": "This invitation has been cancelled.",
+  "This invitation was sent to another email address.": "This invitation was sent to another email address.",
+  "Unable to join the child profile. Please try again.": "Unable to join the child profile. Please try again.",
+  "Invited by {{inviterName}}": "Invited by {{inviterName}}",
+  "Your relationship with the child will be added to their profile.": "Your relationship with the child will be added to their profile.",
+  "This invitation is private and secure.": "This invitation is private and secure.",
+  "Invitation check": "Invitation check",
+  "Check your email address": "Check your email address",
+  "No active invitation was found for this email address.": "No active invitation was found for this email address.",
+  "We could not check your invitations. Please try again.": "We could not check your invitations. Please try again.",
+  "You can also ask the profile owner to send you a new invitation.": "You can also ask the profile owner to send you a new invitation.",
+  "Signing out...": "Signing out...",
+  "Unable to sign out. Please try again.": "Unable to sign out. Please try again.",
+  "Some information is still missing to create the profile.": "Some information is still missing to create the profile.",
+  "Complete my information": "Complete my information",
+  "Please enter your preferred name before joining.": "Please enter your preferred name before joining.",
+  "Please choose your relationship with the child before joining.": "Please choose your relationship with the child before joining."
 }
