@@ -27,6 +27,9 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import useCustomProductActions from "./useCustomProductActions.js";
+
 import {
   VACCINES,
   normalizeVaccineSearch,
@@ -72,7 +75,35 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
   const [search, setSearch] = useState("");
   const [customName, setCustomName] = useState("");
   const [editingVaccine, setEditingVaccine] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
+
+  const { isSaving, busyRef, saveProduct, confirmArchive } =
+    useCustomProductActions({
+      onSave: onSaveCustomVaccine,
+      onArchive: onDeleteCustomVaccine,
+
+      onSaved: (vaccine) => {
+        Keyboard.dismiss();
+        modalRef.current?.dismiss();
+
+        onSelectVaccine?.({
+          ...vaccine,
+          translationKey: null,
+          category: null,
+          isCustom: true,
+        });
+      },
+
+      onArchived: () => {
+        setEditingVaccine(null);
+        setCustomName("");
+        setSearch("");
+        setStep("search");
+      },
+
+      deleteTitle: "Delete custom vaccine",
+      deleteDescription:
+        "This vaccine will no longer appear in your list. Previously recorded entries will not be deleted.",
+    });
 
   const currentLanguage =
     i18n.resolvedLanguage?.toLowerCase().split("-")[0] ??
@@ -115,33 +146,36 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
   );
 
   const suggestedVaccines = useMemo(() => {
-    const recentIds = new Set(
-      recentVaccines
-        .map((vaccine) => vaccine.id ?? vaccine.vaccineId)
-        .filter(Boolean),
-    );
+    const results = [];
+    const seen = new Set();
 
-    const recentNames = new Set(
-      recentVaccines
-        .map((vaccine) =>
-          normalizeVaccineSearch(vaccine.name ?? vaccine.vaccineName ?? ""),
-        )
-        .filter(Boolean),
-    );
+    for (const recent of recentVaccines) {
+      const product = allVaccines.find(
+        (item) => item.id === recent.id && item.isCustom === recent.isCustom,
+      );
 
-    const recentResults = allVaccines.filter(
-      (vaccine) =>
-        recentIds.has(vaccine.id) ||
-        recentNames.has(normalizeVaccineSearch(vaccine.name)),
-    );
+      if (!product) {
+        continue;
+      }
 
-    const recentResultIds = new Set(recentResults.map((vaccine) => vaccine.id));
+      const key = `${product.isCustom ? "custom" : "catalog"}:${product.id}`;
 
-    const remainingVaccines = allVaccines.filter(
-      (vaccine) => !recentResultIds.has(vaccine.id),
-    );
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(product);
+      }
+    }
 
-    return [...recentResults, ...remainingVaccines].slice(0, 6);
+    for (const product of allVaccines) {
+      const key = `${product.isCustom ? "custom" : "catalog"}:${product.id}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(product);
+      }
+    }
+
+    return results.slice(0, 6);
   }, [allVaccines, recentVaccines]);
 
   const filteredVaccines = useMemo(() => {
@@ -205,7 +239,10 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
   }, [allVaccines, editingVaccine?.id, trimmedCustomName]);
 
   const canSaveCustomVaccine =
-    trimmedCustomName.length > 0 && !duplicateCustomVaccine && !isSaving;
+    trimmedCustomName.length > 0 &&
+    trimmedCustomName.length <= 150 &&
+    !duplicateCustomVaccine &&
+    !isSaving;
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -213,11 +250,11 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const resetSheet = useCallback(() => {
@@ -225,7 +262,6 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
     setSearch("");
     setCustomName("");
     setEditingVaccine(null);
-    setIsSaving(false);
   }, []);
 
   const dismissSheet = useCallback(() => {
@@ -237,6 +273,10 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
     ref,
     () => ({
       present() {
+        if (busyRef.current) {
+          return;
+        }
+
         resetSheet();
         modalRef.current?.present();
 
@@ -246,6 +286,10 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
       },
 
       presentEdit(vaccine) {
+        if (busyRef.current) {
+          return;
+        }
+
         if (!vaccine?.isCustom) {
           return;
         }
@@ -263,6 +307,9 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
       },
 
       dismiss() {
+        if (busyRef.current) {
+          return;
+        }
         dismissSheet();
       },
     }),
@@ -309,6 +356,10 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
   );
 
   const closeCustomVaccineForm = useCallback(() => {
+    if (busyRef.current) {
+      return;
+    }
+
     Keyboard.dismiss();
 
     setStep("search");
@@ -320,109 +371,20 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
     }, 150);
   }, []);
 
-  /*
-   * Le vaccin n’est envoyé au champ principal
-   * qu’après validation avec le PrimaryButton.
-   */
-  const handleSaveCustomVaccine = useCallback(async () => {
-    const name = customName.trim();
-
-    if (!name || duplicateCustomVaccine || isSaving) {
+  const handleSaveCustomVaccine = async () => {
+    if (busyRef.current || duplicateCustomVaccine) {
       return;
     }
 
-    const now = new Date().toISOString();
+    await saveProduct({
+      ...(editingVaccine ?? {}),
+      name: customName,
+    });
+  };
 
-    const vaccine = editingVaccine
-      ? {
-          ...editingVaccine,
-          name,
-          translationKey: null,
-          category: null,
-          isCustom: true,
-          updatedAt: now,
-          deletedAt: null,
-        }
-      : {
-          id: createCustomVaccineId(),
-          name,
-          translationKey: null,
-          category: null,
-          isCustom: true,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        };
-
-    try {
-      setIsSaving(true);
-
-      await onSaveCustomVaccine?.(vaccine);
-
-      onSelectVaccine?.({
-        id: vaccine.id,
-        name: vaccine.name,
-        translationKey: null,
-        category: null,
-        isCustom: true,
-      });
-
-      dismissSheet();
-    } finally {
-      setIsSaving(false);
-    }
-  }, [
-    customName,
-    dismissSheet,
-    duplicateCustomVaccine,
-    editingVaccine,
-    isSaving,
-    onSaveCustomVaccine,
-    onSelectVaccine,
-  ]);
-
-  const handleDeleteCustomVaccine = useCallback(() => {
-    if (!editingVaccine) {
-      return;
-    }
-
-    Keyboard.dismiss();
-
-    Alert.alert(
-      t("Delete custom vaccine"),
-      t(
-        "This vaccine will no longer appear in your list. Previously recorded entries will not be deleted.",
-      ),
-      [
-        {
-          text: t("Cancel"),
-          style: "cancel",
-        },
-        {
-          text: t("Delete"),
-          style: "destructive",
-          onPress: async () => {
-            const deletedVaccine = {
-              ...editingVaccine,
-              isCustom: true,
-              deletedAt: new Date().toISOString(),
-            };
-
-            await onDeleteCustomVaccine?.(deletedVaccine);
-
-            setEditingVaccine(null);
-            setCustomName("");
-            setSearch("");
-            setStep("search");
-
-            setTimeout(() => {
-              searchInputRef.current?.focus();
-            }, 150);
-          },
-        },
-      ],
-    );
-  }, [editingVaccine, onDeleteCustomVaccine, t]);
+  const handleDeleteCustomVaccine = () => {
+    confirmArchive(editingVaccine);
+  };
 
   const renderVaccine = useCallback(
     ({ item }) => (
@@ -500,7 +462,7 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
         step === "search" ? searchMaxContentHeight : undefined
       }
       stackBehavior="push"
-      enablePanDownToClose
+      enablePanDownToClose={!isSaving}
       backdropComponent={renderBackdrop}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
@@ -664,6 +626,8 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
               <BottomSheetTextInput
                 ref={customNameInputRef}
                 value={customName}
+                editable={!isSaving}
+                maxLength={150}
                 onChangeText={setCustomName}
                 placeholder={t("Vaccine name")}
                 placeholderTextColor={colors.textSecondary}
@@ -684,6 +648,7 @@ const VaccinePickerSheet = forwardRef(function VaccinePickerSheet(
                   accessibilityRole="button"
                   accessibilityLabel={t("Clear vaccine name")}
                   hitSlop={8}
+                  disabled={isSaving}
                   onPress={() => {
                     setCustomName("");
 

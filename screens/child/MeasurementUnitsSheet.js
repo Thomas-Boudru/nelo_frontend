@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useMemo, useState } from "react";
+import { forwardRef, useCallback, useMemo, useState, useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
@@ -60,6 +60,24 @@ const UNIT_GROUPS = [
         id: "fahrenheit",
         label: "°F",
         accessibilityLabelKey: "Fahrenheit",
+      },
+    ],
+  },
+
+  {
+    id: "volume",
+    titleKey: "Volume",
+    icon: "water-outline",
+    options: [
+      {
+        id: "ml",
+        label: "ml",
+        accessibilityLabelKey: "Milliliters",
+      },
+      {
+        id: "fl_oz",
+        label: "fl oz",
+        accessibilityLabelKey: "US fluid ounces",
       },
     ],
   },
@@ -170,6 +188,7 @@ const MeasurementUnitsSheet = forwardRef(function MeasurementUnitsSheet(
       weight: "kg",
       length: "cm",
       temperature: "celsius",
+      volume: "ml",
     },
     isSaving = false,
     onChangeUnits,
@@ -183,7 +202,16 @@ const MeasurementUnitsSheet = forwardRef(function MeasurementUnitsSheet(
 
   const [units, setUnits] = useState(initialUnits);
 
-  const snapPoints = useMemo(() => ["55%"], []);
+  useEffect(() => {
+    setUnits(initialUnits);
+  }, [
+    initialUnits.weight,
+    initialUnits.length,
+    initialUnits.temperature,
+    initialUnits.volume,
+  ]);
+
+  const snapPoints = useMemo(() => ["68%"], []);
 
   const renderBackdrop = useCallback(
     (props) => (

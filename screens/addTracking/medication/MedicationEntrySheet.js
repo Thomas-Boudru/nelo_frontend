@@ -1,12 +1,16 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, AppState, StyleSheet, Text, View } from "react-native";
+import * as Network from "expo-network";
+import { useSelector } from "react-redux";
+
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -25,27 +29,50 @@ import TrackingHistoryButton from "../../../components/addTracking/TrackingHisto
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import VaccineDetailsSheet from "./VaccineDetailsSheet.js";
 
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
+
+import { MEDICATIONS } from "../../../data/medications.js";
+import { VACCINES } from "../../../data/vaccines.js";
+
+import {
+  getCustomMedications,
+  getCustomVaccines,
+  getVaccinationReminders,
+} from "../../../api/tracking/medication/medicationApi.js";
+
+import {
+  getLocalCustomProducts,
+  createLocalCustomProduct,
+  updateLocalCustomProduct,
+  archiveLocalCustomProduct,
+  saveServerCustomProductsLocally,
+} from "../../../database/tracking/medication/customProductsRepository.js";
+
+import {
+  createLocalMedicationEntry,
+  createLocalVaccineEntry,
+  getLocalMedicationEntries,
+} from "../../../database/tracking/medication/medicationRepository.js";
+
+import {
+  getLocalVaccinationReminders,
+  saveServerVaccinationRemindersLocally,
+  nextDoseDateToLocalDate,
+} from "../../../database/tracking/medication/vaccinationReminderRepository.js";
+
 const createMedicationEntry = () => ({
+  medicationId: null,
   medicationName: "",
+  medicationTranslationKey: null,
+  medicationCategory: null,
+  isCustomMedication: false,
   amount: "",
   unit: "ml",
   note: "",
   medicationDate: new Date(),
   isDateEdited: false,
 });
-
-const EMPTY_MEDICATION_ENTRY = {
-  medicationId: null,
-  medicationName: "",
-  medicationTranslationKey: null,
-  medicationCategory: null,
-  isCustomMedication: false,
-
-  dose: "",
-  unit: "ml",
-  date: new Date(),
-  note: "",
-};
 
 const createVaccineEntry = () => ({
   vaccineId: null,
@@ -122,10 +149,19 @@ function createVaccineEntryFromTrackingEntry(entry) {
 
   const nextDoseValue = entryData.nextDoseDate ?? entryData.nextDoseAt ?? null;
 
-  const parsedNextDoseDate = nextDoseValue ? new Date(nextDoseValue) : null;
+  let parsedNextDoseDate = null;
+
+  if (nextDoseValue != null) {
+    try {
+      parsedNextDoseDate = nextDoseDateToLocalDate(nextDoseValue);
+    } catch {
+      parsedNextDoseDate = null;
+    }
+  }
 
   const hasValidNextDoseDate =
-    parsedNextDoseDate !== null && !Number.isNaN(parsedNextDoseDate.getTime());
+    parsedNextDoseDate instanceof Date &&
+    Number.isFinite(parsedNextDoseDate.getTime());
 
   return {
     vaccineId: entryData.vaccineId ?? null,
@@ -150,8 +186,8 @@ function createVaccineEntryFromTrackingEntry(entry) {
 const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   {
     childName,
-    recentMedications = [],
-    recentVaccines = [],
+    childId,
+    userId,
     onSaveMedication,
     onSaveVaccine,
     onRequestDelete,
@@ -160,6 +196,104 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   ref,
 ) {
   const { t } = useTranslation();
+
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  // Permet d'ignorer la fin d'une sauvegarde si l'enfant
+  // ou le compte affiché a changé entre-temps.
+  const scope = JSON.stringify([userId ?? null, childId ?? null]);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+
+  const [recentEntries, setRecentEntries] = useState({
+    scope: null,
+    medications: [],
+    vaccines: [],
+  });
+
+  const recentReadRef = useRef(0);
+
+  const loadRecentEntries = useCallback(async () => {
+    const requestedScope = scope;
+    const readId = ++recentReadRef.current;
+
+    if (!userId || !childId || user?.id !== userId) {
+      setRecentEntries({
+        scope: requestedScope,
+        medications: [],
+        vaccines: [],
+      });
+      return;
+    }
+
+    const medications = await getLocalMedicationEntries({
+      userId,
+      childId,
+      type: "medication",
+      limit: 100,
+    });
+
+    const vaccines = await getLocalMedicationEntries({
+      userId,
+      childId,
+      type: "vaccine",
+      limit: 100,
+    });
+
+    if (
+      scopeRef.current !== requestedScope ||
+      recentReadRef.current !== readId
+    ) {
+      return;
+    }
+
+    setRecentEntries({
+      scope: requestedScope,
+      medications,
+      vaccines,
+    });
+  }, [userId, childId, user?.id, scope]);
+
+  useEffect(() => {
+    void loadRecentEntries().catch((error) => {
+      console.warn("Unable to load recent medication entries:", error);
+    });
+
+    return () => {
+      recentReadRef.current += 1;
+    };
+  }, [loadRecentEntries]);
+
+  const synchronizeMedication = useCallback(() => {
+    if (
+      !userId ||
+      user?.id !== userId ||
+      !accessToken ||
+      typeof refreshSession !== "function"
+    ) {
+      return;
+    }
+
+    void processSyncQueue({
+      userId,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.warn("Unable to synchronize medication:", error);
+    });
+  }, [userId, user?.id, accessToken, refreshSession]);
+
+  useEffect(() => {
+    setMedicationEntry(createMedicationEntry());
+    setVaccineEntry(createVaccineEntry());
+    setEditingEntry(null);
+    setSheetMode("create");
+
+    modalRef.current?.dismiss();
+  }, [scope]);
 
   const modalRef = useRef(null);
   const medicationPickerRef = useRef(null);
@@ -179,13 +313,152 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   const vaccinePickerRef = useRef(null);
   const noteSheetRef = useRef(null);
 
+  const volumeUnit = useSelector(
+    (state) => state.measurementUnits.volume ?? "ml",
+  );
+
+  const [remindersState, setRemindersState] = useState({
+    scope: null,
+    items: [],
+  });
+
+  const remindersReadRef = useRef(0);
+  const remindersRefreshRef = useRef(null);
+
+  const vaccinationReminders =
+    remindersState.scope === scope && user?.id === userId
+      ? remindersState.items
+      : [];
+
+  const loadLocalReminders = useCallback(async () => {
+    const requestedScope = scope;
+    const readId = ++remindersReadRef.current;
+
+    if (!userId || !childId || user?.id !== userId) {
+      setRemindersState({
+        scope: requestedScope,
+        items: [],
+      });
+      return;
+    }
+
+    const reminders = await getLocalVaccinationReminders({
+      userId,
+      childId,
+    });
+
+    if (
+      scopeRef.current !== requestedScope ||
+      remindersReadRef.current !== readId
+    ) {
+      return;
+    }
+
+    setRemindersState({
+      scope: requestedScope,
+      items: reminders,
+    });
+  }, [userId, childId, user?.id, scope]);
+
+  const refreshVaccinationReminders = useCallback(async () => {
+    if (
+      !userId ||
+      !childId ||
+      user?.id !== userId ||
+      !accessToken ||
+      typeof refreshSession !== "function"
+    ) {
+      return;
+    }
+
+    const requestedScope = scope;
+
+    // Évite plusieurs lectures serveur simultanées pour le même enfant.
+    if (remindersRefreshRef.current?.scope === requestedScope) {
+      return;
+    }
+
+    const request = { scope: requestedScope };
+    remindersRefreshRef.current = request;
+
+    try {
+      const network = await Network.getNetworkStateAsync();
+
+      if (
+        !network.isConnected ||
+        network.isInternetReachable === false ||
+        scopeRef.current !== requestedScope
+      ) {
+        return;
+      }
+
+      const response = await getVaccinationReminders({
+        childId,
+        accessToken,
+        refreshSession,
+      });
+
+      if (scopeRef.current !== requestedScope) {
+        return;
+      }
+
+      await saveServerVaccinationRemindersLocally({
+        userId,
+        childId,
+        reminders: response.reminders,
+      });
+
+      if (scopeRef.current === requestedScope) {
+        await loadLocalReminders();
+      }
+    } catch (error) {
+      // Les rappels disponibles hors ligne restent affichés.
+      console.warn("Unable to refresh vaccination reminders:", error);
+    } finally {
+      if (remindersRefreshRef.current === request) {
+        remindersRefreshRef.current = null;
+      }
+    }
+  }, [
+    userId,
+    childId,
+    user?.id,
+    accessToken,
+    refreshSession,
+    scope,
+    loadLocalReminders,
+  ]);
+
+  useEffect(() => {
+    void loadLocalReminders().catch((error) => {
+      console.warn("Unable to load local vaccination reminders:", error);
+    });
+
+    return () => {
+      remindersReadRef.current += 1;
+    };
+  }, [loadLocalReminders]);
+
   useImperativeHandle(ref, () => ({
     present(options = {}) {
-      /*
-       * Compatibilité avec les appels existants :
-       * present("medication")
-       * present("vaccine")
-       */
+      if (savingRef.current) {
+        return;
+      }
+
+      void loadLocalReminders().catch((error) => {
+        console.warn("Unable to load local vaccination reminders:", error);
+      });
+
+      void refreshVaccinationReminders();
+
+      void loadRecentEntries().catch((error) => {
+        console.warn("Unable to refresh recent medication entries:", error);
+      });
+
+      void loadLocalCustomProducts().catch((error) => {
+        console.warn("Unable to refresh local custom products:", error);
+      });
+
       if (typeof options === "string") {
         const type = options === "vaccine" ? "vaccine" : "medication";
 
@@ -236,6 +509,9 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     },
 
     dismiss() {
+      if (savingRef.current) {
+        return;
+      }
       modalRef.current?.dismiss();
     },
   }));
@@ -246,11 +522,11 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const medicationAmount = Number(
@@ -258,14 +534,25 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   );
 
   const canSaveMedication =
+    Boolean(medicationEntry.medicationId) &&
     medicationEntry.medicationName.trim().length > 0 &&
     Number.isFinite(medicationAmount) &&
     medicationAmount > 0;
 
-  const canSaveVaccine = vaccineEntry.vaccineName.trim().length > 0;
+  const hasValidNextDoseDate =
+    vaccineEntry.nextDoseDate instanceof Date &&
+    Number.isFinite(vaccineEntry.nextDoseDate.getTime());
+
+  const canSaveVaccine =
+    Boolean(vaccineEntry.vaccineId) &&
+    vaccineEntry.vaccineName.trim().length > 0 &&
+    (!vaccineEntry.hasNextDose || hasValidNextDoseDate);
 
   const canSave =
-    selectedType === "medication" ? canSaveMedication : canSaveVaccine;
+    Boolean(userId && childId) &&
+    user?.id === userId &&
+    !isSaving &&
+    (selectedType === "medication" ? canSaveMedication : canSaveVaccine);
 
   const handleRequestDelete = () => {
     if (!isEditMode || !editingEntry) {
@@ -276,6 +563,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   };
 
   const handleOpenHistory = () => {
+    if (savingRef.current) {
+      return;
+    }
+
     modalRef.current?.dismiss();
 
     setTimeout(() => {
@@ -284,93 +575,482 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
   };
 
   const handleSave = async () => {
-    if (!canSave) {
+    if (savingRef.current || !canSave) {
       return;
     }
 
-    if (selectedType === "medication") {
-      await onSaveMedication?.({
-        ...editingEntry,
-        ...medicationEntry,
-
-        id: editingEntry?.id,
-
-        amount: medicationAmount,
-        type: "medication",
-        mode: sheetMode,
-      });
-
-      setMedicationEntry(createMedicationEntry());
-    } else {
-      await onSaveVaccine?.({
-        ...editingEntry,
-        ...vaccineEntry,
-
-        id: editingEntry?.id,
-
-        nextDoseDate: vaccineEntry.hasNextDose
-          ? vaccineEntry.nextDoseDate
-          : null,
-
-        type: "vaccine",
-        mode: sheetMode,
-      });
-
-      setVaccineEntry(createVaccineEntry());
+    if (isEditMode) {
+      Alert.alert(
+        t("Editing is not available yet"),
+        t("Editing medication and vaccine entries is not available yet."),
+      );
+      return;
     }
 
-    modalRef.current?.dismiss();
-  };
+    const saveScope = scope;
+    const savedType = selectedType;
 
-  const [customMedications, setCustomMedications] = useState([]);
+    savingRef.current = true;
+    setIsSaving(true);
 
-  const handleSaveCustomMedication = (medication) => {
-    setCustomMedications((current) => {
-      const alreadyExists = current.some((item) => item.id === medication.id);
+    let savedEntry;
 
-      if (alreadyExists) {
-        return current.map((item) =>
-          item.id === medication.id ? medication : item,
+    try {
+      if (savedType === "medication") {
+        savedEntry = await createLocalMedicationEntry({
+          userId,
+          childId,
+          data: {
+            ...medicationEntry,
+
+            // La conversion fl oz → ml est faite dans le repository.
+            amount: medicationAmount,
+            unit: medicationEntry.unit,
+            isCustomMedication: medicationEntry.isCustomMedication === true,
+
+            medicationDate: medicationEntry.isDateEdited
+              ? medicationEntry.medicationDate
+              : new Date(),
+          },
+        });
+      } else {
+        savedEntry = await createLocalVaccineEntry({
+          userId,
+          childId,
+          data: {
+            ...vaccineEntry,
+            isCustomVaccine: vaccineEntry.isCustomVaccine === true,
+
+            vaccineDate: vaccineEntry.isDateEdited
+              ? vaccineEntry.vaccineDate
+              : new Date(),
+
+            nextDoseDate: vaccineEntry.hasNextDose
+              ? vaccineEntry.nextDoseDate
+              : null,
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Unable to save medication locally:", error);
+
+      if (scopeRef.current === saveScope) {
+        Alert.alert(
+          t("Unable to save"),
+          t(
+            "The entry could not be saved on this device. Check the information and try again.",
+          ),
         );
       }
 
-      return [medication, ...current];
-    });
-  };
+      savingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
 
-  const handleDeleteCustomMedication = (deletedMedication) => {
-    setCustomMedications((current) =>
-      current.map((item) =>
-        item.id === deletedMedication.id ? deletedMedication : item,
-      ),
-    );
-  };
-
-  const [customVaccines, setCustomVaccines] = useState([]);
-
-  const handleSaveCustomVaccine = (vaccine) => {
-    setCustomVaccines((current) => {
-      const alreadyExists = current.some((item) => item.id === vaccine.id);
-
-      if (alreadyExists) {
-        return current.map((item) => (item.id === vaccine.id ? vaccine : item));
+    // À partir d'ici, la sauvegarde locale est terminée.
+    // Une erreur du toast ne doit pas provoquer un deuxième INSERT.
+    try {
+      if (scopeRef.current !== saveScope) {
+        return;
       }
 
-      return [vaccine, ...current];
-    });
+      synchronizeMedication();
+
+      if (savedType === "vaccine") {
+        void loadLocalReminders().catch((error) => {
+          console.warn("Unable to reload local vaccination reminders:", error);
+        });
+      }
+
+      void loadRecentEntries().catch((error) => {
+        console.warn("Unable to refresh recent medication entries:", error);
+      });
+
+      if (savedType === "medication") {
+        setMedicationEntry(createMedicationEntry());
+      } else {
+        setVaccineEntry(createVaccineEntry());
+      }
+
+      modalRef.current?.dismiss();
+
+      const onSaved =
+        savedType === "medication" ? onSaveMedication : onSaveVaccine;
+
+      await onSaved?.({
+        ...savedEntry,
+        mode: "create",
+      });
+    } catch (error) {
+      console.warn("The entry was saved, but its confirmation failed:", error);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
-  /*
-   * La suppression est logique : on conserve l’entrée marquée
-   * pour ne pas perdre les vaccins déjà enregistrés.
-   */
-  const handleDeleteCustomVaccine = (deletedVaccine) => {
-    setCustomVaccines((current) =>
-      current.map((item) =>
-        item.id === deletedVaccine.id ? deletedVaccine : item,
-      ),
-    );
+  const [customMedications, setCustomMedications] = useState([]);
+  const [customVaccines, setCustomVaccines] = useState([]);
+
+  const recentMedications = useMemo(() => {
+    if (recentEntries.scope !== scope || user?.id !== userId) {
+      return [];
+    }
+
+    const seen = new Set();
+    const products = [];
+
+    for (const entry of recentEntries.medications) {
+      const isCustom = entry.isCustomMedication === true;
+      const productId = entry.medicationId;
+      const key = `${isCustom ? "custom" : "catalog"}:${productId}`;
+
+      if (!productId || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+
+      const product = isCustom
+        ? customMedications.find(
+            (item) =>
+              item.id === productId &&
+              !item.archivedAt &&
+              !item.deletedAt &&
+              item.isDeleted !== true,
+          )
+        : MEDICATIONS.find((item) => item.id === productId);
+
+      // Un produit archivé ou retiré du catalogue n'est plus proposé.
+      if (!product) {
+        continue;
+      }
+
+      const name =
+        !isCustom && product.translationKey
+          ? t(product.translationKey)
+          : product.name;
+
+      products.push({
+        ...product,
+        id: productId,
+        medicationId: productId,
+        name,
+        medicationName: name,
+        translationKey: isCustom ? null : (product.translationKey ?? null),
+        category: isCustom ? null : (product.category ?? null),
+        isCustom,
+        isCustomMedication: isCustom,
+      });
+
+      if (products.length === 6) {
+        break;
+      }
+    }
+
+    return products;
+  }, [recentEntries, scope, user?.id, userId, customMedications, t]);
+
+  const recentVaccines = useMemo(() => {
+    if (recentEntries.scope !== scope || user?.id !== userId) {
+      return [];
+    }
+
+    const seen = new Set();
+    const products = [];
+
+    for (const entry of recentEntries.vaccines) {
+      const isCustom = entry.isCustomVaccine === true;
+      const productId = entry.vaccineId;
+      const key = `${isCustom ? "custom" : "catalog"}:${productId}`;
+
+      if (!productId || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+
+      const product = isCustom
+        ? customVaccines.find(
+            (item) =>
+              item.id === productId &&
+              !item.archivedAt &&
+              !item.deletedAt &&
+              item.isDeleted !== true,
+          )
+        : VACCINES.find((item) => item.id === productId);
+
+      if (!product) {
+        continue;
+      }
+
+      const name =
+        !isCustom && product.translationKey
+          ? t(product.translationKey)
+          : product.name;
+
+      products.push({
+        ...product,
+        id: productId,
+        vaccineId: productId,
+        name,
+        vaccineName: name,
+        translationKey: isCustom ? null : (product.translationKey ?? null),
+        category: isCustom ? null : (product.category ?? null),
+        isCustom,
+        isCustomVaccine: isCustom,
+      });
+
+      if (products.length === 6) {
+        break;
+      }
+    }
+
+    return products;
+  }, [recentEntries, scope, user?.id, userId, customVaccines, t]);
+
+  const productsReadRef = useRef(0);
+
+  const loadLocalCustomProducts = useCallback(async () => {
+    const readId = ++productsReadRef.current;
+    const requestedScope = scope;
+
+    if (!userId || !childId || user?.id !== userId) {
+      setCustomMedications([]);
+      setCustomVaccines([]);
+      return;
+    }
+
+    const medications = await getLocalCustomProducts({
+      userId,
+      childId,
+      type: "medication",
+    });
+
+    const vaccines = await getLocalCustomProducts({
+      userId,
+      childId,
+      type: "vaccine",
+    });
+
+    if (
+      scopeRef.current !== requestedScope ||
+      productsReadRef.current !== readId
+    ) {
+      return;
+    }
+
+    setCustomMedications(medications);
+    setCustomVaccines(vaccines);
+  }, [userId, childId, user?.id, scope]);
+
+  useEffect(() => {
+    setCustomMedications([]);
+    setCustomVaccines([]);
+
+    void loadLocalCustomProducts().catch((error) => {
+      console.warn("Unable to load local custom products:", error);
+    });
+
+    return () => {
+      productsReadRef.current += 1;
+    };
+  }, [loadLocalCustomProducts]);
+
+  // Les lectures serveur complètent le cache local.
+  // Un échec réseau ne supprime pas les produits déjà disponibles.
+  useEffect(() => {
+    if (
+      !userId ||
+      !childId ||
+      user?.id !== userId ||
+      !accessToken ||
+      typeof refreshSession !== "function"
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const refreshProducts = async () => {
+      const sources = [
+        {
+          type: "medication",
+          fetchProducts: getCustomMedications,
+        },
+        {
+          type: "vaccine",
+          fetchProducts: getCustomVaccines,
+        },
+      ];
+
+      for (const { type, fetchProducts } of sources) {
+        if (cancelled) {
+          return;
+        }
+
+        try {
+          const response = await fetchProducts({
+            childId,
+            accessToken,
+            refreshSession,
+          });
+
+          if (cancelled) {
+            return;
+          }
+
+          await saveServerCustomProductsLocally({
+            userId,
+            childId,
+            type,
+            products: response.products,
+          });
+
+          if (!cancelled) {
+            await loadLocalCustomProducts();
+          }
+        } catch (error) {
+          console.warn(`Unable to refresh custom ${type} products:`, error);
+        }
+      }
+    };
+
+    void refreshProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    userId,
+    childId,
+    user?.id,
+    accessToken,
+    refreshSession,
+    loadLocalCustomProducts,
+  ]);
+
+  const saveCustomProduct = async (type, product) => {
+    if (!userId || !childId || user?.id !== userId) {
+      throw new Error("Missing user ID or child ID.");
+    }
+
+    const operationScope = scope;
+
+    const data = {
+      name: product.name,
+      ...(type === "medication"
+        ? { defaultDoseUnit: product.defaultDoseUnit ?? null }
+        : {}),
+    };
+
+    const savedProduct = product.id
+      ? await updateLocalCustomProduct({
+          userId,
+          childId,
+          type,
+          productId: product.id,
+          data,
+        })
+      : await createLocalCustomProduct({
+          userId,
+          childId,
+          type,
+          data,
+        });
+
+    if (scopeRef.current === operationScope) {
+      // Une lecture commencée avant cette sauvegarde ne doit
+      // pas écraser la nouvelle version affichée.
+      productsReadRef.current += 1;
+
+      const setProducts =
+        type === "medication" ? setCustomMedications : setCustomVaccines;
+
+      setProducts((current) => [
+        savedProduct,
+        ...current.filter((item) => item.id !== savedProduct.id),
+      ]);
+
+      synchronizeMedication();
+    }
+
+    return savedProduct;
   };
+
+  const archiveCustomProduct = async (type, product) => {
+    if (!userId || !childId || user?.id !== userId) {
+      throw new Error("Missing user ID or child ID.");
+    }
+
+    const operationScope = scope;
+
+    const archivedProduct = await archiveLocalCustomProduct({
+      userId,
+      childId,
+      type,
+      productId: product.id,
+    });
+
+    if (scopeRef.current === operationScope) {
+      productsReadRef.current += 1;
+
+      const setProducts =
+        type === "medication" ? setCustomMedications : setCustomVaccines;
+
+      setProducts((current) =>
+        current.filter((item) => item.id !== archivedProduct.id),
+      );
+
+      // Retirer la sélection du formulaire courant.
+      // Les anciennes prises enregistrées restent intactes.
+      if (type === "medication") {
+        setMedicationEntry((current) =>
+          current.isCustomMedication &&
+          current.medicationId === archivedProduct.id
+            ? {
+                ...current,
+                medicationId: null,
+                medicationName: "",
+                medicationTranslationKey: null,
+                medicationCategory: null,
+                isCustomMedication: false,
+              }
+            : current,
+        );
+      } else {
+        setVaccineEntry((current) =>
+          current.isCustomVaccine && current.vaccineId === archivedProduct.id
+            ? {
+                ...current,
+                vaccineId: null,
+                vaccineName: "",
+                vaccineTranslationKey: null,
+                vaccineCategory: null,
+                isCustomVaccine: false,
+              }
+            : current,
+        );
+      }
+
+      synchronizeMedication();
+    }
+
+    return archivedProduct;
+  };
+
+  const handleSaveCustomMedication = (medication) =>
+    saveCustomProduct("medication", medication);
+
+  const handleSaveCustomVaccine = (vaccine) =>
+    saveCustomProduct("vaccine", vaccine);
+
+  const handleDeleteCustomMedication = (medication) =>
+    archiveCustomProduct("medication", medication);
+
+  const handleDeleteCustomVaccine = (vaccine) =>
+    archiveCustomProduct("vaccine", vaccine);
 
   return (
     <>
@@ -379,7 +1059,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
         index={0}
         snapPoints={snapPoints}
         enableDynamicSizing={false}
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.handle}
@@ -432,6 +1112,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
             <MedicationTypeTabs
               value={selectedType}
               onChange={(type) => {
+                if (savingRef.current) {
+                  return;
+                }
+
                 setSelectedType(type);
 
                 if (type === "vaccine") {
@@ -443,7 +1127,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
             />
           ) : null}
 
-          <View style={styles.formArea}>
+          <View
+            style={styles.formArea}
+            pointerEvents={isSaving ? "none" : "auto"}
+          >
             <BottomSheetScrollView
               style={styles.formScroll}
               contentContainerStyle={styles.formScrollContent}
@@ -454,6 +1141,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
             >
               {selectedType === "medication" ? (
                 <MedicationForm
+                  volumeUnit={volumeUnit}
                   value={medicationEntry}
                   onChange={setMedicationEntry}
                   recentMedications={recentMedications}
@@ -468,6 +1156,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
                 <VaccineForm
                   value={vaccineEntry}
                   onChange={setVaccineEntry}
+                  vaccinationReminders={vaccinationReminders}
                   onPressVaccine={() => {
                     vaccinePickerRef.current?.present();
                   }}
@@ -540,6 +1229,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
       />
 
       <MedicationPickerSheet
+        key={`medication-picker:${scope}`}
         ref={medicationPickerRef}
         recentMedications={recentMedications}
         customMedications={customMedications}
@@ -558,6 +1248,7 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
       />
 
       <VaccinePickerSheet
+        key={`vaccine-picker:${scope}`}
         ref={vaccinePickerRef}
         recentVaccines={recentVaccines}
         customVaccines={customVaccines}

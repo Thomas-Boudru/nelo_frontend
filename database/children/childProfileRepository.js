@@ -1,4 +1,4 @@
-import { getLocalDatabase } from "./localDatabase.js";
+import { getLocalDatabase } from "../localDatabase.js";
 
 export async function saveChildProfileLocally({
   userId,

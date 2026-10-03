@@ -8,6 +8,14 @@ import {
   useState,
 } from "react";
 import { StyleSheet, Text, View } from "react-native";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+
+import {
+  getLocalBottlePreferences,
+  saveLocalBottlePreference,
+} from "../../../database/tracking/feed/bottlePreferencesLocal.js";
+
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -25,12 +33,26 @@ import BreastfeedingForm, {
   getCurrentBreastfeedingDurations,
 } from "../../../components/addTracking/feeding/BreastfeedingForm.js";
 
+import { createLocalSolidFeedingEntry } from "../../../database/tracking/feed/solidsRepository.js";
+
 import BottleCapacitySheet from "./BottleCapacitySheet.js";
 import MilkTypeSheet from "../../../components/addTracking/feeding/MilkyTypeSheet.js";
 import ExactAmountSheet from "./ExactAmountSheet.js";
 import ManualBreastfeedingSheet from "./ManualBreastFeedingSheet.js";
 import NoteSheet from "./NoteSheet.js";
 import AddFoodSheet from "./AddFoodSheet.js";
+
+import { createLocalBottleEntry } from "../../../database/tracking/feed/bottleRepository.js";
+import { createLocalBreastfeedingEntry } from "../../../database/tracking/feed/breastFeedingRepository.js";
+import { createLocalPumpingEntry } from "../../../database/tracking/feed/pumpingRepository.js";
+
+import {
+  getLocalCustomFoods,
+  saveCustomFoodLocally,
+  deleteCustomFoodLocally,
+} from "../../../database/tracking/feed/customFoodsRepository.js";
+
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 import {
   BOTTLE_PORTIONS,
@@ -73,18 +95,21 @@ function getEntryDate(entry, preferredDateKey) {
   };
 }
 
-function createDefaultBottleEntry() {
-  return {
-    bottleCapacityMl: DEFAULT_BOTTLE_CAPACITY_ML,
+const DEFAULT_BOTTLE_PREFS = {
+  capacityMl: DEFAULT_BOTTLE_CAPACITY_ML,
+  milkType: "formula",
+  viewMode: "bottle",
+};
 
+function createDefaultBottleEntry(prefs = DEFAULT_BOTTLE_PREFS) {
+  return {
+    bottleCapacityMl: prefs.capacityMl,
     portionId: "full",
-    milkType: "formula",
+    milkType: prefs.milkType,
     note: "",
     fraction: 1,
-
     isExactAmountMode: false,
     exactAmount: "",
-
     feedingDate: new Date(),
     isDateEdited: false,
   };
@@ -130,7 +155,7 @@ function createDefaultSolidsEntry() {
     appreciation: null,
 
     note: "",
-    photo: null,
+    photos: [],
 
     feedingDate: new Date(),
     isDateEdited: false,
@@ -275,6 +300,8 @@ function createSolidsEntryFromTrackingEntry(entry) {
 const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   {
     childName,
+    childId,
+    userId,
     visibleFeedingMethods = ["breastfeeding", "bottle", "solids", "pumping"],
 
     onSaveBottle,
@@ -288,6 +315,13 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 ) {
   const { t } = useTranslation();
 
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isSavingFeeding, setIsSavingFeeding] = useState(false);
+  const [feedingSaveError, setFeedingSaveError] = useState("");
+
+  const savingFeedingRef = useRef(false);
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -299,6 +333,9 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const manualBreastfeedingSheetRef = useRef(null);
   const addFoodSheetRef = useRef(null);
 
+  const bottlePrefsRef = useRef(DEFAULT_BOTTLE_PREFS);
+  const [bottleViewMode, setBottleViewMode] = useState("bottle");
+
   const [sheetMode, setSheetMode] = useState("create");
 
   const [selectedType, setSelectedType] = useState("bottle");
@@ -308,6 +345,36 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const [noteTarget, setNoteTarget] = useState(null);
 
   const [customFoods, setCustomFoods] = useState([]);
+
+  const customFoodScopeRef = useRef("");
+
+  const customFoodScope = `${userId ?? ""}:${childId ?? ""}`;
+
+  customFoodScopeRef.current = customFoodScope;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setCustomFoods([]);
+
+    if (!userId || !childId) {
+      return undefined;
+    }
+
+    getLocalCustomFoods({ userId, childId })
+      .then((foods) => {
+        if (!cancelled) {
+          setCustomFoods(foods);
+        }
+      })
+      .catch((error) => {
+        console.error("Unable to load local custom foods:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, childId]);
 
   const [bottleGesture, setBottleGesture] = useState(null);
 
@@ -340,9 +407,66 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     }
   }, [selectedType]);
 
+  useEffect(() => {
+    if (!userId || !childId) return;
+
+    let cancelled = false;
+
+    getLocalBottlePreferences({ userId, childId })
+      .then((row) => {
+        if (cancelled) return;
+
+        const next = {
+          capacityMl:
+            Number(row?.bottleCapacityMl) > 0
+              ? Number(row.bottleCapacityMl)
+              : DEFAULT_BOTTLE_CAPACITY_ML,
+          milkType: row?.milkType ?? "formula",
+          viewMode: row?.amountView === "simple" ? "simple" : "bottle",
+        };
+
+        bottlePrefsRef.current = next;
+        setBottleViewMode(next.viewMode);
+      })
+      .catch((error) => console.warn("Bottle preferences load failed", error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, childId]);
+
+  const persistBottlePreference = useCallback(
+    (preference, value) => {
+      if (!userId || !childId) return;
+
+      saveLocalBottlePreference({ userId, childId, preference, value }).catch(
+        (error) => console.warn("Bottle preference save failed", error),
+      );
+    },
+    [userId, childId],
+  );
+
+  const synchronizeCustomFoods = useCallback(() => {
+    if (
+      user?.id !== userId ||
+      !accessToken ||
+      typeof refreshSession !== "function"
+    ) {
+      return;
+    }
+
+    processSyncQueue({
+      userId,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.warn("Unable to synchronize custom foods:", error);
+    });
+  }, [user?.id, userId, accessToken, refreshSession]);
+
   const resetEntryForType = useCallback((feedingType) => {
     if (feedingType === "bottle") {
-      setBottleEntry(createDefaultBottleEntry());
+      setBottleEntry(createDefaultBottleEntry(bottlePrefsRef.current));
       return;
     }
 
@@ -506,29 +630,66 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     }));
   }, []);
 
-  const handleSaveCustomFood = useCallback((foodToSave) => {
-    setCustomFoods((currentFoods) => {
-      const alreadyExists = currentFoods.some(
-        (food) => food.id === foodToSave.id,
-      );
+  const handleSaveCustomFood = useCallback(
+    async (foodToSave) => {
+      const scope = customFoodScope;
 
-      if (alreadyExists) {
-        return currentFoods.map((food) =>
-          food.id === foodToSave.id ? foodToSave : food,
-        );
+      const savedFood = await saveCustomFoodLocally({
+        userId,
+        childId,
+        food: foodToSave,
+      });
+
+      if (customFoodScopeRef.current === scope) {
+        setCustomFoods((currentFoods) => {
+          const otherFoods = currentFoods.filter(
+            (food) => food.id !== savedFood.id,
+          );
+
+          return [savedFood, ...otherFoods];
+        });
       }
 
-      return [foodToSave, ...currentFoods];
-    });
-  }, []);
+      synchronizeCustomFoods();
 
-  const handleDeleteCustomFood = useCallback((deletedFood) => {
-    setCustomFoods((currentFoods) =>
-      currentFoods.map((food) =>
-        food.id === deletedFood.id ? deletedFood : food,
-      ),
-    );
-  }, []);
+      return savedFood;
+    },
+    [userId, childId, customFoodScope, synchronizeCustomFoods],
+  );
+
+  const handleDeleteCustomFood = useCallback(
+    async (foodToDelete) => {
+      const scope = customFoodScope;
+
+      const deletedFood = await deleteCustomFoodLocally({
+        userId,
+        childId,
+        foodId: foodToDelete.id,
+      });
+
+      if (customFoodScopeRef.current === scope) {
+        setCustomFoods((currentFoods) =>
+          currentFoods.map((food) =>
+            food.id === deletedFood.id ? deletedFood : food,
+          ),
+        );
+
+        // Un aliment supprimé ne doit plus être envoyé dans
+        // un nouveau repas encore en cours de préparation.
+        setSolidsEntry((current) => ({
+          ...current,
+          foods: (current.foods ?? []).filter(
+            (food) => !food.isCustom || food.foodId !== deletedFood.id,
+          ),
+        }));
+      }
+
+      synchronizeCustomFoods();
+
+      return deletedFood;
+    },
+    [userId, childId, customFoodScope, synchronizeCustomFoods],
+  );
 
   const canSaveBottle = selectedType === "bottle" && bottleAmountMl > 0;
 
@@ -548,97 +709,276 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
   const canSaveFeeding =
     canSaveBottle || canSaveBreastfeeding || canSaveSolids || canSavePumping;
 
-  const handleSaveFeeding = () => {
-    if (selectedType === "bottle") {
-      if (bottleAmountMl <= 0) {
-        return;
-      }
-
-      onSaveBottle?.({
-        ...editingEntry,
-        ...bottleEntry,
-
-        id: editingEntry?.id,
-
-        type: "bottle",
-        mode: sheetMode,
-
-        amountMl: bottleAmountMl,
-      });
-
-      modalRef.current?.dismiss();
+  const handleSaveFeeding = async () => {
+    if (savingFeedingRef.current || !canSaveFeeding) {
       return;
     }
 
-    if (selectedType === "breastfeeding") {
-      const currentDurations =
-        getCurrentBreastfeedingDurations(breastfeedingEntry);
+    savingFeedingRef.current = true;
+    setIsSavingFeeding(true);
+    setFeedingSaveError("");
 
-      if (
-        currentDurations.leftDurationSeconds <= 0 &&
-        currentDurations.rightDurationSeconds <= 0
-      ) {
+    try {
+      if (selectedType === "bottle") {
+        if (bottleAmountMl <= 0) {
+          return;
+        }
+
+        // L'édition sera branchée à son repository local ensuite.
+        if (isEditMode) {
+          if (typeof onSaveBottle !== "function") {
+            throw new Error("Missing bottle save handler.");
+          }
+
+          const result = await onSaveBottle({
+            ...editingEntry,
+            ...bottleEntry,
+            id: editingEntry?.id,
+            type: "bottle",
+            mode: sheetMode,
+            amountMl: bottleAmountMl,
+          });
+
+          if (result !== false) {
+            modalRef.current?.dismiss();
+          }
+
+          return;
+        }
+
+        // Enregistrer le repas et son opération de synchronisation
+        // dans une seule transaction SQLite.
+        const localEntry = await createLocalBottleEntry({
+          userId,
+          childId,
+          data: {
+            amountMl: bottleAmountMl,
+            bottleCapacityMl: bottleEntry.bottleCapacityMl,
+            milkType: bottleEntry.milkType,
+            feedingDate: bottleEntry.feedingDate,
+            note: bottleEntry.note,
+          },
+        });
+
+        // L'enregistrement est réussi : fermer la feuille.
+        modalRef.current?.dismiss();
+
+        // Informer le parent pour actualiser l'affichage.
+        // Une erreur d'affichage ne doit pas provoquer une seconde création.
+        try {
+          await onSaveBottle?.({
+            ...localEntry,
+            mode: "create",
+            persistedLocally: true,
+          });
+        } catch (displayError) {
+          console.error(
+            "Bottle saved locally but unable to refresh the display:",
+            displayError,
+          );
+        }
+
+        // L'envoi réseau ne bloque pas l'utilisateur.
+        if (
+          user?.id === userId &&
+          accessToken &&
+          typeof refreshSession === "function"
+        ) {
+          processSyncQueue({
+            userId,
+            accessToken,
+            refreshSession,
+          }).catch((syncError) => {
+            console.warn(
+              "Bottle saved locally but synchronization failed:",
+              syncError,
+            );
+          });
+        }
+
         return;
       }
 
-      onSaveBreastfeeding?.({
-        ...editingEntry,
-        ...breastfeedingEntry,
-        ...currentDurations,
+      if (selectedType === "breastfeeding") {
+        const currentDurations =
+          getCurrentBreastfeedingDurations(breastfeedingEntry);
 
-        id: editingEntry?.id,
+        if (
+          currentDurations.leftDurationSeconds <= 0 &&
+          currentDurations.rightDurationSeconds <= 0
+        ) {
+          return;
+        }
 
-        type: "breastfeeding",
-        mode: sheetMode,
+        // L'édition locale doit encore être branchée.
+        // Ne pas créer une nouvelle entrée lorsqu'on modifie une séance.
+        if (isEditMode) {
+          throw new Error("Breastfeeding editing is not available yet.");
+        }
 
-        activeSide: null,
-        activeStartedAt: null,
-      });
+        const localEntry = await createLocalBreastfeedingEntry({
+          userId,
+          childId,
+          data: {
+            feedingDate: breastfeedingEntry.feedingDate,
+            leftDurationSeconds: currentDurations.leftDurationSeconds,
+            rightDurationSeconds: currentDurations.rightDurationSeconds,
+            firstSide: breastfeedingEntry.firstSide ?? null,
+            lastSide: breastfeedingEntry.lastSide ?? null,
+            note: breastfeedingEntry.note,
+          },
+        });
 
-      modalRef.current?.dismiss();
-      return;
-    }
+        modalRef.current?.dismiss();
 
-    if (selectedType === "solids") {
-      if (!Array.isArray(solidsEntry.foods) || solidsEntry.foods.length === 0) {
+        try {
+          await onSaveBreastfeeding?.({
+            ...localEntry,
+            mode: "create",
+            persistedLocally: true,
+          });
+        } catch (displayError) {
+          console.error(
+            "Breastfeeding saved locally but unable to refresh the display:",
+            displayError,
+          );
+        }
+
+        if (
+          user?.id === userId &&
+          accessToken &&
+          typeof refreshSession === "function"
+        ) {
+          processSyncQueue({
+            userId,
+            accessToken,
+            refreshSession,
+          }).catch((syncError) => {
+            console.warn(
+              "Breastfeeding saved locally but synchronization failed:",
+              syncError,
+            );
+          });
+        }
+
         return;
       }
 
-      onSaveSolids?.({
-        ...editingEntry,
-        ...solidsEntry,
+      if (selectedType === "solids") {
+        if (
+          !Array.isArray(solidsEntry.foods) ||
+          solidsEntry.foods.length === 0
+        ) {
+          return;
+        }
 
-        id: editingEntry?.id,
+        if (isEditMode) {
+          throw new Error(t("Meal editing is not available yet."));
+        }
 
-        type: "solids",
-        mode: sheetMode,
-      });
+        const localEntry = await createLocalSolidFeedingEntry({
+          userId,
+          childId,
+          data: solidsEntry,
+        });
 
-      modalRef.current?.dismiss();
-      return;
-    }
+        modalRef.current?.dismiss();
 
-    if (selectedType === "pumping") {
-      if (pumpingAmountMl <= 0) {
+        try {
+          await onSaveSolids?.({
+            ...localEntry,
+            mode: "create",
+            persistedLocally: true,
+          });
+        } catch (displayError) {
+          console.error(
+            "Meal saved locally but unable to refresh the display:",
+            displayError,
+          );
+        }
+
+        if (
+          user?.id === userId &&
+          accessToken &&
+          typeof refreshSession === "function"
+        ) {
+          processSyncQueue({
+            userId,
+            accessToken,
+            refreshSession,
+          }).catch((syncError) => {
+            console.warn(
+              "Meal saved locally but synchronization failed:",
+              syncError,
+            );
+          });
+        }
+
         return;
       }
 
-      onSavePumping?.({
-        ...editingEntry,
-        ...pumpingEntry,
+      if (selectedType === "pumping") {
+        if (pumpingAmountMl <= 0) {
+          return;
+        }
 
-        id: editingEntry?.id,
+        // L'édition ne doit pas créer une deuxième séance.
+        if (isEditMode) {
+          throw new Error(t("Pumping editing is not available yet."));
+        }
 
-        type: "pumping",
-        mode: sheetMode,
+        const localEntry = await createLocalPumpingEntry({
+          userId,
+          childId,
+          data: {
+            pumpingDate: pumpingEntry.pumpingDate,
+            leftAmountMl: pumpingEntry.leftAmountMl ?? 0,
+            rightAmountMl: pumpingEntry.rightAmountMl ?? 0,
+            note: pumpingEntry.note,
+          },
+        });
 
-        totalAmountMl: pumpingAmountMl,
+        modalRef.current?.dismiss();
 
-        activeSide: null,
-        activeStartedAt: null,
-      });
+        try {
+          await onSavePumping?.({
+            ...localEntry,
+            mode: "create",
+            persistedLocally: true,
+          });
+        } catch (displayError) {
+          console.error(
+            "Pumping saved locally but unable to refresh the display:",
+            displayError,
+          );
+        }
 
-      modalRef.current?.dismiss();
+        if (
+          user?.id === userId &&
+          accessToken &&
+          typeof refreshSession === "function"
+        ) {
+          processSyncQueue({
+            userId,
+            accessToken,
+            refreshSession,
+          }).catch((syncError) => {
+            console.warn(
+              "Pumping saved locally but synchronization failed:",
+              syncError,
+            );
+          });
+        }
+
+        return;
+      }
+    } catch (error) {
+      console.error("Unable to save feeding:", error);
+
+      setFeedingSaveError(t("Unable to save this feeding. Please try again."));
+    } finally {
+      savingFeedingRef.current = false;
+      setIsSavingFeeding(false);
     }
   };
 
@@ -649,6 +989,15 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           <BottleFeedForm
             value={bottleEntry}
             onChange={setBottleEntry}
+            viewMode={bottleViewMode}
+            onChangeViewMode={(mode) => {
+              setBottleViewMode(mode);
+              bottlePrefsRef.current = {
+                ...bottlePrefsRef.current,
+                viewMode: mode,
+              };
+              persistBottlePreference("amountView", mode);
+            }}
             onPressCapacity={({ currentCapacityMl }) => {
               bottleCapacitySheetRef.current?.present(currentCapacityMl);
             }}
@@ -795,6 +1144,19 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
         </View>
 
         <View style={styles.footerContainer}>
+          {feedingSaveError ? (
+            <Text
+              accessibilityRole="alert"
+              style={{
+                color: colors.error,
+                fontSize: 12,
+                marginBottom: 10,
+              }}
+            >
+              {feedingSaveError}
+            </Text>
+          ) : null}
+
           {isEditMode ? (
             <View style={styles.editFooterRow}>
               <View style={styles.footerButton}>
@@ -802,6 +1164,7 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
                   title={t("Delete")}
                   variant="destructive"
                   onPress={handleRequestDelete}
+                  disabled={isSavingFeeding}
                 />
               </View>
 
@@ -809,7 +1172,8 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
                 <PrimaryButton
                   title={t("Save changes")}
                   onPress={handleSaveFeeding}
-                  disabled={!canSaveFeeding}
+                  loading={isSavingFeeding}
+                  disabled={!canSaveFeeding || isSavingFeeding}
                 />
               </View>
             </View>
@@ -817,7 +1181,8 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
             <PrimaryButton
               title={t("Save feeding")}
               onPress={handleSaveFeeding}
-              disabled={!canSaveFeeding}
+              loading={isSavingFeeding}
+              disabled={!canSaveFeeding || isSavingFeeding}
             />
           )}
         </View>
@@ -825,10 +1190,22 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
 
       <BottleCapacitySheet
         ref={bottleCapacitySheetRef}
+        userId={userId}
+        childId={childId}
         onSelect={(capacityMl) => {
+          if (!Number.isFinite(capacityMl) || capacityMl <= 0) {
+            return;
+          }
+
+          bottlePrefsRef.current = {
+            ...bottlePrefsRef.current,
+            capacityMl,
+          };
+
+          persistBottlePreference("bottleCapacityMl", capacityMl);
+
           setBottleEntry((current) => ({
             ...current,
-
             bottleCapacityMl: capacityMl,
           }));
         }}
@@ -837,10 +1214,10 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
       <MilkTypeSheet
         ref={milkTypeSheetRef}
         onSelect={(milkType) => {
-          setBottleEntry((current) => ({
-            ...current,
-            milkType,
-          }));
+          bottlePrefsRef.current = { ...bottlePrefsRef.current, milkType };
+          persistBottlePreference("milkType", milkType);
+
+          setBottleEntry((current) => ({ ...current, milkType }));
         }}
       />
 

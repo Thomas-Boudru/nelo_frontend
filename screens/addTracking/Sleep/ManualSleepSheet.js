@@ -6,7 +6,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -78,6 +85,9 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet(
 
   const modalRef = useRef(null);
   const noteSheetRef = useRef(null);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -291,39 +301,48 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet(
   };
 
   const handleSave = async () => {
-    if (!canSave) {
+    if (!canSave || savingRef.current) {
       return;
     }
 
-    const sleep = {
-      ...editingEntry,
+    savingRef.current = true;
+    setIsSaving(true);
 
-      id: editingEntry?.id,
+    try {
+      if (typeof onSave !== "function") {
+        throw new Error(t("Sleep saving is unavailable."));
+      }
 
-      /*
-       * On conserve le contrat actuel de tes formulaires :
-       * type contient nap ou night.
-       * sleepType est aussi ajouté explicitement pour que
-       * la timeline puisse le retrouver sans ambiguïté.
-       */
-      type: sleepType,
-      sleepType,
+      const sleep = {
+        ...editingEntry,
+        id: editingEntry?.id,
+        type: "sleep",
+        sleepType,
+        startedAt,
+        endedAt,
+        durationSeconds,
+        note: note.trim(),
+        entryMode: editingEntry?.entryMode ?? "manual",
+        mode: sheetMode,
+      };
 
-      startedAt,
-      endedAt,
-      durationSeconds,
+      const saved = await onSave(sleep);
 
-      note: note.trim(),
+      if (saved === false) {
+        return;
+      }
 
-      entryMode: editingEntry?.entryMode ?? "manual",
-
-      mode: sheetMode,
-    };
-
-    await onSave?.(sleep);
-
-    setPickerTarget(null);
-    modalRef.current?.dismiss();
+      setPickerTarget(null);
+      modalRef.current?.dismiss();
+    } catch (error) {
+      Alert.alert(
+        t("Unable to save sleep"),
+        error?.message || t("Please try again."),
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -495,21 +514,22 @@ const ManualSleepSheet = forwardRef(function ManualSleepSheet(
                     title={t("Delete")}
                     variant="destructive"
                     onPress={handleRequestDelete}
+                    disabled={isSaving}
                   />
                 </View>
 
                 <View style={styles.footerButton}>
                   <PrimaryButton
-                    title={t("Save changes")}
-                    disabled={!canSave}
+                    title={isSaving ? t("Saving...") : t("Save changes")}
+                    disabled={!canSave || isSaving}
                     onPress={handleSave}
                   />
                 </View>
               </View>
             ) : (
               <PrimaryButton
-                title={t("Save sleep")}
-                disabled={!canSave}
+                title={isSaving ? t("Saving...") : t("Save sleep")}
+                disabled={!canSave || isSaving}
                 onPress={handleSave}
               />
             )}

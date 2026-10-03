@@ -2,6 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useSelector } from "react-redux";
 
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
@@ -17,8 +18,24 @@ const SIDES = {
 const AMOUNT_STEP_ML = 10;
 const AMOUNT_PRESETS_ML = [30, 60, 90];
 
+const ML_PER_US_FL_OZ = 29.5735295625;
+
+function roundMl(value) {
+  return Math.round(value * 1000) / 1000;
+}
+
+function formatAmount(amountMl, volumeUnit) {
+  const amount = volumeUnit === "fl_oz" ? amountMl / ML_PER_US_FL_OZ : amountMl;
+
+  return String(Number(amount.toFixed(volumeUnit === "fl_oz" ? 1 : 3)));
+}
+
 export default function PumpingForm({ value, onChange, onPressNote }) {
   const { t } = useTranslation();
+
+  const volumeUnit = useSelector((state) => state.measurementUnits.volume);
+
+  const unitLabel = volumeUnit === "fl_oz" ? "fl oz" : "ml";
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -50,13 +67,11 @@ export default function PumpingForm({ value, onChange, onPressNote }) {
 
   const handleAmountChange = (side, amountMl) => {
     updateValue({
-      [side === SIDES.left ? "leftAmountMl" : "rightAmountMl"]: Math.max(
-        0,
-        amountMl,
+      [side === SIDES.left ? "leftAmountMl" : "rightAmountMl"]: roundMl(
+        Math.max(0, amountMl),
       ),
     });
   };
-
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
@@ -87,7 +102,9 @@ export default function PumpingForm({ value, onChange, onPressNote }) {
 
         <View style={styles.totalPill}>
           <Text style={styles.totalLabel}>{t("Total")}</Text>
-          <Text style={styles.totalValue}>{totalAmountMl} ml</Text>
+          <Text style={styles.totalValue}>
+            {formatAmount(totalAmountMl, volumeUnit)} {unitLabel}
+          </Text>
         </View>
 
         <Pressable
@@ -110,6 +127,7 @@ export default function PumpingForm({ value, onChange, onPressNote }) {
           title={t("Left")}
           image={LEFT_BREAST_IMAGE}
           amountMl={leftAmountMl}
+          volumeUnit={volumeUnit}
           onReset={() => handleSideReset(SIDES.left)}
           onAmountChange={(amountMl) =>
             handleAmountChange(SIDES.left, amountMl)
@@ -122,6 +140,7 @@ export default function PumpingForm({ value, onChange, onPressNote }) {
           title={t("Right")}
           image={RIGHT_BREAST_IMAGE}
           amountMl={rightAmountMl}
+          volumeUnit={volumeUnit}
           onReset={() => handleSideReset(SIDES.right)}
           onAmountChange={(amountMl) =>
             handleAmountChange(SIDES.right, amountMl)
@@ -151,19 +170,25 @@ function PumpingSideCard({
   title,
   image,
   amountMl,
+  volumeUnit,
   onReset,
   onAmountChange,
   colors,
   styles,
 }) {
   const hasAmount = amountMl > 0;
+  const isFlOz = volumeUnit === "fl_oz";
+  const unitLabel = isFlOz ? "fl oz" : "ml";
+
+  const amountStepMl = isFlOz ? ML_PER_US_FL_OZ : 10;
+  const amountPresets = isFlOz ? [1, 2, 3] : [30, 60, 90];
 
   const decreaseAmount = () => {
-    onAmountChange(amountMl - AMOUNT_STEP_ML);
+    onAmountChange(roundMl(Math.max(0, amountMl - amountStepMl)));
   };
 
   const increaseAmount = () => {
-    onAmountChange(amountMl + AMOUNT_STEP_ML);
+    onAmountChange(roundMl(amountMl + amountStepMl));
   };
 
   return (
@@ -188,7 +213,9 @@ function PumpingSideCard({
       <Image source={image} resizeMode="contain" style={styles.illustration} />
 
       <Text style={styles.sideTitle}>{title}</Text>
-      <Text style={styles.amountValue}>{amountMl} ml</Text>
+      <Text style={styles.amountValue}>
+        {formatAmount(amountMl, volumeUnit)} {unitLabel}
+      </Text>
 
       <View style={styles.amountStepper}>
         <Pressable
@@ -219,12 +246,16 @@ function PumpingSideCard({
       </View>
 
       <View style={styles.presetRow}>
-        {AMOUNT_PRESETS_ML.map((presetMl) => {
-          const isSelected = amountMl === presetMl;
+        {amountPresets.map((presetAmount) => {
+          const presetMl = roundMl(
+            isFlOz ? presetAmount * ML_PER_US_FL_OZ : presetAmount,
+          );
+
+          const isSelected = Math.abs(amountMl - presetMl) < 0.005;
 
           return (
             <Pressable
-              key={presetMl}
+              key={presetAmount}
               onPress={() => onAmountChange(presetMl)}
               style={({ pressed }) => [
                 styles.presetButton,
@@ -238,7 +269,7 @@ function PumpingSideCard({
                   isSelected && styles.presetButtonLabelSelected,
                 ]}
               >
-                {presetMl}
+                {presetAmount}
               </Text>
             </Pressable>
           );

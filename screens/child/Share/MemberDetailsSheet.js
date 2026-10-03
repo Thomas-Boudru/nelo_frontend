@@ -34,6 +34,9 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
     currentUserId,
     canManageMembers = false,
     isRemoving = false,
+    isAssigningOwner = false,
+    onAssignOwner,
+    onOwnerAssigned,
     onBack,
     onRemoveMember,
     onMemberRemoved,
@@ -50,7 +53,8 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
   const [error, setError] = useState("");
 
   const snapPoints = useMemo(
-    () => (step === "confirmRemove" ? ["38%"] : ["43%"]),
+    () =>
+      step === "confirmRemove" || step === "confirmOwner" ? ["35%"] : ["52%"],
     [step],
   );
 
@@ -59,6 +63,14 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
 
   const canRemoveMember =
     Boolean(member) && canManageMembers && !isCurrentUser && !isOwner;
+
+  const canAssignOwner =
+    Boolean(member?.childMemberId) &&
+    canManageMembers &&
+    !isCurrentUser &&
+    !isOwner;
+
+  const isBusy = isRemoving || isAssigningOwner;
 
   useEffect(() => {
     setStep("details");
@@ -71,11 +83,11 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior={isRemoving ? "none" : "close"}
+        pressBehavior={isBusy ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [isRemoving],
+    [isBusy],
   );
 
   const resetSheet = useCallback(() => {
@@ -103,16 +115,53 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
   };
 
   const handleBack = () => {
-    if (isRemoving) {
+    if (isBusy) {
       return;
     }
 
-    if (step === "confirmRemove") {
-      handleCancelRemove();
+    if (step === "confirmRemove" || step === "confirmOwner") {
+      setError("");
+      setStep("details");
       return;
     }
 
     onBack?.();
+  };
+
+  const handleOpenOwnerConfirmation = () => {
+    if (!canAssignOwner) {
+      return;
+    }
+
+    setError("");
+    setStep("confirmOwner");
+  };
+
+  const handleAssignOwner = async () => {
+    if (!canAssignOwner || isBusy) {
+      return;
+    }
+
+    setError("");
+
+    try {
+      const assigned = await onAssignOwner?.(member);
+
+      if (assigned === false) {
+        return;
+      }
+
+      ref?.current?.dismiss();
+      onOwnerAssigned?.(member);
+    } catch (assignError) {
+      console.error("Assign owner failed:", assignError);
+
+      setError(
+        assignError?.code === "CHILD_OWNER_REQUIRED"
+          ? t("Only a profile owner can assign another owner")
+          : t("Unable to assign a new owner"),
+      );
+    }
   };
 
   const handleRemoveMember = async () => {
@@ -155,7 +204,7 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
       index={0}
       snapPoints={snapPoints}
       enableDynamicSizing={false}
-      enablePanDownToClose={!isRemoving}
+      enablePanDownToClose={!isBusy}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
       handleStyle={styles.handle}
@@ -244,6 +293,43 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
               </View>
             </View>
 
+            {canAssignOwner ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("Designate as owner")}
+                disabled={isBusy}
+                onPress={handleOpenOwnerConfirmation}
+                style={({ pressed }) => [
+                  styles.ownerAccessButton,
+                  pressed && styles.ownerAccessButtonPressed,
+                ]}
+              >
+                <View style={styles.ownerIconContainer}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+
+                <View style={styles.ownerInformation}>
+                  <Text style={[styles.ownerTitle, { color: colors.primary }]}>
+                    {t("Designate as owner")}
+                  </Text>
+
+                  <Text style={styles.ownerDescription}>
+                    {t("Give this member ownership of the child profile")}
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={17}
+                  color={colors.primary}
+                />
+              </Pressable>
+            ) : null}
+
             {canRemoveMember ? (
               <Pressable
                 accessibilityRole="button"
@@ -301,13 +387,13 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("Back")}
-                disabled={isRemoving}
+                disabled={isBusy}
                 hitSlop={8}
                 onPress={handleBack}
                 style={({ pressed }) => [
                   styles.backButton,
-                  pressed && !isRemoving && styles.backButtonPressed,
-                  isRemoving && styles.backButtonDisabled,
+                  pressed && !isBusy && styles.backButtonPressed,
+                  isBusy && styles.backButtonDisabled,
                 ]}
               >
                 <Ionicons
@@ -319,25 +405,23 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
             </View>
 
             <View style={styles.confirmationHeader}>
-              <View style={styles.warningIconContainer}>
-                <Ionicons
-                  name="person-remove-outline"
-                  size={25}
-                  color={colors.error}
-                />
-              </View>
-
               <Text style={styles.confirmationTitle}>
-                {t("Remove member confirmation title", {
-                  memberName: member.firstName,
-                })}
+                {step === "confirmOwner"
+                  ? t("Designate this member as an owner?")
+                  : t("Remove member confirmation title", {
+                      memberName: member.firstName,
+                    })}
               </Text>
 
               <Text style={styles.confirmationDescription}>
-                {t("Remove member confirmation description", {
-                  memberName: member.firstName,
-                  childName,
-                })}
+                {step === "confirmOwner"
+                  ? t(
+                      "This member will be able to manage this child's profile and its members.",
+                    )
+                  : t("Remove member confirmation description", {
+                      memberName: member.firstName,
+                      childName,
+                    })}
               </Text>
             </View>
 
@@ -357,12 +441,12 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("Cancel")}
-                disabled={isRemoving}
-                onPress={handleCancelRemove}
+                disabled={isBusy}
+                onPress={handleBack}
                 style={({ pressed }) => [
                   styles.cancelButton,
-                  pressed && !isRemoving && styles.cancelButtonPressed,
-                  isRemoving && styles.cancelButtonDisabled,
+                  pressed && !isBusy && styles.cancelButtonPressed,
+                  isBusy && styles.cancelButtonDisabled,
                 ]}
               >
                 <Text style={styles.cancelButtonText}>{t("Cancel")}</Text>
@@ -370,10 +454,14 @@ const MemberDetailsSheet = forwardRef(function MemberDetailsSheet(
 
               <View style={styles.removeButtonContainer}>
                 <PrimaryButton
-                  title={t("Remove")}
-                  variant="destructive"
-                  loading={isRemoving}
-                  onPress={handleRemoveMember}
+                  title={step === "confirmOwner" ? t("Confirm") : t("Remove")}
+                  variant={step === "confirmRemove" ? "destructive" : undefined}
+                  loading={isBusy}
+                  onPress={
+                    step === "confirmOwner"
+                      ? handleAssignOwner
+                      : handleRemoveMember
+                  }
                 />
               </View>
             </View>
@@ -608,6 +696,57 @@ const createStyles = (colors) =>
       color: colors.textSecondary,
     },
 
+    ownerAccessButton: {
+      minHeight: 70,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 12,
+      marginTop: 16,
+      borderWidth: 1,
+      borderColor: `${colors.primary}25`,
+      borderRadius: 19,
+      backgroundColor: `${colors.primary}08`,
+    },
+
+    ownerAccessButtonPressed: {
+      opacity: 0.72,
+
+      transform: [{ scale: 0.99 }],
+    },
+
+    ownerIconContainer: {
+      width: 42,
+      height: 42,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+      borderRadius: 21,
+      backgroundColor: `${colors.primary}12`,
+    },
+
+    ownerInformation: {
+      flex: 1,
+
+      minWidth: 0,
+    },
+
+    ownerTitle: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.primary,
+    },
+
+    ownerDescription: {
+      marginTop: 2,
+
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 10,
+      lineHeight: 15,
+
+      color: colors.textSecondary,
+    },
+
     protectedCard: {
       flexDirection: "row",
       alignItems: "center",
@@ -634,9 +773,26 @@ const createStyles = (colors) =>
     },
 
     confirmationHeader: {
-      alignItems: "center",
-
+      alignItems: "stretch",
       paddingTop: 8,
+    },
+
+    confirmationTitle: {
+      marginTop: 12,
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 20,
+      lineHeight: 28,
+      textAlign: "left",
+      color: colors.textPrimary,
+    },
+
+    confirmationDescription: {
+      marginTop: 7,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 13,
+      lineHeight: 20,
+      textAlign: "left",
+      color: colors.textSecondary,
     },
 
     warningIconContainer: {
@@ -649,30 +805,6 @@ const createStyles = (colors) =>
       borderRadius: 29,
 
       backgroundColor: `${colors.error}12`,
-    },
-
-    confirmationTitle: {
-      marginTop: 16,
-
-      fontFamily: "PlusJakartaSans_700Bold",
-      fontSize: 20,
-      lineHeight: 28,
-      textAlign: "center",
-
-      color: colors.textPrimary,
-    },
-
-    confirmationDescription: {
-      maxWidth: 330,
-
-      marginTop: 7,
-
-      fontFamily: "PlusJakartaSans_500Medium",
-      fontSize: 13,
-      lineHeight: 20,
-      textAlign: "center",
-
-      color: colors.textSecondary,
     },
 
     errorCard: {

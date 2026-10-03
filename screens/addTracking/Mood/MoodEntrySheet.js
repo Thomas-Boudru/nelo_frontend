@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -20,6 +20,10 @@ import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
 import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { createLocalMoodEntry } from "../../../database/tracking/mood/moodRepository.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 const happyIllustration = require("../../../assets/illustrations/tracking/mood/happy.png");
 const calmIllustration = require("../../../assets/illustrations/tracking/mood/calm.png");
@@ -98,7 +102,7 @@ function createMoodEntryFromTrackingEntry(trackingEntry) {
 }
 
 const MoodEntrySheet = forwardRef(function MoodEntrySheet(
-  { childName, onSave, onRequestDelete, onPressHistory },
+  { childName, childId, onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
@@ -115,6 +119,10 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
   const [editingEntry, setEditingEntry] = useState(null);
 
   const [entry, setEntry] = useState(createInitialEntry);
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const isEditMode = sheetMode === "edit";
 
@@ -160,11 +168,11 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const patchEntry = (patch) => {
@@ -193,38 +201,80 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
   };
 
   const handleSave = async () => {
-    if (!canSave) {
+    if (!canSave || savingRef.current) {
       return;
     }
 
-    await onSave?.({
-      ...editingEntry,
-      ...entry,
+    if (isEditMode) {
+      Alert.alert(
+        t("Editing unavailable"),
+        t("Mood editing is not available yet."),
+      );
+      return;
+    }
 
-      id: editingEntry?.id,
+    if (!user?.id || !childId) {
+      Alert.alert(
+        t("Unable to save mood"),
+        t("Please select a child and sign in again."),
+      );
+      return;
+    }
 
-      type: "mood",
-      mode: sheetMode,
+    savingRef.current = true;
+    setIsSaving(true);
 
-      mood: entry.mood,
-      date: entry.date,
-    });
+    try {
+      const savedEntry = await createLocalMoodEntry({
+        userId: user.id,
+        childId,
+        data: {
+          mood: entry.mood,
+          moodDate: entry.isDateEdited ? entry.date : new Date(),
+        },
+      });
 
-    modalRef.current?.dismiss();
+      // L’enregistrement est déjà effectué :
+      // une erreur du toast ne doit pas provoquer une deuxième création.
+      try {
+        await onSave?.(savedEntry);
+      } catch (error) {
+        console.error("Unable to display mood save confirmation:", error);
+      }
+
+      processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize mood:", error);
+      });
+
+      modalRef.current?.dismiss();
+    } catch (error) {
+      console.error("Unable to save mood:", error);
+
+      Alert.alert(
+        t("Unable to save mood"),
+        t("The mood could not be saved. Please try again."),
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
-
   return (
     <BottomSheetModal
       ref={modalRef}
       index={0}
       snapPoints={snapPoints}
       enableDynamicSizing={false}
-      enablePanDownToClose
+      enablePanDownToClose={!isSaving}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
       handleIndicatorStyle={styles.handle}
     >
-      <View style={styles.content}>
+      <View style={styles.content} pointerEvents={isSaving ? "none" : "auto"}>
         <View style={styles.header}>
           <View style={styles.headerContent}>
             <Text style={styles.title}>
@@ -361,7 +411,8 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
             <PrimaryButton
               title={t("Save mood")}
               onPress={handleSave}
-              disabled={!canSave}
+              disabled={!canSave || isSaving}
+              loading={isSaving}
             />
           )}
         </View>

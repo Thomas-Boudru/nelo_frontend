@@ -27,15 +27,14 @@ import { useTranslation } from "react-i18next";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import useCustomProductActions from "./useCustomProductActions.js";
+
 import {
   MEDICATIONS,
   normalizeMedicationSearch,
   searchMedications,
 } from "../../../data/medications.js";
-
-function createCustomMedicationId() {
-  return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
   {
@@ -72,7 +71,37 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
   const [search, setSearch] = useState("");
   const [customName, setCustomName] = useState("");
   const [editingMedication, setEditingMedication] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
+
+  const { isSaving, busyRef, saveProduct, confirmArchive } =
+    useCustomProductActions({
+      onSave: onSaveCustomMedication,
+      onArchive: onDeleteCustomMedication,
+
+      onSaved: (medication) => {
+        // On sélectionne le produit réellement enregistré,
+        // avec son UUID généré par le repository.
+        Keyboard.dismiss();
+        modalRef.current?.dismiss();
+
+        onSelectMedication?.({
+          ...medication,
+          translationKey: null,
+          category: null,
+          isCustom: true,
+        });
+      },
+
+      onArchived: () => {
+        setEditingMedication(null);
+        setCustomName("");
+        setSearch("");
+        setStep("search");
+      },
+
+      deleteTitle: "Delete custom medication",
+      deleteDescription:
+        "This medication will no longer appear in your list. Previously recorded entries will not be deleted.",
+    });
 
   const currentLanguage =
     i18n.resolvedLanguage?.toLowerCase().split("-")[0] ??
@@ -118,37 +147,36 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
   );
 
   const suggestedMedications = useMemo(() => {
-    const recentIds = new Set(
-      recentMedications
-        .map((medication) => medication.id ?? medication.medicationId)
-        .filter(Boolean),
-    );
+    const results = [];
+    const seen = new Set();
 
-    const recentNames = new Set(
-      recentMedications
-        .map((medication) =>
-          normalizeMedicationSearch(
-            medication.name ?? medication.medicationName ?? "",
-          ),
-        )
-        .filter(Boolean),
-    );
+    for (const recent of recentMedications) {
+      const product = allMedications.find(
+        (item) => item.id === recent.id && item.isCustom === recent.isCustom,
+      );
 
-    const recentResults = allMedications.filter(
-      (medication) =>
-        recentIds.has(medication.id) ||
-        recentNames.has(normalizeMedicationSearch(medication.name)),
-    );
+      if (!product) {
+        continue;
+      }
 
-    const recentResultIds = new Set(
-      recentResults.map((medication) => medication.id),
-    );
+      const key = `${product.isCustom ? "custom" : "catalog"}:${product.id}`;
 
-    const remainingMedications = allMedications.filter(
-      (medication) => !recentResultIds.has(medication.id),
-    );
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(product);
+      }
+    }
 
-    return [...recentResults, ...remainingMedications].slice(0, 6);
+    for (const product of allMedications) {
+      const key = `${product.isCustom ? "custom" : "catalog"}:${product.id}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(product);
+      }
+    }
+
+    return results.slice(0, 6);
   }, [allMedications, recentMedications]);
 
   const filteredMedications = useMemo(() => {
@@ -213,7 +241,10 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
   }, [allMedications, editingMedication?.id, trimmedCustomName]);
 
   const canSaveCustomMedication =
-    trimmedCustomName.length > 0 && !duplicateCustomMedication && !isSaving;
+    trimmedCustomName.length > 0 &&
+    trimmedCustomName.length <= 150 &&
+    !duplicateCustomMedication &&
+    !isSaving;
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -233,7 +264,6 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
     setSearch("");
     setCustomName("");
     setEditingMedication(null);
-    setIsSaving(false);
   }, []);
 
   const dismissSheet = useCallback(() => {
@@ -317,6 +347,10 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
   );
 
   const closeCustomMedicationForm = useCallback(() => {
+    if (busyRef.current) {
+      return;
+    }
+
     Keyboard.dismiss();
 
     setStep("search");
@@ -328,109 +362,20 @@ const MedicationPickerSheet = forwardRef(function MedicationPickerSheet(
     }, 150);
   }, []);
 
-  /*
-   * Le médicament n’est envoyé au champ principal
-   * qu’après validation avec le PrimaryButton.
-   */
-  const handleSaveCustomMedication = useCallback(async () => {
-    const name = customName.trim();
-
-    if (!name || duplicateCustomMedication || isSaving) {
+  const handleSaveCustomMedication = async () => {
+    if (busyRef.current || duplicateCustomMedication) {
       return;
     }
 
-    const now = new Date().toISOString();
+    await saveProduct({
+      ...(editingMedication ?? {}),
+      name: customName,
+    });
+  };
 
-    const medication = editingMedication
-      ? {
-          ...editingMedication,
-          name,
-          translationKey: null,
-          category: null,
-          isCustom: true,
-          updatedAt: now,
-          deletedAt: null,
-        }
-      : {
-          id: createCustomMedicationId(),
-          name,
-          translationKey: null,
-          category: null,
-          isCustom: true,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        };
-
-    try {
-      setIsSaving(true);
-
-      await onSaveCustomMedication?.(medication);
-
-      onSelectMedication?.({
-        id: medication.id,
-        name: medication.name,
-        translationKey: null,
-        category: null,
-        isCustom: true,
-      });
-
-      dismissSheet();
-    } finally {
-      setIsSaving(false);
-    }
-  }, [
-    customName,
-    dismissSheet,
-    duplicateCustomMedication,
-    editingMedication,
-    isSaving,
-    onSaveCustomMedication,
-    onSelectMedication,
-  ]);
-
-  const handleDeleteCustomMedication = useCallback(() => {
-    if (!editingMedication) {
-      return;
-    }
-
-    Keyboard.dismiss();
-
-    Alert.alert(
-      t("Delete custom medication"),
-      t(
-        "This medication will no longer appear in your list. Previously recorded entries will not be deleted.",
-      ),
-      [
-        {
-          text: t("Cancel"),
-          style: "cancel",
-        },
-        {
-          text: t("Delete"),
-          style: "destructive",
-          onPress: async () => {
-            const deletedMedication = {
-              ...editingMedication,
-              isCustom: true,
-              deletedAt: new Date().toISOString(),
-            };
-
-            await onDeleteCustomMedication?.(deletedMedication);
-
-            setEditingMedication(null);
-            setCustomName("");
-            setSearch("");
-            setStep("search");
-
-            setTimeout(() => {
-              searchInputRef.current?.focus();
-            }, 150);
-          },
-        },
-      ],
-    );
-  }, [editingMedication, onDeleteCustomMedication, t]);
+  const handleDeleteCustomMedication = () => {
+    confirmArchive(editingMedication);
+  };
 
   const renderMedication = useCallback(
     ({ item }) => (

@@ -7,6 +7,9 @@ import {
   useRef,
   useState,
 } from "react";
+
+import * as Crypto from "expo-crypto";
+
 import {
   Alert,
   Image,
@@ -35,33 +38,15 @@ import {
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
+import { useSelector } from "react-redux";
 
-const UNIT_OPTIONS = [
-  {
-    id: "piece",
-    label: "Piece",
-  },
-  {
-    id: "g",
-    label: "g",
-  },
-  {
-    id: "ml",
-    label: "ml",
-  },
-  {
-    id: "teaspoon",
-    label: "Teaspoon",
-  },
-  {
-    id: "tablespoon",
-    label: "Tablespoon",
-  },
-  {
-    id: "portion",
-    label: "Portion",
-  },
-];
+import {
+  convertSolidAmount,
+  getSolidDisplayUnit,
+  getSolidWeightUnit,
+  getSolidVolumeUnit,
+  normalizeSolidQuantity,
+} from "../../../utils/solidQuantities.js";
 
 const FRACTION_OPTIONS = [
   {
@@ -102,7 +87,7 @@ function deduplicateFoods(foods) {
 }
 
 function createCustomFoodId() {
-  return `custom-food-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return Crypto.randomUUID();
 }
 
 const AddFoodSheet = forwardRef(function AddFoodSheet(
@@ -120,6 +105,41 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const { height: windowHeight } = useWindowDimensions();
+
+  const weightPreference = useSelector(
+    (state) => state.measurementUnits.weight,
+  );
+
+  const volumePreference = useSelector(
+    (state) => state.measurementUnits.volume,
+  );
+
+  const weightDisplayUnit = getSolidWeightUnit(weightPreference);
+  const volumeDisplayUnit = getSolidVolumeUnit(volumePreference);
+
+  const unitOptions = useMemo(
+    () => [
+      { id: "piece", label: "Piece" },
+      { id: weightDisplayUnit, label: weightDisplayUnit },
+      {
+        id: volumeDisplayUnit,
+        label: volumeDisplayUnit === "fl_oz" ? "fl oz" : "ml",
+      },
+      { id: "teaspoon", label: "Teaspoon" },
+      { id: "tablespoon", label: "Tablespoon" },
+      { id: "portion", label: "Portion" },
+    ],
+    [weightDisplayUnit, volumeDisplayUnit],
+  );
+
+  const getPreferredUnit = useCallback(
+    (suggestedUnit) =>
+      getSolidDisplayUnit(suggestedUnit ?? "piece", {
+        weight: weightPreference,
+        volume: volumePreference,
+      }),
+    [weightPreference, volumePreference],
+  );
 
   /**
    * The search step is a single scrollable, so the sheet hugs its content.
@@ -146,6 +166,26 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
   const [customName, setCustomName] = useState("");
   const [editingFood, setEditingFood] = useState(null);
   const [isSavingCustomFood, setIsSavingCustomFood] = useState(false);
+
+  useEffect(() => {
+    const nextUnit = getSolidDisplayUnit(unit, {
+      weight: weightPreference,
+      volume: volumePreference,
+    });
+
+    if (nextUnit === unit) return;
+
+    const parsedAmount = Number(amount.trim().replace(",", "."));
+
+    if (amount.trim() && Number.isFinite(parsedAmount) && parsedAmount > 0) {
+      const convertedAmount = convertSolidAmount(parsedAmount, unit, nextUnit);
+
+      setAmount(String(Number(convertedAmount.toFixed(6))));
+    }
+
+    setSelectedFraction(null);
+    setUnit(nextUnit);
+  }, [weightPreference, volumePreference, unit, amount]);
 
   const translatedFoods = useMemo(
     () =>
@@ -355,7 +395,7 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
       setSelectedFood(food);
       setAmount("");
       setSelectedFraction(null);
-      setUnit(food.suggestedUnit ?? "piece");
+      setUnit(getPreferredUnit(food.suggestedUnit));
       setStep("details");
     });
   };
@@ -452,10 +492,17 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
           setSelectedFood(food);
           setAmount("");
           setSelectedFraction(null);
-          setUnit(food.suggestedUnit ?? "piece");
+          setUnit(getPreferredUnit(food.suggestedUnit));
           setStep("details");
         });
       }
+    } catch (error) {
+      console.error("Unable to save the custom food:", error);
+
+      Alert.alert(
+        t("Unable to save food"),
+        t("The food could not be saved. Please try again."),
+      );
     } finally {
       setIsSavingCustomFood(false);
     }
@@ -467,6 +514,7 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
     onSaveCustomFood,
     returnToSearchStep,
     runAfterKeyboardHidden,
+    getPreferredUnit,
   ]);
 
   const handleDeleteCustomFood = useCallback(() => {
@@ -496,9 +544,18 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
               deletedAt: new Date().toISOString(),
             };
 
-            await onDeleteCustomFood?.(deletedFood);
+            try {
+              await onDeleteCustomFood?.(deletedFood);
 
-            returnToSearchStep();
+              returnToSearchStep();
+            } catch (error) {
+              console.error("Unable to delete the custom food:", error);
+
+              Alert.alert(
+                t("Unable to delete food"),
+                t("The food could not be deleted. Please try again."),
+              );
+            }
           },
         },
       ],
@@ -519,39 +576,63 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
   };
 
   const getDisplayQuantity = useCallback(() => {
-    if (!amount.trim()) {
-      return "";
-    }
+    if (!amount.trim()) return "";
 
     const fraction = FRACTION_OPTIONS.find(
       (option) => option.id === selectedFraction,
     );
 
     const displayedAmount = fraction?.label ?? amount.trim();
+    const option = unitOptions.find((candidate) => candidate.id === unit);
 
-    if (unit === "piece") {
-      return `${displayedAmount} ${t("Piece").toLocaleLowerCase()}`;
-    }
+    if (!option) return "";
 
-    if (unit === "g" || unit === "ml") {
-      return `${displayedAmount} ${unit}`;
-    }
+    const unitLabel = ["g", "oz", "ml", "fl_oz"].includes(unit)
+      ? option.label
+      : t(option.label).toLocaleLowerCase();
 
-    const unitLabel =
-      UNIT_OPTIONS.find((option) => option.id === unit)?.label ?? unit;
-
-    return `${displayedAmount} ${t(unitLabel).toLocaleLowerCase()}`;
-  }, [amount, selectedFraction, t, unit]);
+    return `${displayedAmount} ${unitLabel}`;
+  }, [amount, selectedFraction, t, unit, unitOptions]);
 
   const handleAddFood = () => {
     if (!selectedFood) return;
+
+    const hasAmount = amount.trim().length > 0;
+    const parsedAmount = hasAmount
+      ? Number(amount.trim().replace(",", "."))
+      : null;
+
+    if (
+      hasAmount &&
+      (!Number.isFinite(parsedAmount) ||
+        parsedAmount <= 0 ||
+        !unitOptions.some((option) => option.id === unit))
+    ) {
+      Alert.alert(
+        t("Invalid quantity"),
+        t("Enter a quantity greater than zero."),
+      );
+
+      return;
+    }
+
+    const normalizedQuantity = hasAmount
+      ? normalizeSolidQuantity(parsedAmount, unit)
+      : { amount: null, unit: null };
+
+    if (hasAmount && normalizedQuantity.amount <= 0) {
+      Alert.alert(t("Invalid quantity"), t("The quantity is too small."));
+
+      return;
+    }
 
     onAddFood?.({
       ...selectedFood,
       id: `${selectedFood.id}-${Date.now()}`,
       foodId: selectedFood.id,
-      amount: amount.trim() ? Number(amount.replace(",", ".")) : null,
-      unit: amount.trim() ? unit : null,
+      ...normalizedQuantity,
+
+      // Conservé temporairement pour les autres écrans existants.
       quantity: getDisplayQuantity(),
     });
 
@@ -944,7 +1025,7 @@ const AddFoodSheet = forwardRef(function AddFoodSheet(
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.unitOptions}
               >
-                {UNIT_OPTIONS.map((option) => {
+                {unitOptions.map((option) => {
                   const isSelected = unit === option.id;
 
                   return (

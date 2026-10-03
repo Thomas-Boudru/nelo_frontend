@@ -3536,28 +3536,6 @@ export const FOODS = [
     suggestedUnit: "ml",
   },
   {
-    id: "baby-cereal",
-    translationKey: "Baby cereal",
-    aliases: {
-      en: ["baby cereal", "infant cereal", "baby porridge", "cereal porridge"],
-      fr: [
-        "bouillie",
-        "bouillie pour bébé",
-        "bouillie de céréales",
-        "céréales pour bébé",
-      ],
-      nl: ["babypap", "graanpap", "babygranen", "pap voor baby's"],
-      de: ["babybrei", "getreidebrei", "babygetreide", "säuglingsbrei"],
-      es: ["papilla", "papilla de cereales", "cereales para bebé"],
-      it: ["pappa", "pappa di cereali", "cereali per bambini"],
-      pt: ["papa", "papa de cereais", "cereais para bebé"],
-    },
-    category: "prepared-meal",
-    image: require("../assets/illustrations/tracking/food/preparations/baby-cereal.png"),
-    emoji: null,
-    suggestedUnit: "g",
-  },
-  {
     id: "porridge",
     translationKey: "Porridge",
     aliases: {

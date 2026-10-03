@@ -67,7 +67,7 @@ const EditFirstNameSheet = forwardRef(function EditFirstNameSheet(
         firstName: normalizedValue,
       });
     } catch (saveError) {
-      setError(saveError?.message || t("Unable to update preferred name"));
+      setError(t("Unable to update preferred name"));
     }
   };
 

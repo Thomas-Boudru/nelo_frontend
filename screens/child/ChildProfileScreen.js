@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,6 +11,23 @@ import {
 } from "react-native";
 
 import { useDispatch, useSelector } from "react-redux";
+import {
+  getLocalUserPreferences,
+  saveUserLanguageLocally,
+  saveUserMeasurementUnitLocally,
+} from "../../database/user/userPreferencesRepository.js";
+import {
+  requestEmailChange,
+  updatePreferredName,
+  verifyEmailChange,
+} from "../../api/user/userApi.js";
+
+import {
+  measurementUnitChanged,
+  measurementUnitsReset,
+} from "../../store/slices/measurementUnitsSlice.js";
+
+import { enqueueSyncOperation } from "../../sync/syncQueueRepository.js";
 
 import { resetOnboarding } from "../../store/slices/onboardingSlice.js";
 
@@ -45,13 +62,19 @@ import BabyFaceIcon from "../../assets/icons/header/faceBaby.svg";
 import ShareChildDataSheet from "./Share/ShareChildDataSheet.js";
 import { navigateToTrackingHistory } from "../../navigation/trackingHistoryDestinations.js";
 import RelationshipSettingsSheet from "./RelationshipSettingsSheet.js";
+
+import { deleteCurrentAccount } from "../../api/user/userApi.js";
+import { deleteLocalUserData } from "../../database/user/deleteLocalUserData.js";
+
 import {
   createChildInvitation,
   getChildSharing,
   removeChildMember,
   resendChildInvitation,
   revokeChildInvitation,
-} from "../../api/childrenApi.js";
+  makeChildMemberOwner,
+  deleteChild,
+} from "../../api/children/childrenApi.js";
 import { useAuth } from "../../auth/AuthProvider.js";
 import PendingInvitationDetailsSheet from "./Share/PendingInvitationDetailsSheet.js";
 
@@ -62,17 +85,13 @@ import {
   updateChildAvatar,
   updateChildPreferences,
   updateCurrentUserRelationship,
+  removeDeletedChild,
+  clearChildren,
 } from "../../store/slices/childrenSlice.js";
 
 import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 import { setThemeMode } from "../../store/slices/themeSlice.js";
-
-const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
-
-const STAR_YELLOW_IMAGE = require("../../assets/illustrations/onboarding/starYellow.png");
-
-const CLOUD_IMAGE = require("../../assets/illustrations/onboarding/cloud.png");
 
 const WEIGHT_IMAGE = require("../../assets/illustrations/tracking/weightBlue.png");
 
@@ -284,9 +303,42 @@ export default function ChildProfileScreen({ navigation }) {
   const { showToast } = useToast();
   const languageSelectionSheetRef = useRef(null);
 
-  const [selectedLanguage, setSelectedLanguage] = useState("fr");
-  const { user, accessToken, logout, refreshSession } = useAuth();
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    i18n.resolvedLanguage || i18n.language || "en",
+  );
+  const { user, accessToken, logout, refreshSession, updateAuthenticatedUser } =
+    useAuth();
+
   const [isSendingInvitation, setIsSendingInvitation] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!user?.id) {
+      return undefined;
+    }
+
+    getLocalUserPreferences(user.id)
+      .then((preferences) => {
+        if (cancelled || !preferences) {
+          return;
+        }
+
+        if (preferences.languageCode) {
+          setSelectedLanguage(preferences.languageCode);
+          return i18n.changeLanguage(preferences.languageCode);
+        }
+
+        setSelectedLanguage(i18n.resolvedLanguage || i18n.language || "en");
+      })
+      .catch((error) => {
+        console.error("Unable to load local language preference:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [i18n, user?.id]);
 
   const dispatch = useDispatch();
 
@@ -378,6 +430,7 @@ export default function ChildProfileScreen({ navigation }) {
     try {
       dispatch(clearInvitations());
       dispatch(resetOnboarding());
+      dispatch(measurementUnitsReset());
 
       await logout();
     } catch (error) {
@@ -407,11 +460,6 @@ export default function ChildProfileScreen({ navigation }) {
 
   const [isDeletingChildProfile, setIsDeletingChildProfile] = useState(false);
 
-  const [account, setAccount] = useState({
-    firstName: "Thomas",
-    email: "thomas@email.com",
-  });
-
   const [isSavingFirstName, setIsSavingFirstName] = useState(false);
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -420,14 +468,11 @@ export default function ChildProfileScreen({ navigation }) {
   const [isSavingRelationship, setIsSavingRelationship] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [measurementUnits, setMeasurementUnits] = useState({
-    weight: "kg",
-    length: "cm",
-    temperature: "celsius",
-  });
+  const measurementUnits = useSelector((state) => state.measurementUnits);
 
   const [selectedMember, setSelectedMember] = useState(null);
   const [isRemovingMember, setIsRemovingMember] = useState(false);
+  const [isAssigningOwner, setIsAssigningOwner] = useState(false);
   const [pendingInvitations, setPendingInvitations] = useState([]);
   const [members, setMembers] = useState([]);
   const [isLoadingSharing, setIsLoadingSharing] = useState(false);
@@ -482,6 +527,79 @@ export default function ChildProfileScreen({ navigation }) {
       });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleChangeMeasurementUnit = async ({ unitType, unitValue }) => {
+    if (!user?.id) {
+      return false;
+    }
+
+    const fieldByUnitType = {
+      weight: "weightUnit",
+      length: "lengthUnit",
+      temperature: "temperatureUnit",
+      volume: "volumeUnit",
+    };
+
+    const field = fieldByUnitType[unitType];
+
+    if (!field) {
+      return false;
+    }
+
+    const databaseValue =
+      unitType === "temperature"
+        ? unitValue === "fahrenheit"
+          ? "f"
+          : "c"
+        : unitValue;
+
+    try {
+      const savedPreferences = await saveUserMeasurementUnitLocally({
+        userId: user.id,
+        unitType,
+        unitValue: databaseValue,
+      });
+
+      await enqueueSyncOperation({
+        userId: user.id,
+        entityType: "user_preferences",
+        entityId: user.id,
+        operation: `update_unit:${savedPreferences.updatedAt}`,
+        endpoint: "/api/users/me/preferences",
+        method: "PATCH",
+        payload: {
+          [field]: databaseValue,
+        },
+      });
+
+      dispatch(
+        measurementUnitChanged({
+          type: unitType,
+          unit: unitValue,
+        }),
+      );
+
+      processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize measurement unit:", error);
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Unable to save measurement unit:", error);
+
+      showToast({
+        type: "error",
+        title: t("Unable to save preference"),
+        message: t("Please try again"),
+      });
+
+      return false;
     }
   };
 
@@ -907,8 +1025,8 @@ export default function ChildProfileScreen({ navigation }) {
     // leaveChildProfileSheetRef.current?.present();
   };
 
-  const handleOpenShareChildProfile = async () => {
-    if (!child?.id || isLoadingSharing) {
+  const handleOpenShareChildProfile = async (childId = child?.id) => {
+    if (!childId || isLoadingSharing) {
       return;
     }
 
@@ -917,7 +1035,7 @@ export default function ChildProfileScreen({ navigation }) {
     try {
       const response = await executeWithValidAccessToken((token) =>
         getChildSharing({
-          childId: child.id,
+          childId,
           accessToken: token,
         }),
       );
@@ -938,6 +1056,7 @@ export default function ChildProfileScreen({ navigation }) {
       setIsLoadingSharing(false);
     }
   };
+
   const handleBackToSharing = useCallback(() => {
     pendingInvitationDetailsSheetRef.current?.dismiss();
 
@@ -1102,9 +1221,55 @@ export default function ChildProfileScreen({ navigation }) {
   };
 
   const handleSelectLanguage = async (language) => {
-    setSelectedLanguage(language.id);
+    if (!user?.id) {
+      return false;
+    }
 
-    await i18n.changeLanguage(language.id);
+    if (language.id === selectedLanguage) {
+      return true;
+    }
+
+    try {
+      const savedPreferences = await saveUserLanguageLocally({
+        userId: user.id,
+        languageCode: language.id,
+      });
+
+      await enqueueSyncOperation({
+        userId: user.id,
+        entityType: "user_preferences",
+        entityId: user.id,
+        operation: `update_language:${savedPreferences.updatedAt}`,
+        endpoint: "/api/users/me/preferences",
+        method: "PATCH",
+        payload: {
+          languageCode: language.id,
+        },
+      });
+
+      await i18n.changeLanguage(language.id);
+      setSelectedLanguage(language.id);
+
+      processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize language preference:", error);
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Unable to save language preference:", error);
+
+      showToast({
+        type: "error",
+        title: t("Unable to save preference"),
+        message: t("Please try again"),
+      });
+
+      return false;
+    }
   };
 
   const visibleMeasurements = [
@@ -1367,7 +1532,7 @@ export default function ChildProfileScreen({ navigation }) {
             })}
             isLast
             loading={isLoadingSharing}
-            onPress={handleOpenShareChildProfile}
+            onPress={() => handleOpenShareChildProfile()}
             colors={colors}
             styles={styles}
           />
@@ -1389,7 +1554,7 @@ export default function ChildProfileScreen({ navigation }) {
             title={t("Language")}
             value={
               LANGUAGES.find((language) => language.id === selectedLanguage)
-                ?.nativeName
+                ?.label
             }
             onPress={handleOpenLanguageSelection}
             colors={colors}
@@ -1398,13 +1563,12 @@ export default function ChildProfileScreen({ navigation }) {
           <ProfileSettingRow
             icon="resize-outline"
             title={t("Measurement units")}
-            value={
-              measurementUnits.weight === "kg" &&
-              measurementUnits.length === "cm" &&
-              measurementUnits.temperature === "celsius"
-                ? t("Metric units short")
-                : t("Custom")
-            }
+            value={[
+              measurementUnits.weight,
+              measurementUnits.length,
+              measurementUnits.temperature === "fahrenheit" ? "°F" : "°C",
+              measurementUnits.volume === "fl_oz" ? "fl oz" : "ml",
+            ].join(", ")}
             onPress={() => {
               measurementUnitsSheetRef.current?.present();
             }}
@@ -1678,6 +1842,48 @@ export default function ChildProfileScreen({ navigation }) {
         currentUserId={user?.id}
         canManageMembers={child.currentUserRole === "owner"}
         isRemoving={isRemovingMember}
+        isAssigningOwner={isAssigningOwner}
+        onAssignOwner={async (member) => {
+          if (!child?.id || !member?.childMemberId) {
+            return false;
+          }
+
+          setIsAssigningOwner(true);
+
+          try {
+            await executeWithValidAccessToken((token) =>
+              makeChildMemberOwner({
+                childId: child.id,
+                childMemberId: member.childMemberId,
+                accessToken: token,
+              }),
+            );
+
+            setMembers((current) =>
+              current.map((item) =>
+                item.childMemberId === member.childMemberId
+                  ? { ...item, role: "owner" }
+                  : item,
+              ),
+            );
+
+            return true;
+          } finally {
+            setIsAssigningOwner(false);
+          }
+        }}
+        onOwnerAssigned={(member) => {
+          setSelectedMember(null);
+
+          showToast({
+            type: "success",
+            title: t("New owner assigned"),
+            message: t("Member is now an owner of the child profile", {
+              memberName: member.firstName,
+              childName: child.firstName,
+            }),
+          });
+        }}
         onRemoveMember={handleRemoveMember}
         onMemberRemoved={({ member, childName }) => {
           showToast({
@@ -1696,20 +1902,13 @@ export default function ChildProfileScreen({ navigation }) {
       <MeasurementUnitsSheet
         ref={measurementUnitsSheetRef}
         initialUnits={measurementUnits}
-        onChangeUnits={async ({ units }) => {
-          setMeasurementUnits(units);
-
-          // Plus tard :
-          // await api.patch("/users/preferences/units", units);
-
-          return true;
-        }}
+        onChangeUnits={handleChangeMeasurementUnit}
       />
 
       <MyAccountSheet
         ref={myAccountSheetRef}
-        firstName={account.firstName}
-        email={account.email}
+        firstName={user?.displayName ?? ""}
+        email={user?.email ?? ""}
         onEditFirstName={() => {
           editFirstNameSheetRef.current?.present();
         }}
@@ -1723,19 +1922,20 @@ export default function ChildProfileScreen({ navigation }) {
 
       <EditFirstNameSheet
         ref={editFirstNameSheetRef}
-        firstName={account.firstName}
+        firstName={user?.displayName ?? ""}
         isSaving={isSavingFirstName}
         onSave={async ({ firstName }) => {
           setIsSavingFirstName(true);
 
           try {
-            // Plus tard :
-            // await api.patch("/users/me", { firstName });
+            const response = await executeWithValidAccessToken((token) =>
+              updatePreferredName({
+                displayName: firstName,
+                accessToken: token,
+              }),
+            );
 
-            setAccount((currentAccount) => ({
-              ...currentAccount,
-              firstName,
-            }));
+            updateAuthenticatedUser(response.user);
 
             return true;
           } finally {
@@ -1757,16 +1957,19 @@ export default function ChildProfileScreen({ navigation }) {
 
       <EditEmailSheet
         ref={editEmailSheetRef}
-        currentEmail={account.email}
+        currentEmail={user?.email ?? ""}
         isSubmitting={isUpdatingEmail}
         onRequestCode={async ({ email }) => {
           setIsUpdatingEmail(true);
 
           try {
-            // Plus tard :
-            // await api.post("/users/email/change/request", { email });
-
-            console.log("Send verification code to:", email);
+            await executeWithValidAccessToken((token) =>
+              requestEmailChange({
+                email,
+                locale: i18n.resolvedLanguage || i18n.language || "en",
+                accessToken: token,
+              }),
+            );
 
             return true;
           } finally {
@@ -1777,18 +1980,15 @@ export default function ChildProfileScreen({ navigation }) {
           setIsUpdatingEmail(true);
 
           try {
-            // Plus tard :
-            // await api.post("/users/email/change/verify", {
-            //   email,
-            //   code,
-            // });
+            const response = await executeWithValidAccessToken((token) =>
+              verifyEmailChange({
+                email,
+                code,
+                accessToken: token,
+              }),
+            );
 
-            console.log("Verify email code:", code);
-
-            setAccount((currentAccount) => ({
-              ...currentAccount,
-              email,
-            }));
+            updateAuthenticatedUser(response.user);
 
             return true;
           } finally {
@@ -1800,9 +2000,7 @@ export default function ChildProfileScreen({ navigation }) {
             showToast({
               type: "success",
               title: t("Email address updated"),
-              message: t("Your new email address is email", {
-                email,
-              }),
+              message: t("Your new email address is email", { email }),
             });
           }, 250);
         }}
@@ -1811,31 +2009,55 @@ export default function ChildProfileScreen({ navigation }) {
       <DeleteAccountSheet
         ref={deleteAccountSheetRef}
         isDeleting={isDeletingAccount}
+        onCheckDeletion={() =>
+          executeWithValidAccessToken((token) =>
+            getAccountDeletionCheck({ accessToken: token }),
+          )
+        }
+        onOpenOwnershipTransfer={(targetChild) => {
+          deleteAccountSheetRef.current?.dismiss();
+          dispatch(selectChild(targetChild.id));
+
+          setTimeout(() => {
+            handleOpenShareChildProfile(targetChild.id);
+          }, 300);
+        }}
         onDeleteAccount={async () => {
+          if (isDeletingAccount || !user?.id) {
+            return false;
+          }
+
+          const userId = user.id;
           setIsDeletingAccount(true);
 
           try {
-            // Plus tard :
-            // await api.delete("/users/me");
+            await executeWithValidAccessToken((token) =>
+              deleteCurrentAccount({ accessToken: token }),
+            );
 
-            console.log("Delete account");
+            // La suppression serveur a réussi : il faut retirer la session locale
+            // même si le nettoyage SQLite rencontre ensuite une erreur.
+            try {
+              await deleteLocalUserData(userId);
+            } catch (localError) {
+              console.error(
+                "Unable to clear deleted account data:",
+                localError,
+              );
+            }
+
+            dispatch(clearChildren());
+            dispatch(clearInvitations());
+            dispatch(resetOnboarding());
+
+            // Les sessions serveur sont déjà révoquées. logout() retire aussi
+            // le refresh token du téléphone et vide AuthProvider.
+            await logout();
 
             return true;
           } finally {
             setIsDeletingAccount(false);
           }
-        }}
-        onAccountDeleted={() => {
-          /*
-           * Ici, ne montre pas forcément un toast :
-           * l’utilisateur doit être déconnecté et renvoyé
-           * vers l’onboarding ou l’écran de bienvenue.
-           */
-
-          console.log("Clear authentication and return to welcome screen");
-
-          // dispatch(logout());
-          // dispatch(resetOnboarding());
         }}
       />
 
@@ -1844,36 +2066,32 @@ export default function ChildProfileScreen({ navigation }) {
         childName={child.firstName}
         isDeleting={isDeletingChildProfile}
         onDeleteChildProfile={async () => {
+          if (!child?.id || isDeletingChildProfile) {
+            return false;
+          }
+
+          const childId = child.id;
           setIsDeletingChildProfile(true);
 
           try {
-            // Plus tard :
-            // await api.delete(`/children/${child.id}`);
-
-            setChildren((currentChildren) =>
-              currentChildren.filter(
-                (currentChild) => currentChild.id !== child.id,
-              ),
+            await executeWithValidAccessToken((token) =>
+              deleteChild({
+                childId,
+                accessToken: token,
+              }),
             );
 
+            await dispatch(removeDeletedChild(childId));
             return true;
           } finally {
             setIsDeletingChildProfile(false);
           }
         }}
         onChildProfileDeleted={({ childName }) => {
-          const remainingChildren = children.filter(
-            (currentChild) => currentChild.id !== child.id,
-          );
-
-          setreduxSelectedChildId(remainingChildren[0]?.id ?? null);
-
           showToast({
             type: "success",
             title: t("Child profile deleted"),
-            message: t("Child profile has been permanently deleted", {
-              childName,
-            }),
+            message: t("Child profile is no longer accessible", { childName }),
           });
         }}
       />

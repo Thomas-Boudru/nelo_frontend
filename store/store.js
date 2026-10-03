@@ -16,22 +16,8 @@ import childrenReducer from "./slices/childrenSlice.js";
 import invitationsReducer from "./slices/invitationsSlice.js";
 import onboardingReducer from "./slices/onboardingSlice.js";
 import themeReducer from "./slices/themeSlice.js";
+import measurementUnitsReducer from "./slices/measurementUnitsSlice.js";
 
-/*
- * Seul le slice onboarding est persisté.
- *
- * Le parcours d’onboarding enjambe l’authentification, qui survit déjà
- * dans expo-secure-store. Sans persistance, tout rechargement produisait
- * un état incohérent « utilisateur authentifié + onboarding vide » et
- * renvoyait l’utilisateur sur WelcomeScreen.
- *
- * `completed` est exclu : il est recalculé au démarrage depuis
- * user.onboardingCompletedAt. Le persister ferait sauter l’onboarding du
- * prochain compte utilisé sur l’appareil.
- *
- * children, invitations et theme restent volatils : ils sont rechargés
- * depuis le backend ou la base locale.
- */
 const onboardingPersistConfig = {
   key: "onboarding",
   version: 1,
@@ -42,6 +28,7 @@ const onboardingPersistConfig = {
 const rootReducer = combineReducers({
   children: childrenReducer,
   invitations: invitationsReducer,
+  measurementUnits: measurementUnitsReducer,
   onboarding: persistReducer(onboardingPersistConfig, onboardingReducer),
   theme: themeReducer,
 });

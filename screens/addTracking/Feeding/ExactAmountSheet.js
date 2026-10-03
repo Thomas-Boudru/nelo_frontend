@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { Keyboard, StyleSheet, Text, View } from "react-native";
+import { useSelector } from "react-redux";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -20,11 +21,16 @@ import { useTranslation } from "react-i18next";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
+const ML_PER_US_FL_OZ = 29.5735295625;
+
 const ExactAmountSheet = forwardRef(function ExactAmountSheet({ onSave }, ref) {
   const { t } = useTranslation();
+  const volumeUnit = useSelector((state) => state.measurementUnits.volume);
   const modalRef = useRef(null);
 
   const [amount, setAmount] = useState("");
+  const [originalAmountMl, setOriginalAmountMl] = useState(null);
+  const [initialDisplayedAmount, setInitialDisplayedAmount] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const colors = useThemeColors();
@@ -56,7 +62,22 @@ const ExactAmountSheet = forwardRef(function ExactAmountSheet({ onSave }, ref) {
 
   useImperativeHandle(ref, () => ({
     present(currentAmountMl = "") {
-      setAmount(currentAmountMl ? String(currentAmountMl) : "");
+      const numericAmountMl = Number(currentAmountMl);
+      const hasCurrentAmount =
+        currentAmountMl !== "" &&
+        currentAmountMl !== null &&
+        Number.isFinite(numericAmountMl) &&
+        numericAmountMl > 0;
+
+      const displayedAmount = hasCurrentAmount
+        ? volumeUnit === "fl_oz"
+          ? String(Number((numericAmountMl / ML_PER_US_FL_OZ).toFixed(1)))
+          : String(currentAmountMl)
+        : "";
+
+      setOriginalAmountMl(hasCurrentAmount ? String(currentAmountMl) : null);
+      setInitialDisplayedAmount(displayedAmount);
+      setAmount(displayedAmount);
       modalRef.current?.present();
     },
 
@@ -80,12 +101,27 @@ const ExactAmountSheet = forwardRef(function ExactAmountSheet({ onSave }, ref) {
 
   const normalizedAmount = amount.replace(",", ".").trim();
   const numericAmount = Number(normalizedAmount);
-  const isValidAmount = Number.isFinite(numericAmount) && numericAmount > 0;
+
+  const isValidAmount =
+    normalizedAmount.length > 0 &&
+    Number.isFinite(numericAmount) &&
+    numericAmount > 0 &&
+    (volumeUnit !== "fl_oz" || Math.round(numericAmount * ML_PER_US_FL_OZ) > 0);
 
   const handleSave = () => {
-    if (!isValidAmount) return;
+    if (!isValidAmount) {
+      return;
+    }
 
-    onSave?.(normalizedAmount);
+    const amountMl =
+      volumeUnit === "fl_oz"
+        ? normalizedAmount === initialDisplayedAmount &&
+          originalAmountMl !== null
+          ? originalAmountMl
+          : String(Math.round(numericAmount * ML_PER_US_FL_OZ))
+        : normalizedAmount;
+
+    onSave?.(amountMl);
     modalRef.current?.dismiss();
   };
 
@@ -119,7 +155,9 @@ const ExactAmountSheet = forwardRef(function ExactAmountSheet({ onSave }, ref) {
           <BottomSheetTextInput
             value={amount}
             onChangeText={setAmount}
-            placeholder={t("Amount in ml")}
+            placeholder={
+              volumeUnit === "fl_oz" ? t("Amount in fl oz") : t("Amount in ml")
+            }
             placeholderTextColor={colors.textSecondary}
             keyboardType="decimal-pad"
             autoFocus
@@ -128,7 +166,9 @@ const ExactAmountSheet = forwardRef(function ExactAmountSheet({ onSave }, ref) {
             style={styles.input}
           />
 
-          <Text style={styles.unit}>ml</Text>
+          <Text style={styles.unit}>
+            {volumeUnit === "fl_oz" ? "fl oz" : "ml"}
+          </Text>
         </View>
 
         <View style={styles.footer}>

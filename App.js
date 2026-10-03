@@ -25,6 +25,7 @@ import { persistor, store } from "./store/store.js";
 import ChildrenBootstrap from "./store/ChildrenBootstrap.js";
 import { useAppFonts } from "./theme/fonts.js";
 import ToastProvider from "./components/ui/toast/ToastProvider.js";
+import MeasurementUnitsLoader from "./components/loader/MeasurementUnitsLoader.js";
 
 function LoadingScreen() {
   return (
@@ -116,7 +117,7 @@ export default function App() {
                 <ToastProvider>
                   <NavigationContainer>
                     <StatusBar style="dark" />
-
+                    <MeasurementUnitsLoader />
                     <RootNavigator />
                   </NavigationContainer>
                 </ToastProvider>

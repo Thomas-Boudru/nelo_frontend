@@ -32,6 +32,8 @@ import TrackingStatsHistoryScreen from "../screens/tracking/TrackingStatsHistory
 import SleepHistoryScreen from "../screens/tracking/SleepHistoryScreen.js";
 import GrowthHistoryScreen from "../screens/tracking/GrowthHistoryScreen.js";
 
+import { useAuth } from "../auth/AuthProvider.js";
+
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
 
 import AddTrackingSheet from "../screens/addTracking/AddTrackingSheet.js";
@@ -263,7 +265,7 @@ function TrackingNavigatorContent({
 
 export default function MainTabNavigator() {
   const { t } = useTranslation();
-
+  const { user } = useAuth();
   /*
    * Les sheets d'ajout vivent en dehors du navigateur d'onglets : elles n'ont
    * donc pas de prop `navigation`. On récupère celle de la route « MainTabs ».
@@ -391,6 +393,23 @@ export default function MainTabNavigator() {
       }, duration);
     },
     [],
+  );
+
+  const handleTrackingSaved = useCallback(
+    async (entry, { title, message }) => {
+      if (!entry?.persistedLocally) {
+        throw new Error(t("This entry has not been saved on this device."));
+      }
+
+      showToast({
+        type: "success",
+        title,
+        message,
+      });
+
+      return true;
+    },
+    [showToast, t],
   );
 
   const handlePressTrackingItem = (itemId) => {
@@ -828,9 +847,35 @@ export default function MainTabNavigator() {
       <FeedingEntrySheet
         ref={feedingSheetRef}
         childName={childName}
+        childId={selectedChild?.id}
+        userId={user?.id}
         visibleFeedingMethods={visibleFeedingMethods}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
+        onSaveBottle={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Bottle saved"),
+            message: t("The feeding was saved on this device."),
+          })
+        }
+        onSaveBreastfeeding={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Breastfeeding saved"),
+            message: t("The feeding was saved on this device."),
+          })
+        }
+        onSavePumping={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Pumping saved"),
+            message: t("The pumping session was saved on this device."),
+          })
+        }
+        onSaveSolids={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Meal saved"),
+            message: t("The meal was saved on this device."),
+          })
+        }
       />
 
       <SleepEntrySheet
@@ -843,38 +888,25 @@ export default function MainTabNavigator() {
         }}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onStartSleep={async (sleep) => {
-          console.log("Sommeil commencé :", sleep);
-
-          /*
-           * Plus tard :
-           * await saveActiveSleep(sleep);
-           */
-
-          showToast({
-            type: "success",
-            title: t("Sleep tracking started"),
-            message: t("Child's sleep is now being tracked", {
-              childName,
-            }),
-          });
-        }}
-        onWakeUp={async (completedSleep) => {
-          console.log("Sommeil terminé :", completedSleep);
-
-          /*
-           * Plus tard :
-           * await saveCompletedSleep(completedSleep);
-           */
-
-          showToast({
-            type: "success",
+        childId={selectedChild?.id}
+        onSaveManualSleep={(entry) =>
+          handleTrackingSaved(entry, {
             title: t("Sleep saved"),
-            message: t("Child's sleep was saved successfully", {
-              childName,
-            }),
-          });
-        }}
+            message: t("The sleep was saved on this device."),
+          })
+        }
+        onStartSleep={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Sleep tracking started"),
+            message: t("The sleep start was saved on this device."),
+          })
+        }
+        onWakeUp={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Sleep saved"),
+            message: t("The sleep was saved on this device."),
+          })
+        }
         onPressAddManually={({ type }) => {
           console.log("Ouvrir l’ajout manuel :", type);
         }}
@@ -882,112 +914,56 @@ export default function MainTabNavigator() {
 
       <DiaperEntrySheet
         ref={diaperSheetRef}
+        childId={selectedChild?.id}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSaveDiaper={async (diaper) => {
-          console.log("Couche enregistrée :", diaper);
-
-          showToast({
-            type: "success",
-            title:
-              diaper.mode === "edit" ? t("Diaper updated") : t("Diaper saved"),
-            message:
-              diaper.mode === "edit"
-                ? t("Child's diaper change was updated successfully", {
-                    childName,
-                  })
-                : t("Child's diaper change was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
-        onSavePotty={async (potty) => {
-          console.log("Passage au pot enregistré :", potty);
-
-          showToast({
-            type: "success",
-            title:
-              potty.mode === "edit"
-                ? t("Potty time updated")
-                : t("Potty time saved"),
-            message:
-              potty.mode === "edit"
-                ? t("Child's potty time was updated successfully", {
-                    childName,
-                  })
-                : t("Child's potty time was saved successfully", { childName }),
-          });
-        }}
+        onSaveDiaper={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Diaper saved"),
+            message: t("The diaper change was saved on this device."),
+          })
+        }
+        onSavePotty={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Potty time saved"),
+            message: t("The potty time was saved on this device."),
+          })
+        }
       />
 
       <MoodEntrySheet
         ref={moodSheetRef}
-        childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (mood) => {
-          console.log("Humeur enregistrée :", mood);
-
-          showToast({
-            type: "success",
-
-            title: mood.mode === "edit" ? t("Mood updated") : t("Mood saved"),
-
-            message:
-              mood.mode === "edit"
-                ? t("Child's mood was updated successfully", { childName })
-                : t("Child's mood was saved successfully", { childName }),
-          });
-        }}
+        childId={selectedChild?.id}
+        childName={selectedChild?.name}
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
+            title: "Mood saved",
+            message: "The mood was saved on this device.",
+          })
+        }
       />
       <MedicationEntrySheet
         ref={medicationSheetRef}
         childName={childName}
-        recentMedications={[
-          { id: "dafalgan", name: "Dafalgan" },
-          { id: "nurofen", name: "Nurofen" },
-        ]}
+        childId={selectedChild?.id}
+        userId={user?.id}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSaveMedication={async (medication) => {
-          console.log("Médicament enregistré :", medication);
-
-          showToast({
-            type: "success",
-            title:
-              medication.mode === "edit"
-                ? t("Medication updated")
-                : t("Medication saved"),
-            message:
-              medication.mode === "edit"
-                ? t("Child's medication was updated successfully", {
-                    childName,
-                  })
-                : t("Child's medication was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
-        onSaveVaccine={async (vaccine) => {
-          console.log("Vaccin enregistré :", vaccine);
-
-          showToast({
-            type: "success",
-            title:
-              vaccine.mode === "edit"
-                ? t("Vaccine updated")
-                : t("Vaccine saved"),
-            message:
-              vaccine.mode === "edit"
-                ? t("Child's vaccine was updated successfully", {
-                    childName,
-                  })
-                : t("Child's vaccine was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
+        onSaveMedication={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Medication saved"),
+            message: t("The medication was saved on this device."),
+          })
+        }
+        onSaveVaccine={(entry) =>
+          handleTrackingSaved(entry, {
+            title: t("Vaccine saved"),
+            message: t("The vaccine was saved on this device."),
+          })
+        }
       />
 
       <TemperatureEntrySheet

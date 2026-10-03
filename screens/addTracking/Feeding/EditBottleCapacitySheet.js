@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { Alert, Keyboard, StyleSheet, Text, View } from "react-native";
+import { Keyboard, StyleSheet, Text, View } from "react-native";
+import { useSelector } from "react-redux";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -19,20 +20,32 @@ import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import ConfirmActionSheet from "../../ConfirmActionSheet.js";
 
+const ML_PER_US_FL_OZ = 29.5735295625;
+const MAX_CAPACITY_ML = 1000;
+
+function formatCapacityForInput(capacityMl, volumeUnit) {
+  if (volumeUnit === "fl_oz") {
+    const amount = Number((capacityMl / ML_PER_US_FL_OZ).toFixed(1));
+    return String(amount);
+  }
+
+  return String(capacityMl);
+}
+
 const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
   { existingCapacities = [], onSave, onDelete },
   ref,
 ) {
   const { t } = useTranslation();
+  const volumeUnit = useSelector((state) => state.measurementUnits.volume);
+
   const modalRef = useRef(null);
   const confirmActionSheetRef = useRef(null);
 
   const colors = useThemeColors();
-
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [originalCapacityMl, setOriginalCapacityMl] = useState(null);
-
   const [capacity, setCapacity] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -41,7 +54,7 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
   useImperativeHandle(ref, () => ({
     present(capacityMl) {
       setOriginalCapacityMl(capacityMl);
-      setCapacity(String(capacityMl));
+      setCapacity(formatCapacityForInput(capacityMl, volumeUnit));
       setError("");
       setIsSaving(false);
       setIsDeleting(false);
@@ -68,28 +81,46 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
   );
 
   const normalizedCapacity = capacity.replace(",", ".").trim();
-
   const numericCapacity = Number(normalizedCapacity);
 
-  const roundedCapacity = Math.round(numericCapacity);
+  const originalInputValue =
+    originalCapacityMl === null
+      ? ""
+      : formatCapacityForInput(originalCapacityMl, volumeUnit);
+
+  const hasChanged = normalizedCapacity !== originalInputValue;
+
+  const roundedCapacityMl = Math.round(
+    volumeUnit === "fl_oz"
+      ? numericCapacity * ML_PER_US_FL_OZ
+      : numericCapacity,
+  );
 
   const isDuplicate =
-    Number.isFinite(roundedCapacity) &&
+    hasChanged &&
+    Number.isFinite(roundedCapacityMl) &&
     existingCapacities.some(
       (capacityMl) =>
-        capacityMl !== originalCapacityMl && capacityMl === roundedCapacity,
+        capacityMl !== originalCapacityMl && capacityMl === roundedCapacityMl,
     );
 
   const isValidCapacity =
+    capacity.trim().length > 0 &&
     Number.isFinite(numericCapacity) &&
-    roundedCapacity > 0 &&
-    roundedCapacity <= 1000 &&
+    numericCapacity > 0 &&
+    roundedCapacityMl > 0 &&
+    roundedCapacityMl <= MAX_CAPACITY_ML &&
     !isDuplicate;
 
   function handleCapacityChange(value) {
-    const numericValue = value.replace(/[^0-9]/g, "").slice(0, 4);
+    const cleaned = value.replace(/[^0-9.,]/g, "").replace(",", ".");
 
-    setCapacity(numericValue);
+    const nextValue =
+      volumeUnit === "fl_oz"
+        ? (cleaned.match(/^\d{0,2}(?:\.\d?)?/)?.[0] ?? "")
+        : cleaned.replace(/\./g, "").slice(0, 4);
+
+    setCapacity(nextValue);
 
     if (error) {
       setError("");
@@ -97,7 +128,7 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
   }
 
   async function handleSave() {
-    if (!isValidCapacity || isSaving) {
+    if (!isValidCapacity || !hasChanged || isSaving || isDeleting) {
       return;
     }
 
@@ -109,7 +140,7 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
 
       const saved = await onSave?.({
         previousCapacityMl: originalCapacityMl,
-        capacityMl: roundedCapacity,
+        capacityMl: roundedCapacityMl,
       });
 
       if (saved === false) {
@@ -130,7 +161,7 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
   }
 
   function handleDeletePress() {
-    if (originalCapacityMl === null || isDeleting) {
+    if (originalCapacityMl === null || isDeleting || isSaving) {
       return;
     }
 
@@ -167,21 +198,11 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
         return false;
       }
 
-      /*
-       * On ferme également la sheet d’édition.
-       * ConfirmActionSheet se ferme automatiquement
-       * lorsque le callback retourne true.
-       */
       modalRef.current?.dismiss();
-
       return true;
     } catch (deleteError) {
       console.error("Unable to delete custom bottle", deleteError);
 
-      /*
-       * L’erreur sera capturée et affichée directement
-       * dans ConfirmActionSheet.
-       */
       throw new Error(
         deleteError?.message ||
           t("Unable to delete this bottle. Please try again."),
@@ -224,9 +245,15 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
               <BottomSheetTextInput
                 value={capacity}
                 onChangeText={handleCapacityChange}
-                placeholder={t("Amount in ml")}
+                placeholder={
+                  volumeUnit === "fl_oz"
+                    ? t("Amount in fl oz")
+                    : t("Amount in ml")
+                }
                 placeholderTextColor={colors.textSecondary}
-                keyboardType="number-pad"
+                keyboardType={
+                  volumeUnit === "fl_oz" ? "decimal-pad" : "number-pad"
+                }
                 autoFocus
                 selectTextOnFocus
                 editable={!isSaving && !isDeleting}
@@ -234,7 +261,9 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
                 style={styles.input}
               />
 
-              <Text style={styles.unit}>ml</Text>
+              <Text style={styles.unit}>
+                {volumeUnit === "fl_oz" ? "fl oz" : "ml"}
+              </Text>
             </View>
 
             {isDuplicate ? (
@@ -261,8 +290,9 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
               onPress={handleSave}
               disabled={
                 !isValidCapacity ||
-                isDeleting ||
-                roundedCapacity === originalCapacityMl
+                !hasChanged ||
+                roundedCapacityMl === originalCapacityMl ||
+                isDeleting
               }
               loading={isSaving}
               style={styles.actionButton}
@@ -270,6 +300,7 @@ const EditBottleCapacitySheet = forwardRef(function EditBottleCapacitySheet(
           </View>
         </BottomSheetView>
       </BottomSheetModal>
+
       <ConfirmActionSheet ref={confirmActionSheetRef} />
     </>
   );

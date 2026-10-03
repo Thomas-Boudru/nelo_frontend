@@ -18,6 +18,10 @@ const HAPPY_REACTION_IMAGE = require("../../../assets/illustrations/tracking/hap
 const NEUTRAL_REACTION_IMAGE = require("../../../assets/illustrations/tracking/neutralFace.png");
 const UNHAPPY_REACTION_IMAGE = require("../../../assets/illustrations/tracking/angryFace.png");
 
+import { useSelector } from "react-redux";
+
+import { formatSolidQuantity } from "../../../utils/solidQuantities.js";
+
 const AMOUNT_OPTIONS = [
   { id: "tasted", label: "Just tasted" },
   { id: "little", label: "A little" },
@@ -87,14 +91,15 @@ export default function SolidsFeedForm({
   const hasPhotos = Array.isArray(value?.photos) && value.photos.length > 0;
   const hasDetails = hasNote || hasPhotos;
 
-  const handleOpenDetails = () => {
-    feedingDetailsSheetRef.current?.present({
-      note: value?.note ?? "",
-      photos: value?.photos ?? [],
-    });
-  };
+  const weightPreference = useSelector(
+    (state) => state.measurementUnits.weight,
+  );
 
-  const handleAddNote = () => {
+  const volumePreference = useSelector(
+    (state) => state.measurementUnits.volume,
+  );
+
+  const handleOpenDetails = () => {
     feedingDetailsSheetRef.current?.present({
       note: value?.note ?? "",
       photos: value?.photos ?? [],
@@ -160,6 +165,14 @@ export default function SolidsFeedForm({
               <FoodCard
                 key={food.id}
                 food={food}
+                quantityLabel={formatSolidQuantity(
+                  food,
+                  {
+                    weight: weightPreference,
+                    volume: volumePreference,
+                  },
+                  t,
+                )}
                 onPress={() => onPressEditFood?.(food)}
                 onRemove={() => handleRemoveFood(food.id)}
                 colors={colors}
@@ -347,7 +360,7 @@ export default function SolidsFeedForm({
   );
 }
 
-function FoodCard({ food, onPress, onRemove, colors, styles }) {
+function FoodCard({ food, quantityLabel, onPress, onRemove, colors, styles }) {
   return (
     <Pressable
       onPress={onPress}
@@ -383,9 +396,9 @@ function FoodCard({ food, onPress, onRemove, colors, styles }) {
         {food.name}
       </Text>
 
-      {food.quantity ? (
+      {quantityLabel ? (
         <Text numberOfLines={1} style={styles.foodQuantity}>
-          {food.quantity}
+          {quantityLabel}
         </Text>
       ) : null}
     </Pressable>

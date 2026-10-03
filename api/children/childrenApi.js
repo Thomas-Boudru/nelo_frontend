@@ -1,4 +1,4 @@
-import { apiRequest } from "./apiClient.js";
+import { apiRequest } from "../apiClient.js";
 
 function getAvatarFileName({ childId, fileName, mimeType }) {
   if (fileName) {
@@ -251,4 +251,38 @@ export function revokeChildInvitation({
       signal,
     },
   );
+}
+
+export function makeChildMemberOwner({
+  childId,
+  childMemberId,
+  accessToken,
+  signal,
+}) {
+  if (!childId || !childMemberId) {
+    throw new Error("Missing child ID or member ID.");
+  }
+
+  return apiRequest(
+    `/api/children/${encodeURIComponent(childId)}/members/${encodeURIComponent(
+      childMemberId,
+    )}/ownership`,
+    {
+      method: "PATCH",
+      accessToken,
+      signal,
+    },
+  );
+}
+
+export function deleteChild({ childId, accessToken, signal }) {
+  if (!childId) {
+    throw new Error("Missing child ID.");
+  }
+
+  return apiRequest(`/api/children/${encodeURIComponent(childId)}`, {
+    method: "DELETE",
+    accessToken,
+    signal,
+  });
 }

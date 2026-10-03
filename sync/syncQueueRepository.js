@@ -16,6 +16,7 @@ export async function enqueueSyncOperation({
   endpoint,
   method,
   payload,
+  database: providedDatabase,
 }) {
   if (!userId) {
     throw new Error("Missing user ID.");
@@ -25,7 +26,7 @@ export async function enqueueSyncOperation({
     throw new Error("Missing entity ID.");
   }
 
-  const database = await getLocalDatabase();
+  const database = providedDatabase ?? (await getLocalDatabase());
   const operationId = Crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -37,6 +38,7 @@ export async function enqueueSyncOperation({
     "child_preferences",
     "child_profile",
     "child_relationship",
+    "user_notification_preferences",
   ].includes(entityType);
 
   if (replacePreviousOperation) {
@@ -94,20 +96,32 @@ export async function enqueueSyncOperation({
 }
 
 export async function getPendingSyncOperations(userId) {
+  if (!userId) {
+    throw new Error("Missing user ID.");
+  }
+
   const database = await getLocalDatabase();
   const now = new Date().toISOString();
 
   return database.getAllAsync(
     `
-      SELECT *
-      FROM sync_queue
-      WHERE user_id = ?
-        AND status IN ('pending', 'failed')
+      SELECT current.*
+      FROM sync_queue AS current
+      WHERE current.user_id = ?
+        AND current.status IN ('pending', 'failed')
         AND (
-          next_attempt_at IS NULL
-          OR next_attempt_at <= ?
+          current.next_attempt_at IS NULL
+          OR current.next_attempt_at <= ?
         )
-      ORDER BY created_at ASC
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sync_queue AS previous
+          WHERE previous.user_id = current.user_id
+            AND previous.entity_type = current.entity_type
+            AND previous.entity_id = current.entity_id
+            AND previous.rowid < current.rowid
+        )
+      ORDER BY current.rowid ASC
     `,
     [userId, now],
   );

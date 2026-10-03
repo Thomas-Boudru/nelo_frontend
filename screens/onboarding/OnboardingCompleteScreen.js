@@ -27,7 +27,7 @@ import {
 
 import { useAuth } from "../../auth/AuthProvider.js";
 
-import { completeOnboardingRequest } from "../../api/onboardingApi.js";
+import { completeOnboardingRequest } from "../../api/userFlow/onboardingApi.js";
 
 const colors = onboardingColors;
 

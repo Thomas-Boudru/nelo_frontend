@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import {
+  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -31,6 +32,17 @@ import TrackingHistoryButton from "../../../components/addTracking/TrackingHisto
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import MeasurementLocationSheet from "./MeasurementLocationSheet.js";
+
+import { useSelector } from "react-redux";
+
+import {
+  getTemperatureUnit,
+  getTemperatureUnitLabel,
+  temperatureToCelsius,
+  temperatureFromCelsius,
+  formatTemperatureValue,
+  parseTemperatureInput,
+} from "../../../utils/temperatureUnits.js";
 
 const thermometerImage = require("../../../assets/illustrations/tracking/temperature/thermometer.png");
 
@@ -57,22 +69,52 @@ function clamp(value, minimum, maximum) {
 }
 
 function normalizeTemperature(value) {
-  const clampedValue = clamp(value, MIN_TEMPERATURE, MAX_TEMPERATURE);
+  const parsed = Number(value);
 
-  return Math.round(clampedValue * 10) / 10;
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_TEMPERATURE;
+  }
+
+  return clamp(parsed, MIN_TEMPERATURE, MAX_TEMPERATURE);
 }
 
 function createTemperatureStateFromTrackingEntry(entry) {
   const entryData = entry?.data ?? entry ?? {};
+  const storedCelsius =
+    entryData.temperatureCelsius ??
+    entryData.temperature_celsius ??
+    entry?.temperatureCelsius ??
+    entry?.temperature_celsius;
 
-  const rawTemperature =
+  const originalValue =
+    entryData.inputValue ??
+    entryData.input_value ??
+    entry?.inputValue ??
+    entry?.input_value;
+
+  const originalUnit =
+    entryData.inputUnit ??
+    entryData.input_unit ??
+    entry?.inputUnit ??
+    entry?.input_unit;
+
+  const legacyValue =
     entryData.temperature ??
     entryData.value ??
     entry?.temperature ??
     entry?.value ??
     DEFAULT_TEMPERATURE;
 
-  const normalizedTemperature = normalizeTemperature(Number(rawTemperature));
+  const legacyUnit = entryData.unit ?? entry?.unit ?? "celsius";
+
+  const rawTemperature =
+    storedCelsius != null
+      ? Number(storedCelsius)
+      : originalValue != null && originalUnit != null
+        ? temperatureToCelsius(Number(originalValue), originalUnit)
+        : temperatureToCelsius(Number(legacyValue), legacyUnit);
+
+  const normalizedTemperature = normalizeTemperature(rawTemperature);
 
   const dateValue =
     entryData.measuredAt ??
@@ -93,8 +135,12 @@ function createTemperatureStateFromTrackingEntry(entry) {
     measuredAt: hasValidDate ? parsedDate : new Date(),
 
     location:
+      entryData.measurementSite ??
+      entryData.measurement_site ??
       entryData.location ??
       entryData.measurementLocation ??
+      entry?.measurementSite ??
+      entry?.measurement_site ??
       entry?.location ??
       entry?.measurementLocation ??
       "forehead",
@@ -180,6 +226,14 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   const colors = useThemeColors();
   const { width: screenWidth } = useWindowDimensions();
 
+  const temperaturePreference = useSelector(
+    (state) => state.measurementUnits?.temperature,
+  );
+
+  console.log("temperaturePreference", temperaturePreference);
+
+  const preferredUnit = getTemperatureUnit(temperaturePreference);
+
   const sheetRef = useRef(null);
   const locationSheetRef = useRef(null);
   const inputRef = useRef(null);
@@ -191,12 +245,30 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   const [temperature, setTemperature] = useState(initialNormalizedTemperature);
 
   const [draftTemperature, setDraftTemperature] = useState(
-    initialNormalizedTemperature.toFixed(1),
+    formatTemperatureValue(initialNormalizedTemperature, preferredUnit),
   );
 
   const [measuredAt, setMeasuredAt] = useState(new Date());
   const [location, setLocation] = useState(initialLocation);
   const [isEditing, setIsEditing] = useState(false);
+
+  const [editingUnit, setEditingUnit] = useState(preferredUnit);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const temperatureRef = useRef(initialNormalizedTemperature);
+  const savingRef = useRef(false);
+
+  // L'unité reste stable pendant une saisie en cours.
+  const displayUnit = isEditing ? editingUnit : preferredUnit;
+
+  const unitLabel = getTemperatureUnitLabel(displayUnit);
+
+  const displayedTemperature = formatTemperatureValue(temperature, displayUnit);
+
+  const updateTemperature = useCallback((nextTemperature) => {
+    temperatureRef.current = nextTemperature;
+    setTemperature(nextTemperature);
+  }, []);
 
   const [sheetMode, setSheetMode] = useState("create");
   const [editingEntry, setEditingEntry] = useState(null);
@@ -227,8 +299,9 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   const reset = useCallback(() => {
     const nextTemperature = normalizeTemperature(initialTemperature);
 
-    setTemperature(nextTemperature);
-    setDraftTemperature(nextTemperature.toFixed(1));
+    updateTemperature(nextTemperature);
+
+    setDraftTemperature(formatTemperatureValue(nextTemperature, preferredUnit));
     setMeasuredAt(new Date());
     setLocation(initialLocation);
     setIsEditing(false);
@@ -237,7 +310,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
     setEditingEntry(null);
 
     locationSheetRef.current?.dismiss();
-  }, [initialLocation, initialTemperature]);
+  }, [initialLocation, initialTemperature, preferredUnit, updateTemperature]);
 
   useImperativeHandle(
     ref,
@@ -263,8 +336,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
 
           setEditingEntry(entry);
 
-          setTemperature(nextState.temperature);
-          setDraftTemperature(nextState.temperature.toFixed(1));
+          updateTemperature(nextState.temperature);
+
+          setDraftTemperature(
+            formatTemperatureValue(nextState.temperature, preferredUnit),
+          );
           setMeasuredAt(nextState.measuredAt);
           setLocation(nextState.location);
         } else {
@@ -272,8 +348,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
 
           setEditingEntry(null);
 
-          setTemperature(nextTemperature);
-          setDraftTemperature(nextTemperature.toFixed(1));
+          updateTemperature(nextTemperature);
+
+          setDraftTemperature(
+            formatTemperatureValue(nextTemperature, preferredUnit),
+          );
           setMeasuredAt(new Date());
           setLocation(initialLocation);
         }
@@ -287,56 +366,136 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
         sheetRef.current?.dismiss();
       },
     }),
-    [initialLocation, initialTemperature, reset],
+    [
+      initialLocation,
+      initialTemperature,
+      preferredUnit,
+      reset,
+      updateTemperature,
+    ],
   );
 
-  const changeTemperature = useCallback((direction) => {
-    setTemperature((currentTemperature) => {
-      const nextTemperature = normalizeTemperature(
-        currentTemperature + direction * 0.1,
-      );
-
-      setDraftTemperature(nextTemperature.toFixed(1));
-
-      return nextTemperature;
-    });
-  }, []);
-
   const beginEditing = useCallback(() => {
-    setDraftTemperature(temperature.toFixed(1));
+    if (savingRef.current) {
+      return;
+    }
+
+    setEditingUnit(preferredUnit);
+
+    setDraftTemperature(
+      formatTemperatureValue(temperatureRef.current, preferredUnit),
+    );
+
     setIsEditing(true);
 
     requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
-  }, [temperature]);
+  }, [preferredUnit]);
 
   const changeDraftTemperature = useCallback((value) => {
-    const cleanedValue = value
-      .replace(/[^0-9.,]/g, "")
-      .replace(",", ".")
-      .slice(0, 4);
+    const normalized = value.replace(",", ".");
 
-    setDraftTemperature(cleanedValue);
+    if (/^\d{0,3}(?:\.\d{0,1})?$/.test(normalized)) {
+      setDraftTemperature(normalized);
+    }
   }, []);
 
-  const commitDraft = useCallback(() => {
-    const parsedTemperature = Number.parseFloat(
-      draftTemperature.replace(",", "."),
-    );
-
-    if (!Number.isFinite(parsedTemperature)) {
-      setDraftTemperature(temperature.toFixed(1));
-    } else {
-      const nextTemperature = normalizeTemperature(parsedTemperature);
-
-      setTemperature(nextTemperature);
-      setDraftTemperature(nextTemperature.toFixed(1));
+  const resolveTemperature = useCallback(() => {
+    if (!isEditing) {
+      return temperatureRef.current;
     }
+
+    const parsed = parseTemperatureInput(draftTemperature);
+
+    if (parsed === null) {
+      return null;
+    }
+
+    const celsius = temperatureToCelsius(parsed, editingUnit);
+
+    if (
+      celsius < MIN_TEMPERATURE - 0.000001 ||
+      celsius > MAX_TEMPERATURE + 0.000001
+    ) {
+      return null;
+    }
+
+    return clamp(celsius, MIN_TEMPERATURE, MAX_TEMPERATURE);
+  }, [draftTemperature, editingUnit, isEditing]);
+
+  const showInvalidTemperature = useCallback(() => {
+    Alert.alert(
+      t("Invalid temperature"),
+      t("Enter a temperature between {{min}} and {{max}} {{unit}}.", {
+        min: formatTemperatureValue(MIN_TEMPERATURE, displayUnit),
+        max: formatTemperatureValue(MAX_TEMPERATURE, displayUnit),
+        unit: unitLabel,
+      }),
+    );
+  }, [displayUnit, t, unitLabel]);
+
+  const commitDraft = useCallback(() => {
+    const nextTemperature = resolveTemperature();
+
+    if (nextTemperature === null) {
+      // On conserve la saisie pour permettre sa correction.
+      return null;
+    }
+
+    updateTemperature(nextTemperature);
+
+    setDraftTemperature(formatTemperatureValue(nextTemperature, preferredUnit));
 
     setIsEditing(false);
     Keyboard.dismiss();
-  }, [draftTemperature, temperature]);
+
+    return nextTemperature;
+  }, [preferredUnit, resolveTemperature, updateTemperature]);
+
+  const changeTemperature = useCallback(
+    (direction) => {
+      if (savingRef.current) {
+        return;
+      }
+
+      const currentCelsius = resolveTemperature();
+
+      if (currentCelsius === null) {
+        showInvalidTemperature();
+        return;
+      }
+
+      const currentDisplayed = temperatureFromCelsius(
+        currentCelsius,
+        displayUnit,
+      );
+
+      // Un cran représente 0,1 dans l'unité affichée.
+      const nextDisplayed =
+        (Math.round(currentDisplayed * 10) + direction) / 10;
+
+      const nextCelsius = clamp(
+        temperatureToCelsius(nextDisplayed, displayUnit),
+        MIN_TEMPERATURE,
+        MAX_TEMPERATURE,
+      );
+
+      updateTemperature(nextCelsius);
+
+      setDraftTemperature(formatTemperatureValue(nextCelsius, preferredUnit));
+
+      setIsEditing(false);
+      Keyboard.dismiss();
+    },
+    [
+      displayUnit,
+      preferredUnit,
+      resolveTemperature,
+      showInvalidTemperature,
+      updateTemperature,
+    ],
+  );
 
   const handleRequestDelete = useCallback(() => {
     if (!isEditMode || !editingEntry) {
@@ -355,32 +514,120 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   }, [onPressHistory]);
 
   const handleSave = useCallback(async () => {
-    if (isEditing) {
-      commitDraft();
+    if (savingRef.current) {
+      return;
     }
 
-    await Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Success,
-    ).catch(() => {});
+    const nextTemperature = resolveTemperature();
 
-    onSave?.({
-      ...editingEntry,
+    if (nextTemperature === null) {
+      showInvalidTemperature();
+      return;
+    }
 
-      id: editingEntry?.id,
+    if (typeof onSave !== "function") {
+      Alert.alert(
+        t("Unable to save temperature"),
+        t("Temperature saving is not available yet."),
+      );
+      return;
+    }
 
-      temperature,
-      value: temperature,
-      unit: "celsius",
-      location,
-      measurementLocation: location,
-      measuredAt,
+    savingRef.current = true;
+    setIsSaving(true);
 
-      type: "temperature",
-      mode: sheetMode,
-    });
+    try {
+      const originalData = editingEntry?.data ?? editingEntry ?? {};
 
-    sheetRef.current?.dismiss();
-  }, [commitDraft, isEditing, location, measuredAt, onSave, temperature]);
+      const originalInputValue =
+        originalData.inputValue ??
+        originalData.input_value ??
+        editingEntry?.inputValue ??
+        editingEntry?.input_value;
+
+      const originalInputUnit =
+        originalData.inputUnit ??
+        originalData.input_unit ??
+        editingEntry?.inputUnit ??
+        editingEntry?.input_unit;
+
+      const parsedOriginalValue =
+        originalInputValue == null
+          ? null
+          : parseTemperatureInput(originalInputValue);
+
+      // Préserve la saisie d'origine lors d'une modification
+      // de date ou de lieu sans changement de température.
+      const keepOriginalInput =
+        isEditMode &&
+        parsedOriginalValue !== null &&
+        originalInputUnit != null &&
+        Math.abs(
+          temperatureToCelsius(parsedOriginalValue, originalInputUnit) -
+            nextTemperature,
+        ) <= 0.005001;
+
+      const inputUnit = keepOriginalInput
+        ? getTemperatureUnit(originalInputUnit)
+        : displayUnit;
+
+      const inputValue = keepOriginalInput
+        ? parsedOriginalValue
+        : Number(formatTemperatureValue(nextTemperature, inputUnit));
+
+      updateTemperature(nextTemperature);
+      setIsEditing(false);
+      Keyboard.dismiss();
+
+      const result = await onSave({
+        ...editingEntry,
+
+        id: editingEntry?.id,
+        type: "temperature",
+        mode: sheetMode,
+
+        temperatureCelsius: Number(nextTemperature.toFixed(2)),
+        inputValue,
+        inputUnit,
+        measurementSite: location,
+        measuredAt,
+
+        // Compatibilité avec le contrat actuel du composant.
+        temperature: nextTemperature,
+        value: nextTemperature,
+        unit: "celsius",
+        location,
+        measurementLocation: location,
+      });
+
+      if (result === false) {
+        throw new Error("Temperature save was rejected.");
+      }
+
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
+
+      sheetRef.current?.dismiss();
+    } catch (error) {
+      Alert.alert(t("Unable to save temperature"), t("Please try again."));
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }, [
+    displayUnit,
+    editingEntry,
+    isEditMode,
+    location,
+    measuredAt,
+    onSave,
+    resolveTemperature,
+    sheetMode,
+    showInvalidTemperature,
+    t,
+    updateTemperature,
+  ]);
 
   const renderBackdrop = useCallback(
     (backdropProps) => (
@@ -464,7 +711,8 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                     onSubmitEditing={commitDraft}
                     selectTextOnFocus
                     keyboardType="decimal-pad"
-                    maxLength={4}
+                    maxLength={5}
+                    editable={!isSaving}
                     style={[
                       styles.temperatureInput,
                       {
@@ -483,7 +731,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                       },
                     ]}
                   >
-                    °C
+                    {unitLabel}
                   </Text>
                 </View>
               ) : (
@@ -502,7 +750,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                       },
                     ]}
                   >
-                    {temperature.toFixed(1)}
+                    {displayedTemperature}
                   </Text>
 
                   <Text
@@ -520,7 +768,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                       },
                     ]}
                   >
-                    °C
+                    {unitLabel}
                   </Text>
                 </View>
               )}
@@ -604,7 +852,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
             <Ionicons name="chevron-forward" size={19} color="#91A0B5" />
           </Pressable>
 
-          <DateTimeRow date={measuredAt} onChange={setMeasuredAt} />
+          <DateTimeRow
+            value={measuredAt}
+            onChange={setMeasuredAt}
+            maximumDate={new Date()}
+          />
 
           {isEditMode ? (
             <View style={styles.editFooterRow}>
@@ -617,7 +869,11 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
               </View>
 
               <View style={styles.footerButton}>
-                <PrimaryButton title={t("Save changes")} onPress={handleSave} />
+                <PrimaryButton
+                  title={t("Save changes")}
+                  onPress={handleSave}
+                  disabled={isSaving}
+                />
               </View>
             </View>
           ) : (
@@ -625,6 +881,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
               title={t("Save temperature")}
               onPress={handleSave}
               style={dynamicStyles.saveButton}
+              disabled={isSaving}
             />
           )}
         </BottomSheetScrollView>

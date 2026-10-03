@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -14,6 +14,14 @@ import { useTranslation } from "react-i18next";
 import BackButton from "../../components/ui/BackButton.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
 import { useToast } from "../../components/ui/toast/useToast.js";
+import { useAuth } from "../../auth/AuthProvider.js";
+
+import {
+  getLocalUserPreferences,
+  saveUserPrivacyPreferenceLocally,
+} from "../../database/user/userPreferencesRepository.js";
+import { enqueueSyncOperation } from "../../sync/syncQueueRepository.js";
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 function PrivacySwitchRow({
   icon,
@@ -143,44 +151,101 @@ export default function PrivacyDataScreen({ navigation }) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  /*
-   * Plus tard, ces valeurs viendront du backend,
-   * du stockage local ou du store Redux.
-   */
+  const { user, accessToken, refreshSession } = useAuth();
+  const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
+
   const [settings, setSettings] = useState({
-    usageAnalytics: true,
-    crashReports: true,
+    usageAnalytics: false,
+    crashReports: false,
     improveAiResponses: false,
   });
 
-  const updateSetting = async (settingName, value) => {
-    const previousValue = settings[settingName];
+  useEffect(() => {
+    let cancelled = false;
 
-    setSettings((currentSettings) => ({
-      ...currentSettings,
-      [settingName]: value,
-    }));
+    if (!user?.id) {
+      setIsLoadingPreferences(false);
+      return undefined;
+    }
+
+    setIsLoadingPreferences(true);
+
+    getLocalUserPreferences(user.id)
+      .then((preferences) => {
+        if (cancelled || !preferences) {
+          return;
+        }
+
+        setSettings({
+          usageAnalytics: preferences.analyticsEnabled,
+          crashReports: preferences.crashReportsEnabled,
+          improveAiResponses: preferences.aiImprovementEnabled,
+        });
+      })
+      .catch((error) => {
+        console.error("Unable to load privacy preferences:", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingPreferences(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const updateSetting = async (settingName, value) => {
+    if (!user?.id || isLoadingPreferences) {
+      return;
+    }
+
+    const apiFields = {
+      usageAnalytics: "analyticsEnabled",
+      crashReports: "crashReportsEnabled",
+      improveAiResponses: "aiImprovementEnabled",
+    };
+
+    const apiField = apiFields[settingName];
+
+    if (!apiField) {
+      return;
+    }
 
     try {
-      /*
-       * Plus tard :
-       *
-       * await api.patch("/users/privacy-preferences", {
-       *   [settingName]: value,
-       * });
-       */
+      const savedPreferences = await saveUserPrivacyPreferenceLocally({
+        userId: user.id,
+        settingName,
+        value,
+      });
 
-      showToast({
-        type: "success",
-        title: t("Privacy preference updated"),
-        message: t("Your preference has been saved"),
-        duration: 2200,
+      await enqueueSyncOperation({
+        userId: user.id,
+        entityType: "user_preferences",
+        entityId: user.id,
+        operation: `update_privacy:${savedPreferences.updatedAt}`,
+        endpoint: "/api/users/me/preferences",
+        method: "PATCH",
+        payload: {
+          [apiField]: value,
+        },
+      });
+
+      setSettings((current) => ({
+        ...current,
+        [settingName]: value,
+      }));
+
+      processSyncQueue({
+        userId: user.id,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.error("Unable to synchronize privacy preference:", error);
       });
     } catch (error) {
-      setSettings((currentSettings) => ({
-        ...currentSettings,
-        [settingName]: previousValue,
-      }));
+      console.error("Unable to save privacy preference:", error);
 
       showToast({
         type: "error",

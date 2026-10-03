@@ -36,11 +36,48 @@ export default function MedicationForm({
   recentMedications = [],
   onPressNote,
   onPressMedication,
+  volumeUnit = "ml",
 }) {
   const { t } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const preferredVolumeUnit = ["fl_oz", "oz"].includes(volumeUnit)
+    ? "fl_oz"
+    : "ml";
+
+  const storedUnit = value?.unit ?? "ml";
+
+  const displayedUnit = ["ml", "fl_oz"].includes(storedUnit)
+    ? preferredVolumeUnit
+    : storedUnit;
+
+  const rawAmount = String(value?.amount ?? "");
+  const numericAmount = Number(rawAmount.replace(",", "."));
+
+  const displayedAmount =
+    rawAmount.trim() &&
+    Number.isFinite(numericAmount) &&
+    storedUnit !== displayedUnit
+      ? String(
+          Number(
+            (storedUnit === "ml"
+              ? numericAmount / 29.5735295625
+              : numericAmount * 29.5735295625
+            ).toFixed(6),
+          ),
+        )
+      : rawAmount;
+
+  const unitOptions = MEDICATION_UNITS.map((unit) =>
+    unit.id === "ml"
+      ? {
+          id: preferredVolumeUnit,
+          label: preferredVolumeUnit === "fl_oz" ? "fl oz" : "ml",
+        }
+      : unit,
+  );
 
   const patchEntry = (patch) => {
     onChange?.({
@@ -163,8 +200,13 @@ export default function MedicationForm({
 
         <View style={styles.amountInputContainer}>
           <BottomSheetTextInput
-            value={String(value?.amount ?? "")}
-            onChangeText={(amount) => patchEntry({ amount })}
+            value={displayedAmount}
+            onChangeText={(amount) =>
+              patchEntry({
+                amount,
+                unit: displayedUnit,
+              })
+            }
             placeholder="0"
             placeholderTextColor={colors.textSecondary}
             keyboardType="decimal-pad"
@@ -174,7 +216,7 @@ export default function MedicationForm({
 
           <Text style={styles.selectedUnit}>
             {t(
-              MEDICATION_UNITS.find((unit) => unit.id === value?.unit)?.label ??
+              unitOptions.find((unit) => unit.id === displayedUnit)?.label ??
                 "ml",
             )}
           </Text>
@@ -185,15 +227,24 @@ export default function MedicationForm({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.unitsContent}
         >
-          {MEDICATION_UNITS.map((unit) => {
-            const isSelected = value?.unit === unit.id;
+          {unitOptions.map((unit) => {
+            const isSelected = displayedUnit === unit.id;
 
             return (
               <Pressable
                 key={unit.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
-                onPress={() => patchEntry({ unit: unit.id })}
+                onPress={() => {
+                  if (isSelected) {
+                    return;
+                  }
+
+                  patchEntry({
+                    unit: unit.id,
+                    amount: "",
+                  });
+                }}
                 style={({ pressed }) => [
                   styles.unitCard,
                   isSelected && styles.unitCardSelected,
@@ -258,8 +309,8 @@ export default function MedicationForm({
 
       <DateTimeRow
         isNow={!value?.isDateEdited}
-        date={value?.medicationDate ?? new Date()}
-        onDateChange={(medicationDate) =>
+        value={value?.medicationDate ?? new Date()}
+        onChange={(medicationDate) =>
           patchEntry({
             medicationDate,
             isDateEdited: true,

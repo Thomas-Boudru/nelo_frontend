@@ -292,8 +292,8 @@ export default function DiaperForm({ value, onChange, onPressNote }) {
 
       <DateTimeRow
         isNow={!value?.isDateEdited}
-        date={value?.diaperDate ?? new Date()}
-        onDateChange={(nextDate) =>
+        value={value?.diaperDate ?? new Date()}
+        onChange={(nextDate) =>
           patchEntry({
             diaperDate: nextDate,
             isDateEdited: true,

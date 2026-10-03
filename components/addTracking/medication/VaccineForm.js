@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+import { nextDoseDateToLocalDate } from "../../../database/tracking/medication/vaccinationReminderRepository.js";
 
 const DOSE_OPTIONS = [
   {
@@ -34,11 +35,43 @@ export default function VaccineForm({
   onChange,
   onPressVaccine,
   onPressDetails,
+  vaccinationReminders = [],
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const displayedReminders = useMemo(() => {
+    const language = i18n.resolvedLanguage || i18n.language || "en";
+
+    return vaccinationReminders.flatMap((reminder) => {
+      if (reminder.status !== "pending" || reminder.sourceDeletedAt) {
+        return [];
+      }
+
+      try {
+        const date = nextDoseDateToLocalDate(reminder.dueDate);
+
+        if (!date) {
+          return [];
+        }
+
+        return [
+          {
+            ...reminder,
+            formattedDueDate: date.toLocaleDateString(language, {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            }),
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+  }, [vaccinationReminders, i18n.resolvedLanguage, i18n.language]);
 
   /*
    * Ces valeurs par défaut évitent que le composant plante
@@ -236,6 +269,37 @@ export default function VaccineForm({
         onChange={handleNextDoseChange}
         onClear={handleClearNextDose}
       />
+
+      {displayedReminders.length > 0 ? (
+        <View style={styles.remindersSection}>
+          <Text style={styles.sectionLabel}>
+            {t("Scheduled vaccine doses")}
+          </Text>
+
+          {displayedReminders.map((reminder) => (
+            <View
+              key={reminder.sourceTrackingEntryId}
+              style={styles.reminderCard}
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={20}
+                color={colors.primary}
+              />
+
+              <View style={styles.reminderContent}>
+                <Text style={styles.reminderName}>{reminder.vaccineName}</Text>
+
+                <Text style={styles.reminderDate}>
+                  {t("Scheduled for {{date}}", {
+                    date: reminder.formattedDueDate,
+                  })}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -373,6 +437,40 @@ function createStyles(colors) {
 
     pressed: {
       opacity: 0.78,
+    },
+
+    remindersSection: {
+      gap: 10,
+    },
+
+    reminderCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 13,
+      borderRadius: 17,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.lightBlue,
+    },
+
+    reminderContent: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    reminderName: {
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+
+    reminderDate: {
+      marginTop: 4,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 12,
+      color: colors.textSecondary,
     },
   });
 }

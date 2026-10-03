@@ -1,4 +1,4 @@
-import { apiRequest } from "./apiClient.js";
+import { apiRequest } from "../apiClient.js";
 
 export function getPendingInvitations({ accessToken, signal }) {
   return apiRequest("/api/invitations/pending", {

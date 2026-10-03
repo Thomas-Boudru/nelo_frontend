@@ -19,7 +19,13 @@ const DELETED_ITEMS = [
 ];
 
 const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
-  { isDeleting = false, onDeleteAccount, onAccountDeleted },
+  {
+    isDeleting = false,
+    onCheckDeletion,
+    onOpenOwnershipTransfer,
+    onDeleteAccount,
+    onAccountDeleted,
+  },
   ref,
 ) {
   const { t } = useTranslation();
@@ -29,6 +35,9 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
 
   const [step, setStep] = useState("warning");
   const [error, setError] = useState("");
+
+  const [isChecking, setIsChecking] = useState(false);
+  const [childrenNeedingTransfer, setChildrenNeedingTransfer] = useState([]);
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -46,11 +55,34 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
   const resetSheet = useCallback(() => {
     setStep("warning");
     setError("");
+    setChildrenNeedingTransfer([]);
+    setIsChecking(false);
   }, []);
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    if (isChecking || isDeleting) {
+      return;
+    }
+
     setError("");
-    setStep("confirmation");
+    setIsChecking(true);
+
+    try {
+      const check = await onCheckDeletion?.();
+      const children = check?.children ?? [];
+
+      setChildrenNeedingTransfer(children);
+
+      if (children.length > 0) {
+        setStep("transfer");
+      } else {
+        setStep("confirmation");
+      }
+    } catch (checkError) {
+      setError(t("Unable to check account deletion"));
+    } finally {
+      setIsChecking(false);
+    }
   };
 
   const handleGoBack = () => {
@@ -87,7 +119,7 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
       ref?.current?.dismiss();
       onAccountDeleted?.();
     } catch (deleteError) {
-      setError(deleteError?.message || t("Unable to delete account"));
+      setError(t("Unable to delete account"));
     }
   };
 
@@ -114,7 +146,7 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
 
             <Text style={styles.centeredDescription}>
               {t(
-                "Deleting your account will permanently remove all associated information",
+                "Your account will be closed and you will lose access to your child profiles",
               )}
             </Text>
 
@@ -141,6 +173,8 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
               variant="destructive"
               onPress={handleContinue}
               style={styles.button}
+              loading={isChecking}
+              disabled={isChecking}
             />
 
             <Pressable
@@ -155,6 +189,52 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
               <Text style={styles.secondaryButtonText}>{t("Cancel")}</Text>
             </Pressable>
           </>
+        ) : step === "transfer" ? (
+          <>
+            <Text style={styles.centeredTitle}>
+              {t("Transfer ownership before deleting your account")}
+            </Text>
+
+            <Text style={styles.centeredDescription}>
+              {t(
+                "Choose another owner for each shared child profile before continuing.",
+              )}
+            </Text>
+
+            {childrenNeedingTransfer.map((child) => (
+              <Pressable
+                key={child.id}
+                accessibilityRole="button"
+                accessibilityLabel={t("Choose an owner for {{childName}}", {
+                  childName: child.name || t("Child profile"),
+                })}
+                onPress={() => onOpenOwnershipTransfer?.(child)}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {t("Choose an owner for {{childName}}", {
+                    childName: child.name || t("Child profile"),
+                  })}
+                </Text>
+              </Pressable>
+            ))}
+
+            <PrimaryButton
+              title={t("Check again")}
+              loading={isChecking}
+              disabled={isChecking}
+              onPress={handleContinue}
+              style={styles.button}
+            />
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleGoBack}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>{t("Go back")}</Text>
+            </Pressable>
+          </>
         ) : (
           <>
             <View style={styles.confirmationIconContainer}>
@@ -167,7 +247,7 @@ const DeleteAccountSheet = forwardRef(function DeleteAccountSheet(
 
             <Text style={styles.centeredDescription}>
               {t(
-                "Your account, child profiles and all associated data will be permanently deleted",
+                "You will be signed out. Shared child profiles will remain available to their other owners",
               )}
             </Text>
 

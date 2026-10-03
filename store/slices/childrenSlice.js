@@ -6,21 +6,21 @@ import {
   getAccessibleChildren,
   updateChild as updateChildApi,
   uploadChildAvatar as uploadChildAvatarApi,
-} from "../../api/childrenApi.js";
+} from "../../api/children/childrenApi.js";
 
 import { setThemeMode } from "./themeSlice.js";
 
-import { saveChildPreferencesLocally } from "../../database/childPreferencesRepository.js";
+import { saveChildPreferencesLocally } from "../../database/children/childPreferencesRepository.js";
 
 import {
   getLocalChildProfiles,
   saveChildProfileLocally,
-} from "../../database/childProfileRepository.js";
+} from "../../database/children/childProfileRepository.js";
 
 import {
   getLocalChildRelationships,
   saveChildRelationshipLocally,
-} from "../../database/childRelationshipRepository.js";
+} from "../../database/children/childRelationshipRepository.js";
 
 import { enqueueSyncOperation } from "../../sync/syncQueueRepository.js";
 
@@ -524,6 +524,18 @@ const childrenSlice = createSlice({
       }
     },
 
+    childProfileDeleted(state, action) {
+      const deletedChildId = action.payload;
+
+      state.children = state.children.filter(
+        (child) => child.id !== deletedChildId,
+      );
+
+      if (state.selectedChildId === deletedChildId) {
+        state.selectedChildId = state.children[0]?.id ?? null;
+      }
+    },
+
     clearChildren() {
       return createInitialState();
     },
@@ -678,7 +690,8 @@ const childrenSlice = createSlice({
   },
 });
 
-export const { childSelected, clearChildren } = childrenSlice.actions;
+export const { childSelected, childProfileDeleted, clearChildren } =
+  childrenSlice.actions;
 
 export function selectChild(childId) {
   return async (dispatch, getState) => {
@@ -702,6 +715,20 @@ export function selectChild(childId) {
     await persistSelection(childId);
 
     return true;
+  };
+}
+
+export function removeDeletedChild(childId) {
+  return async (dispatch, getState) => {
+    dispatch(childProfileDeleted(childId));
+
+    const selectedChildId = getState().children.selectedChildId;
+    const selectedChild = getState().children.children.find(
+      (child) => child.id === selectedChildId,
+    );
+
+    dispatch(setThemeMode(selectedChild?.themeMode ?? "blue"));
+    await persistSelection(selectedChildId);
   };
 }
 

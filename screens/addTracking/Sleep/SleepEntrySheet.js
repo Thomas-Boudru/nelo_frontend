@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -16,12 +17,28 @@ import {
   Text,
   TextInput,
   View,
+  AppState,
 } from "react-native";
+
+import * as Network from "expo-network";
+
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import {
+  createLocalSleepEntry,
+  startLocalSleepEntry,
+  stopLocalSleepEntry,
+  getLocalActiveSleepEntry,
+  refreshSharedSleep,
+} from "../../../database/tracking/sleep/sleepRepository.js";
+
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
+
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import ManualSleepSheet from "./ManualSleepSheet.js";
@@ -38,6 +55,7 @@ const MAX_NOTE_LENGTH = 300;
 
 const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   {
+    childId,
     childName,
     lastSleep,
     onStartSleep,
@@ -50,20 +68,18 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   ref,
 ) {
   const { t } = useTranslation();
+  const { user, accessToken, refreshSession } = useAuth();
 
   const modalRef = useRef(null);
   const manualSleepSheetRef = useRef(null);
+  const savingWakeRef = useRef(false);
 
-  /*
-   * Appeler `dismiss()` sur une modale qui n’a jamais été présentée la laisse
-   * bloquée en statut « DISMISSING » côté librairie : son portail refuse alors
-   * de se rendre et plus aucun `present()` ne la rouvre.
-   *
-   * Le cas arrive avec l’édition depuis le suivi : on n’ouvre que la sheet
-   * manuelle, jamais celle-ci. On ne ferme donc que ce qui est réellement
-   * ouvert.
-   */
   const isMainSheetPresentedRef = useRef(false);
+
+  const viewRef = useRef(view);
+  const localChangeRef = useRef(0);
+
+  viewRef.current = view;
 
   const dismissMainSheet = useCallback(() => {
     if (!isMainSheetPresentedRef.current) {
@@ -85,6 +101,10 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   const [completedSleep, setCompletedSleep] = useState(null);
   const [wakeNote, setWakeNote] = useState("");
   const [isSavingWake, setIsSavingWake] = useState(false);
+  const [isStartingSleep, setIsStartingSleep] = useState(false);
+  const startingSleepRef = useRef(false);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isLoadingSleep, setIsLoadingSleep] = useState(false);
 
   /*
    * Le chronomètre ne stocke pas chaque seconde.
@@ -106,22 +126,148 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     };
   }, [activeSleep?.startedAt]);
 
-  useImperativeHandle(ref, () => ({
-    present(currentActiveSleep = null) {
-      setCompletedSleep(null);
-      setWakeNote("");
-      setSleepTags([]);
-      setView("main");
+  // Réinitialiser l'écran à l'ouverture ou au changement de bébé.
+  useEffect(() => {
+    setActiveSleep(null);
+    setCompletedSleep(null);
+    setWakeNote("");
+    setSleepTags([]);
+    setView("main");
+    viewRef.current = "main";
+  }, [isSheetOpen, user?.id, childId]);
 
-      if (currentActiveSleep?.startedAt) {
-        setActiveSleep({
-          ...currentActiveSleep,
-          startedAt: new Date(currentActiveSleep.startedAt),
+  useEffect(() => {
+    if (!isSheetOpen || !user?.id || !childId) {
+      setIsLoadingSleep(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshing = false;
+
+    const userId = user.id;
+
+    function applyEntry(entry, expectedChange) {
+      if (
+        cancelled ||
+        expectedChange !== localChangeRef.current ||
+        startingSleepRef.current ||
+        savingWakeRef.current ||
+        viewRef.current !== "main"
+      ) {
+        return;
+      }
+
+      setActiveSleep(entry);
+      setCurrentTime(Date.now());
+
+      if (entry) {
+        setSleepType(entry.sleepType);
+      }
+    }
+
+    async function refresh() {
+      if (
+        cancelled ||
+        refreshing ||
+        AppState.currentState !== "active" ||
+        startingSleepRef.current ||
+        savingWakeRef.current ||
+        viewRef.current !== "main"
+      ) {
+        return;
+      }
+
+      refreshing = true;
+      const expectedChange = localChangeRef.current;
+
+      try {
+        // Afficher immédiatement les données locales.
+        const localEntry = await getLocalActiveSleepEntry({
+          userId,
+          childId,
         });
 
-        setSleepType(currentActiveSleep.type ?? "nap");
-        setCurrentTime(Date.now());
+        applyEntry(localEntry, expectedChange);
+
+        if (!cancelled) {
+          setIsLoadingSleep(false);
+        }
+
+        if (!accessToken || cancelled) {
+          return;
+        }
+
+        const network = await Network.getNetworkStateAsync();
+
+        if (
+          !network.isConnected ||
+          network.isInternetReachable === false ||
+          cancelled
+        ) {
+          return;
+        }
+
+        // Envoyer d'abord nos modifications, puis lire le serveur.
+        await processSyncQueue({
+          userId,
+          accessToken,
+          refreshSession,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const entry = await refreshSharedSleep({
+          userId,
+          childId,
+          accessToken,
+          refreshSession,
+        });
+
+        applyEntry(entry, expectedChange);
+      } catch (error) {
+        // En cas d'erreur réseau, conserver les données locales.
+        console.error("Unable to refresh shared sleep:", error);
+      } finally {
+        refreshing = false;
+
+        if (!cancelled) {
+          setIsLoadingSleep(false);
+        }
       }
+    }
+
+    refresh();
+
+    // Vérification toutes les 15 secondes uniquement écran ouvert.
+    const interval = setInterval(refresh, 15000);
+
+    const appSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refresh();
+      }
+    });
+
+    const networkSubscription = Network.addNetworkStateListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) {
+        refresh();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      appSubscription.remove();
+      networkSubscription.remove();
+    };
+  }, [isSheetOpen, user?.id, childId, accessToken, refreshSession]);
+
+  useImperativeHandle(ref, () => ({
+    present() {
+      setIsLoadingSleep(true);
+      setIsSheetOpen(true);
 
       isMainSheetPresentedRef.current = true;
       modalRef.current?.present();
@@ -135,8 +281,11 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
       setSleepTags([]);
       setView("main");
       setSleepType(initialSleepType);
+      setIsLoadingSleep(true);
+      setIsSheetOpen(true);
 
       isMainSheetPresentedRef.current = true;
+
       modalRef.current?.present();
     },
 
@@ -169,7 +318,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
         startedAt: new Date(currentActiveSleep.startedAt),
       });
 
-      setSleepType(currentActiveSleep.type ?? "nap");
+      setSleepType(currentActiveSleep.sleepType ?? "nap");
       setCurrentTime(Date.now());
     },
   }));
@@ -189,11 +338,41 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   };
 
   const handleSaveManualSleep = async (sleep) => {
-    await onSaveManualSleep?.(sleep);
+    if (sleep.mode === "edit" || sleep.id) {
+      throw new Error(t("Sleep editing is not available yet."));
+    }
 
-    manualSleepSheetRef.current?.dismiss();
+    if (!user?.id || !childId) {
+      throw new Error(t("Missing user ID or child ID."));
+    }
 
+    const entry = await createLocalSleepEntry({
+      userId: user.id,
+      childId,
+      data: {
+        sleepType: sleep.sleepType,
+        startedAt: sleep.startedAt,
+        endedAt: sleep.endedAt,
+        note: sleep.note,
+      },
+    });
+
+    // La sauvegarde est terminée. Le parent actualise seulement l'affichage.
+    try {
+      await onSaveManualSleep?.({
+        ...entry,
+        entryMode: "manual",
+        mode: "create",
+        persistedLocally: true,
+      });
+    } catch (error) {
+      console.error("Unable to refresh the saved sleep:", error);
+    }
+
+    synchronizeTracking();
     dismissMainSheet();
+
+    return true;
   };
 
   const handleDismiss = () => {
@@ -204,6 +383,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     setSleepTags([]);
     setView("main");
     setIsSavingWake(false);
+    setIsSheetOpen(false);
   };
   const renderBackdrop = useCallback(
     (props) => (
@@ -218,20 +398,68 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     [],
   );
 
+  const synchronizeTracking = () => {
+    if (!user?.id || !accessToken) {
+      return;
+    }
+
+    processSyncQueue({
+      userId: user.id,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.error("Unable to synchronize sleep:", error);
+    });
+  };
+
   const handleStartSleep = async () => {
-    const sleep = {
-      type: sleepType,
-      startedAt: new Date(),
-      note: "",
-      entryMode: "timer",
-    };
+    if (startingSleepRef.current || isLoadingSleep) {
+      return;
+    }
+    startingSleepRef.current = true;
+    localChangeRef.current += 1;
+    setIsStartingSleep(true);
 
-    await onStartSleep?.(sleep);
+    try {
+      if (!user?.id || !childId) {
+        throw new Error(t("Missing user ID or child ID."));
+      }
 
-    setActiveSleep(sleep);
-    setCurrentTime(Date.now());
+      const entry = await startLocalSleepEntry({
+        userId: user.id,
+        childId,
+        data: {
+          sleepType,
+          startedAt: new Date(),
+        },
+      });
 
-    dismissMainSheet();
+      setActiveSleep(entry);
+      setCurrentTime(Date.now());
+
+      // La sauvegarde locale a réussi : le callback affiche la confirmation.
+      try {
+        await onStartSleep?.({
+          ...entry,
+          persistedLocally: true,
+        });
+      } catch (error) {
+        console.error("Unable to display sleep confirmation:", error);
+      }
+
+      synchronizeTracking();
+      dismissMainSheet();
+    } catch (error) {
+      Alert.alert(
+        t("Unable to start sleep"),
+        error?.code === "SLEEP_ALREADY_RUNNING"
+          ? t("A sleep is already running for this child.")
+          : t("Please try again."),
+      );
+    } finally {
+      startingSleepRef.current = false;
+      setIsStartingSleep(false);
+    }
   };
 
   const handleWakeUp = () => {
@@ -257,6 +485,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
      */
     setCompletedSleep(completedSleep);
     setWakeNote("");
+    viewRef.current = "wakeConfirmation";
     setView("wakeConfirmation");
     setSleepTags([]);
   };
@@ -266,40 +495,66 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
     setWakeNote("");
     setSleepTags([]);
     setCurrentTime(Date.now());
+    viewRef.current = "main";
     setView("main");
   };
   const handleSaveCompletedSleep = async () => {
-    if (!completedSleep || isSavingWake) {
+    if (!completedSleep || savingWakeRef.current) {
       return;
     }
 
-    try {
-      setIsSavingWake(true);
+    savingWakeRef.current = true;
+    localChangeRef.current += 1;
+    setIsSavingWake(true);
 
-      await onWakeUp?.({
-        ...completedSleep,
-        note: wakeNote.trim(),
-        tags: sleepTags,
+    try {
+      if (!user?.id || !childId) {
+        throw new Error(t("Missing user ID or child ID."));
+      }
+
+      if (!completedSleep.id) {
+        throw new Error(t("The active sleep has no saved ID."));
+      }
+
+      const entry = await stopLocalSleepEntry({
+        userId: user.id,
+        childId,
+        entryId: completedSleep.id,
+        data: {
+          endedAt: completedSleep.endedAt,
+          note: wakeNote.trim(),
+        },
       });
 
+      // L'arrêt est enregistré localement.
       setActiveSleep(null);
       setCompletedSleep(null);
       setWakeNote("");
       setSleepTags([]);
       setView("main");
 
+      // Une erreur d'affichage ne doit pas faire rejouer la sauvegarde.
+      try {
+        await onWakeUp?.({
+          ...entry,
+          persistedLocally: true,
+        });
+      } catch (error) {
+        console.error("Unable to display sleep confirmation:", error);
+      }
+
+      synchronizeTracking();
       dismissMainSheet();
     } catch (error) {
-      console.error("Unable to save sleep:", error);
+      console.error("Unable to stop sleep:", error);
 
-      /*
-       * En cas d’erreur, la sheet reste ouverte.
-       * On ajoutera le toast d’erreur plus tard.
-       */
+      Alert.alert(t("Unable to save sleep"), t("Please try again."));
     } finally {
+      savingWakeRef.current = false;
       setIsSavingWake(false);
     }
   };
+
   const handleOpenHistory = () => {
     dismissMainSheet();
 
@@ -389,6 +644,8 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
               />
             ) : (
               <SleepIdleState
+                isLoading={isLoadingSleep}
+                isStarting={isStartingSleep}
                 childName={childName}
                 sleepType={sleepType}
                 lastSleep={lastSleep}
@@ -415,6 +672,8 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
 export default SleepEntrySheet;
 
 function SleepIdleState({
+  isLoading,
+  isStarting,
   childName,
   sleepType,
   lastSleep,
@@ -478,8 +737,15 @@ function SleepIdleState({
         <PrimaryButton
           variant="wake"
           title={
-            sleepType === "night" ? t("Start night sleep") : t("Start nap")
+            isLoading
+              ? t("Loading...")
+              : isStarting
+                ? t("Starting...")
+                : sleepType === "night"
+                  ? t("Start night sleep")
+                  : t("Start nap")
           }
+          disabled={isLoading || isStarting}
           onPress={onStartSleep}
         />
       </View>
@@ -495,7 +761,7 @@ function SleepActiveState({
   styles,
   t,
 }) {
-  const isNight = activeSleep.type === "night";
+  const isNight = activeSleep.sleepType === "night";
 
   return (
     <View style={styles.stateContent}>
@@ -554,7 +820,7 @@ function WakeConfirmationState({
   styles,
   t,
 }) {
-  const isNightSleep = sleep?.type === "night";
+  const isNightSleep = sleep?.sleepType === "night";
 
   const sleepTagOptions = [
     {

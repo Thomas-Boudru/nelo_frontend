@@ -245,8 +245,8 @@ export default function PottyForm({ value, onChange, onPressNote }) {
 
       <DateTimeRow
         isNow={!value?.isDateEdited}
-        date={value?.pottyDate ?? new Date()}
-        onDateChange={(nextDate) =>
+        value={value?.pottyDate ?? new Date()}
+        onChange={(nextDate) =>
           patchEntry({
             pottyDate: nextDate,
             isDateEdited: true,

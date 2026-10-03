@@ -1,5 +1,12 @@
-import { forwardRef, useCallback, useEffect, useMemo, useState } from "react";
-import { Keyboard, StyleSheet, Text } from "react-native";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -10,11 +17,30 @@ import { useTranslation } from "react-i18next";
 
 import FormField from "../../../components/onboarding/FormField.js";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
-
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+const CODE_LENGTH = 6;
 
 function isValidEmail(value = "") {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function getEmailChangeErrorMessage(error, t, fallbackKey) {
+  const translationKeyByCode = {
+    INVALID_EMAIL: "Enter a valid email address",
+    EMAIL_UNCHANGED: "This is already your email address",
+    EMAIL_ALREADY_IN_USE:
+      "This email address is already associated with an account",
+    EMAIL_CHANGE_RATE_LIMITED: "Please wait before requesting another code",
+    EMAIL_DELIVERY_FAILED:
+      "Unable to send the verification code. Please try again",
+    INVALID_EMAIL_CHANGE_CODE:
+      "The verification code is invalid or has expired",
+    EMAIL_CHANGE_ATTEMPTS_EXCEEDED:
+      "Too many incorrect attempts. Request a new code",
+  };
+
+  return t(translationKeyByCode[error?.code] || fallbackKey);
 }
 
 const EditEmailSheet = forwardRef(function EditEmailSheet(
@@ -28,20 +54,42 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
   ref,
 ) {
   const { t } = useTranslation();
-
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [step, setStep] = useState("email");
+  const codeInputRef = useRef(null);
+  const stepTimerRef = useRef(null);
 
+  const [step, setStep] = useState("email");
   const [email, setEmail] = useState(currentEmail ?? "");
   const [code, setCode] = useState("");
-
   const [error, setError] = useState("");
+  const [isCodeFocused, setIsCodeFocused] = useState(false);
 
   useEffect(() => {
     setEmail(currentEmail ?? "");
   }, [currentEmail]);
+
+  useEffect(() => {
+    if (step !== "verification") {
+      return undefined;
+    }
+
+    const focusTimer = setTimeout(() => {
+      codeInputRef.current?.focus();
+    }, 300);
+
+    return () => clearTimeout(focusTimer);
+  }, [step]);
+
+  useEffect(
+    () => () => {
+      if (stepTimerRef.current) {
+        clearTimeout(stepTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -57,15 +105,24 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
   );
 
   const resetSheet = () => {
-    Keyboard.dismiss();
+    if (stepTimerRef.current) {
+      clearTimeout(stepTimerRef.current);
+      stepTimerRef.current = null;
+    }
 
+    Keyboard.dismiss();
     setStep("email");
     setEmail(currentEmail ?? "");
     setCode("");
     setError("");
+    setIsCodeFocused(false);
   };
 
   const handleSendCode = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedEmail) {
@@ -90,17 +147,38 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
       }
 
       Keyboard.dismiss();
+      setCode("");
 
-      setTimeout(() => {
+      stepTimerRef.current = setTimeout(() => {
         setStep("verification");
+        stepTimerRef.current = null;
       }, 180);
     } catch (requestError) {
-      setError(requestError?.message || t("Unable to send verification code"));
+      setError(
+        getEmailChangeErrorMessage(
+          requestError,
+          t,
+          "Unable to send verification code",
+        ),
+      );
     }
   };
+
+  const handleCodeChange = (value) => {
+    setCode(value.replace(/\D/g, "").slice(0, CODE_LENGTH));
+
+    if (error) {
+      setError("");
+    }
+  };
+
   const handleVerify = async () => {
-    if (!code.trim()) {
-      setError(t("Verification code is required"));
+    if (isSubmitting) {
+      return;
+    }
+
+    if (code.length !== CODE_LENGTH) {
+      setError(t("Enter your six-digit verification code"));
       return;
     }
 
@@ -108,9 +186,11 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
     setError("");
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+
       const verified = await onVerifyCode?.({
-        email: email.trim().toLowerCase(),
-        code: code.trim(),
+        email: normalizedEmail,
+        code,
       });
 
       if (verified === false) {
@@ -118,12 +198,15 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
       }
 
       ref?.current?.dismiss();
-
-      onEmailUpdated?.({
-        email: email.trim().toLowerCase(),
-      });
+      onEmailUpdated?.({ email: normalizedEmail });
     } catch (verificationError) {
-      setError(verificationError?.message || t("Invalid verification code"));
+      setError(
+        getEmailChangeErrorMessage(
+          verificationError,
+          t,
+          "Invalid verification code",
+        ),
+      );
     }
   };
 
@@ -183,7 +266,7 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
             <PrimaryButton
               title={t("Send verification code")}
               loading={isSubmitting}
-              disabled={!email.trim()}
+              disabled={!email.trim() || isSubmitting}
               onPress={handleSendCode}
               style={styles.button}
             />
@@ -196,32 +279,62 @@ const EditEmailSheet = forwardRef(function EditEmailSheet(
               {t("Enter the verification code sent to your new email address.")}
             </Text>
 
-            <FormField
-              InputComponent={BottomSheetTextInput}
-              label={t("Verification code")}
-              value={code}
-              onChangeText={(value) => {
-                setCode(value);
+            <Text style={styles.verificationEmail} numberOfLines={1}>
+              {email.trim().toLowerCase()}
+            </Text>
 
-                if (error) {
-                  setError("");
-                }
-              }}
-              placeholder="123456"
-              error={error}
-              iconName="key-outline"
-              editable={!isSubmitting}
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onSubmitEditing={handleVerify}
-              containerStyle={styles.form}
-            />
+            <View style={styles.codeSection}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("Enter your six-digit verification code")}
+                onPress={() => codeInputRef.current?.focus()}
+                style={styles.codeBoxes}
+              >
+                {Array.from({ length: CODE_LENGTH }).map((_, index) => {
+                  const isActive =
+                    isCodeFocused &&
+                    (index === code.length ||
+                      (code.length === CODE_LENGTH &&
+                        index === CODE_LENGTH - 1));
+
+                  return (
+                    <View
+                      key={index}
+                      style={[
+                        styles.codeBox,
+                        isActive && styles.codeBoxFocused,
+                        error && styles.codeBoxError,
+                      ]}
+                    >
+                      <Text style={styles.codeDigit}>{code[index] || ""}</Text>
+                    </View>
+                  );
+                })}
+              </Pressable>
+
+              <BottomSheetTextInput
+                ref={codeInputRef}
+                value={code}
+                onChangeText={handleCodeChange}
+                onFocus={() => setIsCodeFocused(true)}
+                onBlur={() => setIsCodeFocused(false)}
+                onSubmitEditing={handleVerify}
+                editable={!isSubmitting}
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                maxLength={CODE_LENGTH}
+                caretHidden
+                style={styles.hiddenCodeInput}
+              />
+
+              {error ? <Text style={styles.codeError}>{error}</Text> : null}
+            </View>
 
             <PrimaryButton
               title={t("Confirm email address")}
               loading={isSubmitting}
-              disabled={!code.trim()}
+              disabled={code.length !== CODE_LENGTH || isSubmitting}
               onPress={handleVerify}
               style={styles.button}
             />
@@ -278,6 +391,67 @@ const createStyles = (colors) =>
 
     form: {
       marginTop: 24,
+    },
+
+    verificationEmail: {
+      marginTop: 8,
+      fontFamily: "PlusJakartaSans_600SemiBold",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textPrimary,
+    },
+
+    codeSection: {
+      position: "relative",
+      marginTop: 26,
+    },
+
+    codeBoxes: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      gap: 6,
+    },
+
+    codeBox: {
+      flex: 1,
+      height: 52,
+      maxWidth: 48,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      borderRadius: 14,
+      backgroundColor: colors.white,
+    },
+
+    codeBoxFocused: {
+      borderColor: colors.primary,
+    },
+
+    codeBoxError: {
+      borderColor: colors.error,
+    },
+
+    codeDigit: {
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 21,
+      lineHeight: 27,
+      color: colors.textPrimary,
+    },
+
+    hiddenCodeInput: {
+      position: "absolute",
+      width: 1,
+      height: 1,
+      opacity: 0,
+    },
+
+    codeError: {
+      marginTop: 12,
+      fontFamily: "PlusJakartaSans_500Medium",
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.error,
     },
 
     button: {

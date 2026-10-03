@@ -24,9 +24,8 @@ export function normalizeLanguage(language) {
     : "en";
 }
 
-function getDeviceLanguage() {
+export function getDeviceLanguage() {
   const deviceLanguage = getLocales()[0]?.languageCode;
-
   return normalizeLanguage(deviceLanguage);
 }
 

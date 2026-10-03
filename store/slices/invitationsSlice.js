@@ -1,5 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
-import { getPendingInvitations } from "../../api/invitationsApi.js";
+import { getPendingInvitations } from "../../api/userFlow/invitationsApi.js";
 
 const initialState = {
   items: [],

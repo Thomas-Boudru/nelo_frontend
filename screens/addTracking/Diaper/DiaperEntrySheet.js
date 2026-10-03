@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -23,6 +23,12 @@ import DiaperForm from "../../../components/addTracking/diaper/DiaperForm.js";
 import PottyForm from "../../../components/addTracking/diaper/PottyForm.js";
 
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+
+import { createLocalToiletingEntry } from "../../../database/tracking/diaper/toiletingRepository.js";
+
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 function getEntryDate(entry, preferredDateKey) {
   const dateValue =
@@ -104,7 +110,7 @@ function createPottyEntryFromTrackingEntry(entry) {
 const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
   {
     childName,
-
+    childId,
     onSaveDiaper,
     onSavePotty,
 
@@ -114,6 +120,11 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
   ref,
 ) {
   const { t } = useTranslation();
+
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -223,11 +234,11 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleOpenDiaperNote = () => {
@@ -256,36 +267,80 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
       : Boolean(pottyEntry.content);
 
   const handleSave = async () => {
-    if (!canSave) {
+    if (!canSave || savingRef.current) {
       return;
     }
 
-    if (selectedType === "diaper") {
-      await onSaveDiaper?.({
-        ...editingEntry,
-        ...diaperEntry,
+    if (isEditMode) {
+      Alert.alert(
+        t("Editing is not available yet"),
+        t("Diaper and potty editing will be available later."),
+      );
+      return;
+    }
 
-        id: editingEntry?.id,
+    if (!user?.id || !childId) {
+      Alert.alert(t("Unable to save entry"), t("Missing user ID or child ID."));
+      return;
+    }
 
-        type: "diaper",
-        mode: sheetMode,
+    savingRef.current = true;
+    setIsSaving(true);
+
+    // Capturer les valeurs avant le premier appel asynchrone.
+    const type = selectedType;
+    const form = type === "diaper" ? diaperEntry : pottyEntry;
+    const dateField = type === "diaper" ? "diaperDate" : "pottyDate";
+
+    const data = {
+      content: form.content,
+      consistency: type === "diaper" ? form.consistency : null,
+      isAccident: type === "potty" ? form.isAccident : false,
+      note: form.note,
+
+      // "Now" correspond au moment où l'on enregistre.
+      [dateField]: form.isDateEdited ? form[dateField] : new Date(),
+    };
+
+    try {
+      const entry = await createLocalToiletingEntry({
+        userId: user.id,
+        childId,
+        type,
+        data,
       });
 
+      // L'entrée est déjà sauvegardée : le parent affiche le toast.
+      try {
+        const notifySaved = type === "diaper" ? onSaveDiaper : onSavePotty;
+
+        await notifySaved?.(entry);
+      } catch (error) {
+        console.error("Unable to display tracking confirmation:", error);
+      }
+
+      if (accessToken) {
+        processSyncQueue({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }).catch((error) => {
+          console.error("Unable to synchronize toileting entry:", error);
+        });
+      }
+
       modalRef.current?.dismiss();
-      return;
+    } catch (error) {
+      console.error("Unable to save toileting entry:", error);
+
+      Alert.alert(
+        t("Unable to save entry"),
+        t("Check the selected date and try again."),
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-
-    await onSavePotty?.({
-      ...editingEntry,
-      ...pottyEntry,
-
-      id: editingEntry?.id,
-
-      type: "potty",
-      mode: sheetMode,
-    });
-
-    modalRef.current?.dismiss();
   };
 
   const handleOpenHistory = () => {
@@ -321,14 +376,14 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
         index={0}
         snapPoints={snapPoints}
         enableDynamicSizing={false}
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.handle}
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
       >
-        <View style={styles.content}>
+        <View style={styles.content} pointerEvents={isSaving ? "none" : "auto"}>
           <View style={styles.header}>
             <View style={styles.headerContent}>
               <Text style={styles.title}>{title}</Text>
@@ -401,10 +456,14 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
             ) : (
               <PrimaryButton
                 title={
-                  selectedType === "diaper" ? t("Save diaper") : t("Save potty")
+                  isSaving
+                    ? t("Saving...")
+                    : selectedType === "diaper"
+                      ? t("Save diaper")
+                      : t("Save potty")
                 }
                 onPress={handleSave}
-                disabled={!canSave}
+                disabled={!canSave || isSaving}
               />
             )}
           </View>

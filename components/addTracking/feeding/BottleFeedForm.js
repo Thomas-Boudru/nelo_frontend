@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
+import { useSelector } from "react-redux";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
@@ -81,9 +81,23 @@ const WAVE_LOOP_COUNT = 600;
 
 const LEVEL_SPRING = { damping: 17, stiffness: 120, mass: 0.85 };
 
+const ML_PER_US_FL_OZ = 29.5735295625;
+
+function formatDisplayedBottleAmount(amountMl, volumeUnit) {
+  if (volumeUnit === "fl_oz") {
+    const fluidOunces = amountMl / ML_PER_US_FL_OZ;
+
+    return `${fluidOunces.toFixed(1)} fl oz`;
+  }
+
+  return formatBottleAmount(amountMl);
+}
+
 export default function BottleFeedForm({
   value,
   onChange,
+  viewMode = "bottle",
+  onChangeViewMode,
   onPressCapacity,
   onPressMilkType,
   onPressNote,
@@ -92,17 +106,22 @@ export default function BottleFeedForm({
 }) {
   const { t } = useTranslation();
 
+  const volumeUnit = useSelector((state) => state.measurementUnits.volume);
+
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [viewMode, setViewMode] = useState("bottle");
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+
+  const changeViewMode = (nextMode) => {
+    onChangeViewMode?.(nextMode);
+  };
 
   const capacityMl =
     Number(value?.bottleCapacityMl) || DEFAULT_BOTTLE_CAPACITY_ML;
   const amountMl = getBottleEntryAmountMl(value);
-  const fillRatio = getBottleFillRatio(value);
   const isExactAmountMode = Boolean(value?.isExactAmountMode);
+  const fillRatio = isExactAmountMode ? 1 : getBottleFillRatio(value);
 
   const bottleHeight = useMemo(() => {
     if (!stageSize.width || !stageSize.height) {
@@ -301,6 +320,7 @@ export default function BottleFeedForm({
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(!isExactAmountMode && viewMode === "bottle")
         .minDistance(0)
         .shouldCancelWhenOutside(false)
         .onBegin((event) => {
@@ -344,6 +364,8 @@ export default function BottleFeedForm({
       slosh,
       windowBottomValue,
       windowHeightValue,
+      isExactAmountMode,
+      viewMode,
     ],
   );
 
@@ -406,7 +428,7 @@ export default function BottleFeedForm({
       <View style={styles.topRow}>
         <View style={styles.viewSwitcher}>
           <Pressable
-            onPress={() => setViewMode("bottle")}
+            onPress={() => changeViewMode("bottle")}
             style={({ pressed }) => [
               styles.viewModeButton,
               viewMode === "bottle" && styles.viewModeButtonSelected,
@@ -423,7 +445,7 @@ export default function BottleFeedForm({
           </Pressable>
 
           <Pressable
-            onPress={() => setViewMode("simple")}
+            onPress={() => changeViewMode("simple")}
             style={({ pressed }) => [
               styles.viewModeButton,
               viewMode === "simple" && styles.viewModeButtonSelected,
@@ -454,7 +476,7 @@ export default function BottleFeedForm({
               ]}
             >
               <Text style={styles.capacityValue}>
-                {formatBottleAmount(capacityMl)}
+                {formatDisplayedBottleAmount(capacityMl, volumeUnit)}
               </Text>
 
               <Ionicons
@@ -524,217 +546,213 @@ export default function BottleFeedForm({
         </Pressable>
       </View>
 
-      {!value?.isExactAmountMode ? (
-        <View style={styles.stage} onLayout={handleStageLayout}>
-          {viewMode === "bottle" ? (
-            bottleHeight > 0 ? (
-              <View style={styles.bottleRow}>
-                <View style={styles.markerColumnSpacer} />
+      <View style={styles.stage} onLayout={handleStageLayout}>
+        {viewMode === "bottle" ? (
+          bottleHeight > 0 ? (
+            <View style={styles.bottleRow}>
+              <View style={styles.markerColumnSpacer} />
 
-                <GestureDetector gesture={panGesture}>
-                  <View
-                    style={[
-                      styles.bottleWrap,
-                      { width: geometry.width, height: geometry.height },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.liquidWindow,
-                        {
-                          top: geometry.windowTop,
-                          left: geometry.sideInset,
-                          right: geometry.sideInset,
-                          height: geometry.windowHeight,
-                          borderBottomLeftRadius: geometry.cornerRadius,
-                          borderBottomRightRadius: geometry.cornerRadius,
-                        },
-                      ]}
-                    >
-                      <Animated.View style={[styles.liquid, liquidStyle]}>
-                        <LinearGradient
-                          colors={MILK_GRADIENT}
-                          start={{ x: 0.1, y: 0 }}
-                          end={{ x: 0.95, y: 1 }}
-                          style={[
-                            styles.liquidBody,
-                            { top: geometry.waveBoxHeight - 1 },
-                          ]}
-                        />
-
-                        <Animated.View
-                          style={[
-                            styles.waveLayer,
-                            {
-                              width: waves.back.width,
-                              height: geometry.waveBoxHeight,
-                            },
-                            backWaveStyle,
-                          ]}
-                        >
-                          <Svg
-                            width={waves.back.width}
-                            height={geometry.waveBoxHeight}
-                          >
-                            <Path d={waves.back.path} fill={MILK_SHADE_COLOR} />
-                          </Svg>
-                        </Animated.View>
-
-                        <Animated.View
-                          style={[
-                            styles.waveLayer,
-                            {
-                              width: waves.front.width,
-                              height: geometry.waveBoxHeight,
-                            },
-                            frontWaveStyle,
-                          ]}
-                        >
-                          <Svg
-                            width={waves.front.width}
-                            height={geometry.waveBoxHeight}
-                          >
-                            <Path
-                              d={waves.front.path}
-                              fill={MILK_SURFACE_COLOR}
-                            />
-                          </Svg>
-                        </Animated.View>
-
-                        <LinearGradient
-                          colors={[
-                            "rgba(255, 255, 255, 0.5)",
-                            "rgba(255, 255, 255, 0)",
-                          ]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={[
-                            styles.sheen,
-                            {
-                              top: geometry.waveBoxHeight,
-                              left: waves.innerWidth * 0.1,
-                              width: waves.innerWidth * 0.26,
-                            },
-                          ]}
-                        />
-                      </Animated.View>
-                    </View>
-
-                    <Image
-                      source={BOTTLE_IMAGE}
-                      resizeMode="stretch"
-                      style={styles.bottleImage}
-                    />
-                  </View>
-                </GestureDetector>
-
+              <GestureDetector gesture={panGesture}>
                 <View
-                  style={[styles.markerColumn, { height: geometry.height }]}
-                  pointerEvents="box-none"
-                >
-                  {BOTTLE_PORTIONS.map((portion) => {
-                    const isSelected =
-                      !isExactAmountMode &&
-                      Math.abs(fillRatio - portion.fraction) < 0.006;
-
-                    const markerCenterY =
-                      geometry.windowBottom -
-                      portion.fraction * geometry.windowHeight;
-
-                    return (
-                      <Pressable
-                        key={portion.id}
-                        onPress={() => handleSelectPortion(portion)}
-                        hitSlop={6}
-                        style={({ pressed }) => [
-                          styles.portionMarker,
-                          { top: markerCenterY - 14 },
-                          isSelected && styles.portionMarkerSelected,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.markerConnector,
-                            isSelected && styles.markerConnectorSelected,
-                          ]}
-                        />
-
-                        <Text
-                          style={[
-                            styles.portionMarkerLabel,
-                            isSelected && styles.portionMarkerLabelSelected,
-                          ]}
-                        >
-                          {portion.label === "Full" ? t("Full") : portion.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null
-          ) : (
-            <View style={styles.portionsGrid}>
-              {chunkPairs(BOTTLE_PORTIONS).map((row, rowIndex) => (
-                <View
-                  key={rowIndex}
                   style={[
-                    styles.portionsRow,
-                    { height: cardMetrics.cardHeight },
+                    styles.bottleWrap,
+                    { width: geometry.width, height: geometry.height },
                   ]}
                 >
-                  {row.map((portion) => {
-                    const isSelected =
-                      !isExactAmountMode && value?.portionId === portion.id;
+                  <View
+                    style={[
+                      styles.liquidWindow,
+                      {
+                        top: geometry.windowTop,
+                        left: geometry.sideInset,
+                        right: geometry.sideInset,
+                        height: geometry.windowHeight,
+                        borderBottomLeftRadius: geometry.cornerRadius,
+                        borderBottomRightRadius: geometry.cornerRadius,
+                      },
+                    ]}
+                  >
+                    <Animated.View style={[styles.liquid, liquidStyle]}>
+                      <LinearGradient
+                        colors={MILK_GRADIENT}
+                        start={{ x: 0.1, y: 0 }}
+                        end={{ x: 0.95, y: 1 }}
+                        style={[
+                          styles.liquidBody,
+                          { top: geometry.waveBoxHeight - 1 },
+                        ]}
+                      />
 
-                    return (
-                      <Pressable
-                        key={portion.id}
-                        onPress={() => handleSelectPortion(portion)}
-                        style={({ pressed }) => [
-                          styles.portionCard,
-                          isSelected && styles.portionCardSelected,
-                          pressed && styles.pressed,
+                      <Animated.View
+                        style={[
+                          styles.waveLayer,
+                          {
+                            width: waves.back.width,
+                            height: geometry.waveBoxHeight,
+                          },
+                          backWaveStyle,
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.portionLabel,
-                            { fontSize: cardMetrics.labelFontSize },
-                            isSelected && styles.portionLabelSelected,
-                          ]}
+                        <Svg
+                          width={waves.back.width}
+                          height={geometry.waveBoxHeight}
                         >
-                          {portion.label === "Full" ? t("Full") : portion.label}
-                        </Text>
+                          <Path d={waves.back.path} fill={MILK_SHADE_COLOR} />
+                        </Svg>
+                      </Animated.View>
 
-                        <Text
-                          style={[
-                            styles.portionAmount,
-                            { fontSize: cardMetrics.amountFontSize },
-                            isSelected && styles.portionAmountSelected,
-                          ]}
+                      <Animated.View
+                        style={[
+                          styles.waveLayer,
+                          {
+                            width: waves.front.width,
+                            height: geometry.waveBoxHeight,
+                          },
+                          frontWaveStyle,
+                        ]}
+                      >
+                        <Svg
+                          width={waves.front.width}
+                          height={geometry.waveBoxHeight}
                         >
-                          {formatBottleAmount(
-                            getBottleAmountMl(capacityMl, portion.fraction),
-                          )}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                          <Path
+                            d={waves.front.path}
+                            fill={MILK_SURFACE_COLOR}
+                          />
+                        </Svg>
+                      </Animated.View>
+
+                      <LinearGradient
+                        colors={[
+                          "rgba(255, 255, 255, 0.5)",
+                          "rgba(255, 255, 255, 0)",
+                        ]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[
+                          styles.sheen,
+                          {
+                            top: geometry.waveBoxHeight,
+                            left: waves.innerWidth * 0.1,
+                            width: waves.innerWidth * 0.26,
+                          },
+                        ]}
+                      />
+                    </Animated.View>
+                  </View>
+
+                  <Image
+                    source={BOTTLE_IMAGE}
+                    resizeMode="stretch"
+                    style={styles.bottleImage}
+                  />
                 </View>
-              ))}
+              </GestureDetector>
+
+              <View
+                style={[styles.markerColumn, { height: geometry.height }]}
+                pointerEvents="box-none"
+              >
+                {BOTTLE_PORTIONS.map((portion) => {
+                  const isSelected =
+                    !isExactAmountMode &&
+                    Math.abs(fillRatio - portion.fraction) < 0.006;
+
+                  const markerCenterY =
+                    geometry.windowBottom -
+                    portion.fraction * geometry.windowHeight;
+
+                  return (
+                    <Pressable
+                      key={portion.id}
+                      onPress={() => handleSelectPortion(portion)}
+                      hitSlop={6}
+                      style={({ pressed }) => [
+                        styles.portionMarker,
+                        { top: markerCenterY - 14 },
+                        isSelected && styles.portionMarkerSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.markerConnector,
+                          isSelected && styles.markerConnectorSelected,
+                        ]}
+                      />
+
+                      <Text
+                        style={[
+                          styles.portionMarkerLabel,
+                          isSelected && styles.portionMarkerLabelSelected,
+                        ]}
+                      >
+                        {portion.label === "Full" ? t("Full") : portion.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          )}
-        </View>
-      ) : null}
+          ) : null
+        ) : (
+          <View style={styles.portionsGrid}>
+            {chunkPairs(BOTTLE_PORTIONS).map((row, rowIndex) => (
+              <View
+                key={rowIndex}
+                style={[styles.portionsRow, { height: cardMetrics.cardHeight }]}
+              >
+                {row.map((portion) => {
+                  const isSelected =
+                    !isExactAmountMode && value?.portionId === portion.id;
+
+                  return (
+                    <Pressable
+                      key={portion.id}
+                      onPress={() => handleSelectPortion(portion)}
+                      style={({ pressed }) => [
+                        styles.portionCard,
+                        isSelected && styles.portionCardSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.portionLabel,
+                          { fontSize: cardMetrics.labelFontSize },
+                          isSelected && styles.portionLabelSelected,
+                        ]}
+                      >
+                        {portion.label === "Full" ? t("Full") : portion.label}
+                      </Text>
+
+                      <Text
+                        style={[
+                          styles.portionAmount,
+                          { fontSize: cardMetrics.amountFontSize },
+                          isSelected && styles.portionAmountSelected,
+                        ]}
+                      >
+                        {formatDisplayedBottleAmount(
+                          getBottleAmountMl(capacityMl, portion.fraction),
+                          volumeUnit,
+                        )}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
 
       <View style={styles.summary}>
         <View style={styles.summaryTexts}>
           <Text style={styles.summaryLabel}>{t("Total volume")}</Text>
 
           <Text style={styles.amountValue}>
-            {amountMl ? formatBottleAmount(amountMl) : "—"}
+            {amountMl ? formatDisplayedBottleAmount(amountMl, volumeUnit) : "—"}
           </Text>
         </View>
 

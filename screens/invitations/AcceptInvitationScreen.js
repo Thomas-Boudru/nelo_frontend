@@ -12,7 +12,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../auth/AuthProvider.js";
-import { acceptInvitation } from "../../api/invitationsApi.js";
+import { acceptInvitation } from "../../api/userFlow/invitationsApi.js";
 
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 

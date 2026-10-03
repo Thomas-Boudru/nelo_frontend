@@ -76,6 +76,8 @@ const ManualBreastfeedingSheet = forwardRef(function ManualBreastfeedingSheet(
       feedingDate,
       leftDurationSeconds: leftMinutes * 60,
       rightDurationSeconds: rightMinutes * 60,
+      firstSide: null,
+      lastSide: null,
       activeSide: null,
       activeStartedAt: null,
       isDateEdited: true,
