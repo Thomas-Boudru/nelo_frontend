@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
+import { setBillingUser } from "../services/billing/revenuecatService";
 
 import {
   GoogleSignin,
@@ -95,12 +96,21 @@ async function createAppleNonce() {
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  const clearSession = useCallback(async () => {
-    await removeRefreshToken();
+  useEffect(() => {
+    setBillingUser(state.status === "authenticated" ? state.user?.id : null);
+  }, [state.status, state.user?.id]);
 
-    dispatch({
-      type: "UNAUTHENTICATED",
-    });
+  const clearSession = useCallback(async () => {
+    // Bloque immédiatement les nouvelles opérations de paiement.
+    setBillingUser(null);
+
+    try {
+      await removeRefreshToken();
+    } finally {
+      dispatch({
+        type: "UNAUTHENTICATED",
+      });
+    }
   }, []);
 
   const restoreSession = useCallback(async () => {

@@ -1,9 +1,19 @@
 import { apiRequest } from "../apiClient.js";
+import { getDeviceMeasurementUnits } from "../../utils/deviceMeasurementUnits.js";
 
 const SUPPORTED_LANGUAGES = new Set(["en", "fr", "de", "es", "it", "nl", "pt"]);
 
 export function getUserPreferences({ accessToken, signal }) {
-  return apiRequest("/api/users/me/preferences", {
+  const initialUnits = getDeviceMeasurementUnits();
+
+  const query = Object.entries(initialUnits)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join("&");
+
+  return apiRequest(`/api/users/me/preferences?${query}`, {
     accessToken,
     signal,
   });

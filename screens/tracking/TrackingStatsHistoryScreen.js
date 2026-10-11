@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -7,15 +7,19 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
+import { TRACKING_TYPE_CONFIG } from "../../data/mockTrackingData.js";
+import { useSelector } from "react-redux";
+import { useTrackingHistory } from "../../hooks/useTrackingHistory.js";
 import {
-  mockTrackingDay,
-  TRACKING_TYPE_CONFIG,
-} from "../../data/mockTrackingData.js";
+  getHistoryEntryDate,
+  getHistoryPresentation,
+} from "../../utils/trackingHistoryPresentation.js";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
@@ -36,6 +40,11 @@ const LABELS = {
   breastfeeding: "Breastfeeding",
   solids: "Solid food",
   pumping: "Pumping",
+
+  dry: "Dry",
+  wet: "Wet",
+  dirty: "Dirty",
+  wetAndDirty: "Wet and dirty",
 
   pee: "Pee",
   poop: "Poop",
@@ -73,24 +82,7 @@ function getEntryData(entry) {
 }
 
 function getEntryDate(entry) {
-  const data = getEntryData(entry);
-
-  const dateValue =
-    data.observedAt ??
-    data.feedingDate ??
-    data.diaperDate ??
-    data.moodDate ??
-    entry?.occurredAt ??
-    entry?.startedAt ??
-    entry?.date;
-
-  const parsedDate = dateValue ? new Date(dateValue) : null;
-
-  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    return new Date();
-  }
-
-  return parsedDate;
+  return getHistoryEntryDate(entry);
 }
 
 function getDateKey(date) {
@@ -365,7 +357,13 @@ function HistoryEntryCard({
   colors,
   styles,
 }) {
-  const presentation = getEntryPresentation(entry, trackingType, t);
+  const units = useSelector((state) => state.measurementUnits);
+
+  const presentation = getHistoryPresentation(entry, {
+    language,
+    units,
+    t,
+  });
 
   const visual = getEntryVisual(entry, trackingType);
 
@@ -429,22 +427,55 @@ export default function TrackingStatsHistoryScreen({
 
   const trackingType = route?.params?.trackingType ?? "symptoms";
 
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
+  const childId = route?.params?.childId ?? selectedChildId;
+
   const [selectedFilter, setSelectedFilter] = useState("all");
 
-  const allowedEntryTypes = TRACKING_ENTRY_TYPES[trackingType] ?? [];
+  const {
+    entries: localEntries,
+    loading,
+    error,
+    syncError,
+    isRefreshing,
+    refresh,
+  } = useTrackingHistory(childId, trackingType);
+
+  const allowedEntryTypes =
+    TRACKING_ENTRY_TYPES[trackingType] ?? EMPTY_ENTRY_TYPES;
 
   const entries = useMemo(
     () =>
-      mockTrackingDay.entries.filter((entry) =>
-        allowedEntryTypes.includes(entry.type),
+      localEntries.filter(
+        (entry) =>
+          allowedEntryTypes.includes(entry.type) &&
+          getEntryDate(entry) !== null,
       ),
-    [allowedEntryTypes],
+    [localEntries, allowedEntryTypes],
   );
+
+  const invalidDateCount = localEntries.length - entries.length;
+
+  useEffect(() => {
+    setSelectedFilter("all");
+  }, [childId, trackingType]);
 
   const statistics = useMemo(
     () => createStatistics(trackingType, entries),
     [entries, trackingType],
   );
+
+  useEffect(() => {
+    if (
+      selectedFilter !== "all" &&
+      !statistics.some((item) => item.id === selectedFilter)
+    ) {
+      setSelectedFilter("all");
+    }
+  }, [selectedFilter, statistics]);
 
   const filteredEntries = useMemo(
     () =>
@@ -485,14 +516,33 @@ export default function TrackingStatsHistoryScreen({
         <View style={styles.headerText}>
           <Text style={styles.title}>{t(titleKey)}</Text>
 
-          <Text style={styles.subtitle}>
-            {t("Statistics and complete history")}
-          </Text>
+          <Text style={styles.subtitle}>{t("Statistics and history")}</Text>
         </View>
       </View>
 
       <SectionList
-        sections={sections}
+        sections={loading || error ? [] : sections}
+        refreshing={isRefreshing}
+        onRefresh={refresh}
+        ListFooterComponent={
+          <>
+            {syncError ? (
+              <Text style={styles.emptyDescription}>
+                {t(
+                  "Synchronization failed. Showing data saved on this device.",
+                )}
+              </Text>
+            ) : null}
+
+            {invalidDateCount > 0 ? (
+              <Text style={styles.emptyDescription}>
+                {t(
+                  "Some entries have an invalid date and cannot be displayed.",
+                )}
+              </Text>
+            ) : null}
+          </>
+        }
         keyExtractor={(entry) => entry.id}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
@@ -501,80 +551,91 @@ export default function TrackingStatsHistoryScreen({
           sections.length === 0 && styles.emptyListContent,
         ]}
         ListHeaderComponent={
-          <>
-            <View style={styles.historyHeader}>
-              <Text style={styles.historyTitle}>{t("History")}</Text>
+          !loading && !error ? (
+            <>
+              <View style={styles.historyHeader}>
+                <Text style={styles.historyTitle}>{t("History")}</Text>
 
-              <Text style={styles.totalCount}>
-                {entries.length === 1
-                  ? t("1 entry")
-                  : t("{{count}} entries", {
-                      count: entries.length,
-                    })}
-              </Text>
-            </View>
+                <Text style={styles.totalCount}>
+                  {entries.length === 1
+                    ? t("1 entry")
+                    : t("{{count}} entries", {
+                        count: entries.length,
+                      })}
+                </Text>
+              </View>
 
-            {statistics.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filtersList}
-              >
-                <FilterChip
-                  statistic={{
-                    id: "all",
-                    label: "All",
-                    count: entries.length,
-                  }}
-                  selected={selectedFilter === "all"}
-                  onPress={setSelectedFilter}
-                  t={t}
-                  styles={styles}
-                />
-
-                {statistics.map((statistic) => (
+              {statistics.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filtersList}
+                >
                   <FilterChip
-                    key={statistic.id}
-                    statistic={statistic}
-                    selected={selectedFilter === statistic.id}
+                    statistic={{
+                      id: "all",
+                      label: "All",
+                      count: entries.length,
+                    }}
+                    selected={selectedFilter === "all"}
                     onPress={setSelectedFilter}
                     t={t}
                     styles={styles}
                   />
-                ))}
-              </ScrollView>
-            ) : null}
-          </>
+
+                  {statistics.map((statistic) => (
+                    <FilterChip
+                      key={statistic.id}
+                      statistic={statistic}
+                      selected={selectedFilter === statistic.id}
+                      onPress={setSelectedFilter}
+                      t={t}
+                      styles={styles}
+                    />
+                  ))}
+                </ScrollView>
+              ) : null}
+            </>
+          ) : null
         }
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <View
-              style={[
-                styles.emptyImageContainer,
-                {
-                  backgroundColor: visual.backgroundColor,
-                },
-              ]}
-            >
-              <Image
-                source={visual.image}
-                resizeMode="contain"
-                style={styles.emptyImage}
-              />
+          loading ? (
+            <ActivityIndicator
+              color={colors.primary}
+              style={{ marginVertical: 32 }}
+            />
+          ) : error ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>
+                {t("Unable to load tracking history")}
+              </Text>
+
+              <Text style={styles.emptyDescription}>
+                {t("Pull down to try again.")}
+              </Text>
             </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View
+                style={[
+                  styles.emptyImageContainer,
+                  { backgroundColor: visual.backgroundColor },
+                ]}
+              >
+                <Image
+                  source={visual.image}
+                  resizeMode="contain"
+                  style={styles.emptyImage}
+                />
+              </View>
 
-            <Text style={styles.emptyTitle}>
-              {selectedFilter === "all"
-                ? t("No entries yet")
-                : t("No entries match this filter")}
-            </Text>
+              <Text style={styles.emptyTitle}>{t("No matching entries")}</Text>
 
-            <Text style={styles.emptyDescription}>
-              {t(
-                "The entries recorded for this tracking type will appear here.",
-              )}
-            </Text>
-          </View>
+              <Text style={styles.emptyDescription}>
+                {t("No entries match this view.")}
+              </Text>
+            </View>
+          )
         }
         renderSectionHeader={({ section }) => (
           <Text style={styles.sectionTitle}>{section.title}</Text>

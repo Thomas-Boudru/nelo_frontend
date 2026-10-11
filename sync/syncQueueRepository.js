@@ -117,9 +117,15 @@ export async function getPendingSyncOperations(userId) {
           SELECT 1
           FROM sync_queue AS previous
           WHERE previous.user_id = current.user_id
-            AND previous.entity_type = current.entity_type
             AND previous.entity_id = current.entity_id
             AND previous.rowid < current.rowid
+            AND (
+              previous.entity_type = current.entity_type
+              OR (
+                previous.entity_type IN ('tracking_entry', 'tracking_photo')
+                AND current.entity_type IN ('tracking_entry', 'tracking_photo')
+              )
+            )
         )
       ORDER BY current.rowid ASC
     `,

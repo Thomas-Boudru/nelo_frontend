@@ -56,13 +56,32 @@ function getEntryCategory(entry) {
 }
 
 function getEntryInterval(entry) {
-  const start = new Date(entry.startedAt);
-  const end = entry.endedAt ? new Date(entry.endedAt) : null;
+  const calendarDate =
+    entry.type === "growth"
+      ? entry.measurementDate
+      : entry.type === "teething"
+        ? entry.eruptionDate
+        : null;
 
-  return {
-    start,
-    end,
-  };
+  let start;
+
+  if (calendarDate) {
+    const [year, month, day] = calendarDate.split("-").map(Number);
+    start = new Date(year, month - 1, day, 12);
+  } else {
+    start = new Date(entry.startedAt);
+  }
+
+  const end =
+    entry.type === "sleep"
+      ? entry.endedAt
+        ? new Date(entry.endedAt)
+        : new Date()
+      : entry.endedAt
+        ? new Date(entry.endedAt)
+        : null;
+
+  return { start, end };
 }
 
 function isEntryVisibleOnDay(entry, day) {
@@ -77,9 +96,18 @@ function isEntryVisibleOnDay(entry, day) {
 }
 
 function getMinutesFromDayStart(date, dayStart) {
-  return (date.getTime() - dayStart.getTime()) / 60000;
-}
+  if (date <= dayStart) {
+    return 0;
+  }
 
+  const dayEnd = addDays(dayStart, 1);
+
+  if (date >= dayEnd) {
+    return 1440;
+  }
+
+  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+}
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }

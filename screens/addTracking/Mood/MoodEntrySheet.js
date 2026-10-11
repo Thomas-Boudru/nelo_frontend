@@ -22,7 +22,10 @@ import TrackingHistoryButton from "../../../components/addTracking/TrackingHisto
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import { useAuth } from "../../../auth/AuthProvider.js";
-import { createLocalMoodEntry } from "../../../database/tracking/mood/moodRepository.js";
+import {
+  createLocalMoodEntry,
+  updateLocalMoodEntry,
+} from "../../../database/tracking/mood/moodRepository.js";
 import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 const happyIllustration = require("../../../assets/illustrations/tracking/mood/happy.png");
@@ -205,14 +208,6 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
       return;
     }
 
-    if (isEditMode) {
-      Alert.alert(
-        t("Editing unavailable"),
-        t("Mood editing is not available yet."),
-      );
-      return;
-    }
-
     if (!user?.id || !childId) {
       Alert.alert(
         t("Unable to save mood"),
@@ -221,48 +216,80 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
       return;
     }
 
+    if (isEditMode && (!editingEntry?.id || editingEntry.type !== "mood")) {
+      Alert.alert(
+        t("Unable to save mood"),
+        t("The entry could not be identified. Reopen it and try again."),
+      );
+      return;
+    }
+
     savingRef.current = true;
     setIsSaving(true);
 
-    try {
-      const savedEntry = await createLocalMoodEntry({
-        userId: user.id,
-        childId,
-        data: {
-          mood: entry.mood,
-          moodDate: entry.isDateEdited ? entry.date : new Date(),
-        },
-      });
+    const mode = isEditMode ? "edit" : "create";
+    const entryId = editingEntry?.id;
 
-      // L’enregistrement est déjà effectué :
-      // une erreur du toast ne doit pas provoquer une deuxième création.
+    const data = {
+      mood: entry.mood,
+      moodDate: isEditMode || entry.isDateEdited ? entry.date : new Date(),
+    };
+
+    try {
+      const savedEntry =
+        mode === "edit"
+          ? await updateLocalMoodEntry({
+              userId: user.id,
+              childId,
+              entryId,
+              data,
+            })
+          : await createLocalMoodEntry({
+              userId: user.id,
+              childId,
+              data,
+            });
+
+      // La sauvegarde locale a réussi.
+      // Une erreur d'affichage ne doit pas rejouer l'enregistrement.
       try {
-        await onSave?.(savedEntry);
+        await onSave?.({
+          ...savedEntry,
+          mode,
+          persistedLocally: true,
+        });
       } catch (error) {
         console.error("Unable to display mood save confirmation:", error);
       }
 
-      processSyncQueue({
-        userId: user.id,
-        accessToken,
-        refreshSession,
-      }).catch((error) => {
-        console.error("Unable to synchronize mood:", error);
-      });
+      if (accessToken) {
+        processSyncQueue({
+          userId: user.id,
+          accessToken,
+          refreshSession,
+        }).catch((error) => {
+          console.error("Unable to synchronize mood:", error);
+        });
+      }
 
       modalRef.current?.dismiss();
     } catch (error) {
       console.error("Unable to save mood:", error);
 
-      Alert.alert(
-        t("Unable to save mood"),
-        t("The mood could not be saved. Please try again."),
-      );
+      const message =
+        error?.code === "MOOD_SYNC_PENDING"
+          ? "Wait for this entry to finish syncing before editing it."
+          : error?.code === "TRACKING_VERSION_CONFLICT"
+            ? "Resolve this entry's synchronization conflict before editing it."
+            : "The mood could not be saved. Please try again.";
+
+      Alert.alert(t("Unable to save mood"), t(message));
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
   };
+
   return (
     <BottomSheetModal
       ref={modalRef}
@@ -403,7 +430,8 @@ const MoodEntrySheet = forwardRef(function MoodEntrySheet(
                 <PrimaryButton
                   title={t("Save changes")}
                   onPress={handleSave}
-                  disabled={!canSave}
+                  disabled={!canSave || isSaving}
+                  loading={isSaving}
                 />
               </View>
             </View>

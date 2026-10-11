@@ -143,37 +143,76 @@ export async function saveLocalVaccinationReminder({
     throw new Error("Invalid local vaccination reminder.");
   }
 
+  const row = await database.getFirstAsync(
+    `
+      SELECT *
+      FROM vaccination_reminders_local
+      WHERE user_id = ? AND source_tracking_entry_id = ?
+    `,
+    [userId, entry.id],
+  );
+
+  if (row && row.child_id !== entry.childId) {
+    throw new Error("Vaccination reminder child mismatch.");
+  }
+
+  const previous = row ? JSON.parse(row.reminder_json) : null;
   const dueDate = normalizeNextDoseDate(entry.nextDoseDate);
 
-  if (!dueDate) {
+  if (previous?.status === "completed") {
+    const changed =
+      previous.dueDate !== dueDate ||
+      previous.vaccineId !== entry.vaccineId ||
+      previous.isCustomVaccine !== entry.isCustomVaccine ||
+      previous.vaccineName !== entry.vaccineName;
+
+    if (changed) {
+      const error = new Error(
+        "A completed reminder cannot be changed from this entry.",
+      );
+      error.code = "VACCINATION_REMINDER_COMPLETED";
+      throw error;
+    }
+  }
+
+  if (!dueDate && !previous) {
     return null;
   }
 
+  const status =
+    previous?.status === "completed"
+      ? "completed"
+      : dueDate
+        ? "pending"
+        : "cancelled";
+
   const reminder = {
-    id: null,
+    ...previous,
+    id: previous?.id ?? entry.reminderId ?? null,
     childId: entry.childId,
     sourceTrackingEntryId: entry.id,
     vaccineId: entry.vaccineId,
     vaccineName: entry.vaccineName,
     isCustomVaccine: entry.isCustomVaccine,
-    dueDate,
-    status: "pending",
-    sourceDeletedAt: null,
-    completedByTrackingEntryId: null,
-    createdByUserId: userId,
-    updatedByUserId: null,
-    createdAt: entry.createdAt,
+    dueDate: dueDate ?? previous.dueDate,
+    status,
+    sourceDeletedAt: entry.deletedAt ?? null,
+    completedByTrackingEntryId:
+      status === "completed" ? previous.completedByTrackingEntryId : null,
+    completedAt: status === "completed" ? previous.completedAt : null,
+    cancelledAt: status === "cancelled" ? entry.updatedAt : null,
+    createdByUserId: previous?.createdByUserId ?? userId,
+    updatedByUserId: userId,
+    createdAt: previous?.createdAt ?? entry.createdAt,
     updatedAt: entry.updatedAt,
-    completedAt: null,
-    cancelledAt: null,
-    version: null,
+    version: previous?.version ?? null,
   };
 
   await writeReminder({
     database,
     userId,
     reminder,
-    serverVersion: null,
+    serverVersion: row?.server_version ?? null,
     syncStatus: "pending",
   });
 
@@ -191,6 +230,40 @@ export async function saveVaccinationReminderFromEntry({
 }) {
   if (!database || !userId || entry?.type !== "vaccine") {
     throw new Error("Invalid vaccination reminder response.");
+  }
+
+  // Les réponses d'édition contiennent le rappel complet,
+  // avec sa propre version et son état.
+  if (Object.hasOwn(entry, "reminder")) {
+    if (entry.reminder === null) {
+      await database.runAsync(
+        `
+          DELETE FROM vaccination_reminders_local
+          WHERE user_id = ?
+            AND source_tracking_entry_id = ?
+            AND child_id = ?
+        `,
+        [userId, entry.id, entry.childId],
+      );
+
+      return null;
+    }
+
+    const reminder = validateServerReminder(entry.reminder, entry.childId);
+
+    if (reminder.sourceTrackingEntryId !== entry.id) {
+      throw new Error("Vaccination reminder entry mismatch.");
+    }
+
+    await writeReminder({
+      database,
+      userId,
+      reminder,
+      serverVersion: reminder.version,
+      syncStatus: "synced",
+    });
+
+    return reminder;
   }
 
   const dueDate = normalizeNextDoseDate(entry.nextDoseDate);
@@ -351,6 +424,22 @@ export async function saveServerVaccinationRemindersLocally({
     for (const serverReminder of reminders) {
       const reminder = validateServerReminder(serverReminder, childId);
 
+      const pendingEntry = await transaction.getFirstAsync(
+        `
+          SELECT id
+          FROM sync_queue
+          WHERE user_id = ?
+            AND entity_id = ?
+            AND entity_type = 'tracking_entry'
+          LIMIT 1
+        `,
+        [userId, reminder.sourceTrackingEntryId],
+      );
+
+      if (pendingEntry) {
+        continue;
+      }
+
       const existing = await transaction.getFirstAsync(
         `
           SELECT *
@@ -398,4 +487,301 @@ export async function saveServerVaccinationRemindersLocally({
     userId,
     childId,
   });
+}
+
+export async function updateLocalVaccineEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
+  requireContext(userId, childId);
+  validateData(data);
+
+  if (!entryId) {
+    throw new Error("Missing tracking entry ID.");
+  }
+
+  const product = validateProductSelection(
+    data.vaccineId,
+    data.vaccineName,
+    data.isCustomVaccine,
+  );
+
+  const vaccineDate = normalizeTrackingDate(data.vaccineDate, "vaccine date");
+  const dose = normalizeVaccineDose(data.dose);
+  const nextDoseDate = normalizeNextDoseDate(data.nextDoseDate);
+  const note = normalizeNote(data.note);
+
+  const database = await getLocalDatabase();
+
+  const snapshot = await database.getFirstAsync(
+    `
+      SELECT *
+      FROM tracking_entries_local
+      WHERE user_id = ?
+        AND child_id = ?
+        AND entry_id = ?
+        AND entry_type = 'vaccine'
+        AND deleted_at IS NULL
+    `,
+    [userId, childId, entryId],
+  );
+
+  if (!snapshot) {
+    throw new Error("Local vaccination entry not found.");
+  }
+
+  const current = JSON.parse(snapshot.entry_json);
+  const existingPhotos = current.photos ?? [];
+  const selectedPhotos = data.photos ?? existingPhotos;
+
+  if (!Array.isArray(selectedPhotos) || selectedPhotos.length > 10) {
+    throw new Error("A tracking entry must not contain more than 10 photos.");
+  }
+
+  const getId = (photo) => photo?.attachmentId ?? photo?.id;
+
+  const existingById = new Map(
+    existingPhotos.map((photo) => [getId(photo), photo]),
+  );
+
+  const keptIds = new Set();
+  const newPhotos = [];
+
+  for (const photo of selectedPhotos) {
+    const id = getId(photo);
+
+    if (id && existingById.has(id)) {
+      if (keptIds.has(id)) {
+        throw new Error("Duplicate vaccine photo.");
+      }
+
+      keptIds.add(id);
+    } else {
+      newPhotos.push(photo);
+    }
+  }
+
+  const removedPhotos = existingPhotos.filter(
+    (photo) => !keptIds.has(getId(photo)),
+  );
+
+  // Conserver l'ordre des photos existantes.
+  // Le serveur ajoute les nouvelles à la suite.
+  const keptPhotos = existingPhotos.filter((photo) =>
+    keptIds.has(getId(photo)),
+  );
+
+  const preparedPhotos = await prepareLocalTrackingPhotos(newPhotos);
+  let savedEntry;
+
+  try {
+    await database.withExclusiveTransactionAsync(async (transaction) => {
+      const row = await transaction.getFirstAsync(
+        `
+          SELECT *
+          FROM tracking_entries_local
+          WHERE user_id = ?
+            AND child_id = ?
+            AND entry_id = ?
+            AND entry_type = 'vaccine'
+            AND deleted_at IS NULL
+        `,
+        [userId, childId, entryId],
+      );
+
+      if (!row) {
+        throw new Error("Local vaccination entry not found.");
+      }
+
+      // La préparation des fichiers est asynchrone :
+      // vérifier que l'entrée n'a pas changé entre-temps.
+      if (
+        row.local_revision !== snapshot.local_revision ||
+        row.server_version !== snapshot.server_version ||
+        row.entry_json !== snapshot.entry_json
+      ) {
+        const error = new Error("This entry changed. Reopen it before saving.");
+        error.code = "TRACKING_VERSION_CONFLICT";
+        throw error;
+      }
+
+      const pending = await transaction.getFirstAsync(
+        `
+          SELECT id
+          FROM sync_queue
+          WHERE user_id = ?
+            AND entity_id = ?
+            AND entity_type IN ('tracking_entry', 'tracking_photo')
+          LIMIT 1
+        `,
+        [userId, entryId],
+      );
+
+      if (
+        pending ||
+        row.sync_status !== "synced" ||
+        !Number.isSafeInteger(row.server_version) ||
+        row.server_version < 1
+      ) {
+        const error = new Error(
+          "Wait for this entry to finish syncing before editing it.",
+        );
+        error.code = "VACCINE_SYNC_PENDING";
+        throw error;
+      }
+
+      if (product.isCustom) {
+        await requireLocalCustomProduct({
+          transaction,
+          userId,
+          childId,
+          type: "vaccine",
+          productId: product.id,
+        });
+      }
+
+      if (
+        current.reminderStatus === "completed" &&
+        ((current.nextDoseDate ?? null) !== nextDoseDate ||
+          current.vaccineId !== product.id ||
+          current.isCustomVaccine !== product.isCustom ||
+          current.vaccineName !== product.name)
+      ) {
+        const error = new Error(
+          "A completed reminder cannot be changed from this entry.",
+        );
+        error.code = "VACCINATION_REMINDER_COMPLETED";
+        throw error;
+      }
+
+      const localRevision = row.local_revision + 1;
+
+      if (!Number.isSafeInteger(localRevision)) {
+        throw new Error("Invalid vaccination local revision.");
+      }
+
+      const now = new Date().toISOString();
+
+      const addedPhotos = preparedPhotos.map((photo, index) => ({
+        ...photo,
+        sortOrder: keptPhotos.length + index,
+      }));
+
+      const payload = {
+        vaccineId: product.id,
+        vaccineName: product.name,
+        isCustomVaccine: product.isCustom,
+        vaccineDate,
+        dose,
+        nextDoseDate,
+        note,
+        version: row.server_version,
+      };
+
+      const entry = {
+        ...current,
+        ...payload,
+        startedAt: vaccineDate,
+        note: note ?? "",
+        photos: [...keptPhotos, ...addedPhotos],
+        reminderStatus:
+          current.reminderStatus === "completed"
+            ? "completed"
+            : nextDoseDate
+              ? "pending"
+              : current.reminderId
+                ? "cancelled"
+                : null,
+        updatedByUserId: userId,
+        updatedAt: now,
+      };
+
+      await transaction.runAsync(
+        `
+          UPDATE tracking_entries_local
+          SET entry_json = ?,
+              local_revision = ?,
+              sync_status = 'pending',
+              started_at = ?,
+              updated_at = ?
+          WHERE user_id = ? AND child_id = ? AND entry_id = ?
+        `,
+        [
+          JSON.stringify(entry),
+          localRevision,
+          vaccineDate,
+          now,
+          userId,
+          childId,
+          entryId,
+        ],
+      );
+
+      // Modifier d'abord le vaccin avec sa version actuelle.
+      await enqueueSyncOperation({
+        userId,
+        entityType: "tracking_entry",
+        entityId: entryId,
+        operation: `update:${localRevision}`,
+        endpoint:
+          `/api/children/${encodeURIComponent(childId)}` +
+          `/vaccines/${encodeURIComponent(entryId)}`,
+        method: "PUT",
+        payload,
+        database: transaction,
+      });
+
+      await saveLocalVaccinationReminder({
+        database: transaction,
+        userId,
+        entry,
+      });
+
+      // Supprimer avant d'ajouter pour respecter la limite de photos.
+      for (const photo of removedPhotos) {
+        const attachmentId = getId(photo);
+
+        if (typeof attachmentId !== "string" || !attachmentId) {
+          throw new Error("Missing vaccine photo ID.");
+        }
+
+        await enqueueSyncOperation({
+          userId,
+          entityType: "tracking_photo",
+          entityId: entryId,
+          operation: `delete:${attachmentId}`,
+          endpoint:
+            `/api/children/${encodeURIComponent(childId)}` +
+            `/tracking/${encodeURIComponent(entryId)}` +
+            `/photos/${encodeURIComponent(attachmentId)}`,
+          method: "DELETE",
+          payload: { childId, entryId, attachmentId },
+          database: transaction,
+        });
+      }
+
+      await enqueueTrackingPhotos({
+        transaction,
+        userId,
+        childId,
+        entryId,
+        photos: addedPhotos,
+      });
+
+      savedEntry = {
+        ...entry,
+        serverVersion: row.server_version,
+        localRevision,
+        syncStatus: "pending",
+        persistedLocally: true,
+      };
+    });
+  } catch (error) {
+    await cleanupPreparedPhotos(preparedPhotos);
+    throw error;
+  }
+
+  return savedEntry;
 }

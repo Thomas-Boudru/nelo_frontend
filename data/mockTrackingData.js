@@ -27,6 +27,22 @@ export const TRACKING_TYPE_CONFIG = {
     backgroundColor: "#F0F3FF",
   },
 
+  pumping: {
+    trackingId: "feeding",
+    category: "feeding",
+    titleKey: "Pumping",
+    image: BOTTLE_IMAGE,
+    backgroundColor: "#F0F3FF",
+  },
+
+  potty: {
+    trackingId: "diaper",
+    category: "diaper",
+    titleKey: "Potty",
+    image: DIAPER_IMAGE,
+    backgroundColor: "#EAF9F3",
+  },
+
   breastfeeding: {
     trackingId: "feeding",
     category: "feeding",

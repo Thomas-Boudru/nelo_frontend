@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://numi-backend-cuzb.onrender.com";
+const API_BASE_URL = "https://nelo-backend-bw4u.onrender.com";
 
 export async function analyzeDocument(imageUri) {
   const formData = new FormData();

@@ -1,4 +1,23 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSelector } from "react-redux";
+import * as Crypto from "expo-crypto";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { useAuth } from "../../auth/AuthProvider";
+
+import {
+  getSubscriptionProducts,
+  getFamilyEntitlements,
+  createSubscriptionPurchaseIntent,
+  synchronizeRevenueCatPurchase,
+} from "../../api/billingApi";
+
+import {
+  loadRevenueCatProducts,
+  purchaseRevenueCatProduct,
+  restoreRevenueCatPurchases,
+} from "../../services/billing/revenuecatService";
+
 import {
   Image,
   Linking,
@@ -8,7 +27,13 @@ import {
   StyleSheet,
   Text,
   View,
+  AccessibilityInfo,
+  Animated,
+  Easing,
 } from "react-native";
+
+import { LinearGradient } from "expo-linear-gradient";
+
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -23,21 +48,9 @@ const CLOUD_IMAGE = require("../../assets/illustrations/onboarding/cloudPremium.
 const STAR_YELLOW_IMAGE = require("../../assets/illustrations/onboarding/starYellow.png");
 const STAR_PINK_IMAGE = require("../../assets/illustrations/onboarding/starPink.png");
 
-const SUBSCRIPTION_PLANS = [
-  {
-    id: "yearly",
-    titleKey: "Yearly",
-    price: "€39.99",
-    periodKey: "per year",
-    badgeKey: "Best value",
-    discountKey: "Save 33 percent",
-  },
-  {
-    id: "monthly",
-    titleKey: "Monthly",
-    price: "€4.99",
-    periodKey: "per month",
-  },
+const LOADING_PLANS = [
+  { id: "yearly", titleKey: "Yearly", periodKey: "per year" },
+  { id: "monthly", titleKey: "Monthly", periodKey: "per month" },
 ];
 
 const PREMIUM_FEATURES = [
@@ -72,6 +85,112 @@ const PREMIUM_FEATURES = [
     titleKey: "Future Premium features included",
   },
 ];
+
+function LoadingPlanCard({ plan, styles, t }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const [reduceMotion, setReduceMotion] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    let preferenceChanged = false;
+
+    const listener = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      (enabled) => {
+        preferenceChanged = true;
+        if (active) setReduceMotion(enabled);
+      },
+    );
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active && !preferenceChanged) {
+          setReduceMotion(enabled);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      listener.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    progress.setValue(0);
+
+    if (reduceMotion) return;
+
+    const animation = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1400,
+        easing: Easing.linear,
+        useNativeDriver: true,
+        isInteraction: false,
+      }),
+    );
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [progress, reduceMotion]);
+
+  return (
+    <View
+      style={styles.planCard}
+      accessible
+      accessibilityLabel={`${t(plan.titleKey)}. ${t("Loading subscriptions")}`}
+      accessibilityState={{ busy: true }}
+    >
+      <View style={styles.planTopRow}>
+        <View style={styles.planInformation}>
+          <View style={styles.planTitleRow}>
+            <Text style={styles.planTitle}>{t(plan.titleKey)}</Text>
+          </View>
+
+          <View style={[styles.priceRow, { alignItems: "center" }]}>
+            <View style={styles.skeletonPrice}>
+              {!reduceMotion ? (
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.shimmerWave,
+                    {
+                      transform: [
+                        {
+                          translateX: progress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-80, 120],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={[
+                      "rgba(255,255,255,0)",
+                      "rgba(255,255,255,0.65)",
+                      "rgba(255,255,255,0)",
+                    ]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                </Animated.View>
+              ) : null}
+            </View>
+
+            <Text style={styles.planPeriod}>{t(plan.periodKey)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.selectionIndicator} />
+      </View>
+    </View>
+  );
+}
 
 function PlanCard({ plan, selected, onPress, colors, styles, t }) {
   return (
@@ -213,89 +332,414 @@ function ActiveSubscription({
 export default function SubscriptionScreen({ navigation }) {
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const { user, accessToken, refreshSession } = useAuth();
+
+  const selectedChild = useSelector((state) =>
+    state.children.children.find(
+      (child) => child.id === state.children.selectedChildId,
+    ),
+  );
+
+  const familyId = selectedChild?.familyId;
+  const userId = user?.id;
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [selectedPlan, setSelectedPlan] = useState("yearly");
+  const [plans, setPlans] = useState([]);
+  const [entitlements, setEntitlements] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadCount, setReloadCount] = useState(0);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [purchaseNeedsVerification, setPurchaseNeedsVerification] =
+    useState(false);
 
-  /*
-   * Plus tard, cette information viendra du backend,
-   * de RevenueCat ou directement des stores.
-   */
-  const subscription = {
-    isActive: false,
-    plan: "yearly",
-    renewalDate: "12 January 2027",
-  };
+  const busyRef = useRef(false);
+  const screenRef = useRef({ userId, familyId });
+  const mountedRef = useRef(true);
 
-  const handleSubscribe = async () => {
-    if (isPurchasing) {
+  screenRef.current = { userId, familyId };
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  function isCurrentScreen(expectedUserId, expectedFamilyId) {
+    return (
+      mountedRef.current &&
+      screenRef.current.userId === expectedUserId &&
+      screenRef.current.familyId === expectedFamilyId
+    );
+  }
+
+  function readEntitlements(response) {
+    const value = response?.entitlements ?? response;
+
+    if (typeof value?.isPremium !== "boolean") {
+      throw new Error("Invalid family entitlements response.");
+    }
+
+    return value;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setPlans([]);
+    setEntitlements(null);
+    setPurchaseNeedsVerification(false);
+    setIsLoading(true);
+    setLoadFailed(false);
+
+    if (!userId || !familyId) {
+      setIsLoading(false);
       return;
     }
 
+    const timeoutId = setTimeout(() => {
+      if (cancelled) return;
+
+      cancelled = true;
+      setLoadFailed(true);
+      setIsLoading(false);
+    }, 25000);
+
+    async function load() {
+      try {
+        const [productsResponse, rightsResponse] = await Promise.all([
+          getSubscriptionProducts({
+            store: "app_store",
+            accessToken,
+            refreshSession,
+          }),
+
+          getFamilyEntitlements({
+            familyId,
+            accessToken,
+            refreshSession,
+          }),
+        ]);
+
+        const rights = readEntitlements(rightsResponse);
+
+        if (cancelled) return;
+        setEntitlements(rights);
+
+        const products = productsResponse.products;
+
+        if (!Array.isArray(products)) {
+          throw new Error("Invalid subscription products response.");
+        }
+
+        if (products.length === 0) {
+          if (!cancelled) setPlans([]);
+          return;
+        }
+
+        const storeProducts = await loadRevenueCatProducts({
+          userId,
+          identifiers: products.map((product) => product.storeProductId),
+        });
+
+        const availablePlans = products.flatMap((product) => {
+          const storeProduct = storeProducts.find(
+            (item) => item.identifier === product.storeProductId,
+          );
+
+          if (!storeProduct) return [];
+
+          const yearly = product.billingPeriod === "year";
+
+          return [
+            {
+              id: yearly ? "yearly" : "monthly",
+              titleKey: yearly ? "Yearly" : "Monthly",
+              periodKey: yearly ? "per year" : "per month",
+              price: storeProduct.priceString,
+              backendProduct: product,
+              storeProduct,
+            },
+          ];
+        });
+
+        availablePlans.sort((a, b) =>
+          a.id === b.id ? 0 : a.id === "yearly" ? -1 : 1,
+        );
+
+        if (cancelled) return;
+
+        setPlans(availablePlans);
+
+        setSelectedPlan((previous) =>
+          availablePlans.some((plan) => plan.id === previous)
+            ? previous
+            : (availablePlans[0]?.id ?? "yearly"),
+        );
+      } catch (error) {
+        if (!cancelled) {
+          setLoadFailed(true);
+
+          showToast({
+            type: "error",
+            title: t("Unable to load subscriptions"),
+            message: t("Please try again"),
+          });
+        }
+      } finally {
+        clearTimeout(timeoutId);
+
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [
+    userId,
+    familyId,
+    accessToken,
+    refreshSession,
+    showToast,
+    t,
+    reloadCount,
+  ]);
+
+  async function confirmPremium(expectedUserId, expectedFamilyId) {
+    const response = await synchronizeRevenueCatPurchase({
+      familyId: expectedFamilyId,
+      accessToken,
+      refreshSession,
+    });
+
+    const rights = readEntitlements(response);
+
+    if (isCurrentScreen(expectedUserId, expectedFamilyId)) {
+      setEntitlements(rights);
+    }
+
+    return rights.isPremium;
+  }
+
+  const handleSubscribe = async () => {
+    if (
+      busyRef.current ||
+      isLoading ||
+      !userId ||
+      !familyId ||
+      entitlements?.isPremium ||
+      entitlements?.currentUserRole !== "owner"
+    ) {
+      return;
+    }
+
+    const plan = plans.find((item) => item.id === selectedPlan);
+
+    if (!plan || purchaseNeedsVerification) return;
+
+    const purchaseUserId = userId;
+    const purchaseFamilyId = familyId;
+
+    busyRef.current = true;
     setIsPurchasing(true);
 
-    try {
-      /*
-       * Plus tard :
-       *
-       * const packageToPurchase =
-       *   selectedPlan === "yearly"
-       *     ? yearlyPackage
-       *     : monthlyPackage;
-       *
-       * await Purchases.purchasePackage(packageToPurchase);
-       */
+    let storePurchaseCompleted = false;
 
-      console.log("Purchase selected plan:", selectedPlan);
+    try {
+      // Conserve la même intention si la préparation est relancée
+      // après une coupure réseau ou une annulation du paiement.
+      const storageKey =
+        `nelo_purchase_intent:${purchaseUserId}:` +
+        `${purchaseFamilyId}:${plan.backendProduct.id}`;
+
+      let savedRequest = null;
+
+      try {
+        const stored = await AsyncStorage.getItem(storageKey);
+        savedRequest = stored ? JSON.parse(stored) : null;
+      } catch {
+        savedRequest = null;
+      }
+
+      if (
+        !savedRequest?.key ||
+        typeof savedRequest.createdAt !== "number" ||
+        Date.now() - savedRequest.createdAt >= 30 * 60 * 1000
+      ) {
+        savedRequest = {
+          key: Crypto.randomUUID(),
+          createdAt: Date.now(),
+        };
+
+        await AsyncStorage.setItem(storageKey, JSON.stringify(savedRequest));
+      }
+
+      const { purchaseIntent } = await createSubscriptionPurchaseIntent({
+        familyId: purchaseFamilyId,
+        productId: plan.backendProduct.id,
+        idempotencyKey: savedRequest.key,
+        accessToken,
+        refreshSession,
+      });
+
+      if (__DEV__) {
+        console.log(
+          "[Billing] Purchase intent checks",
+          JSON.stringify(
+            {
+              status: purchaseIntent?.status,
+              managementProvider: purchaseIntent?.managementProvider,
+              familyMatches: purchaseIntent?.familyId === purchaseFamilyId,
+              userMatches:
+                purchaseIntent?.revenuecatAppUserId === purchaseUserId,
+              receivedProductId: purchaseIntent?.product?.storeProductId,
+              expectedProductId: plan.storeProduct.identifier,
+              expiresAt: purchaseIntent?.expiresAt,
+              deviceTime: new Date().toISOString(),
+              replayed: purchaseIntent?.replayed,
+            },
+            null,
+            2,
+          ),
+        );
+      }
+
+      if (
+        purchaseIntent?.status !== "pending" ||
+        purchaseIntent.managementProvider !== "revenuecat" ||
+        purchaseIntent.familyId !== purchaseFamilyId ||
+        purchaseIntent.revenuecatAppUserId !== purchaseUserId ||
+        purchaseIntent.product?.storeProductId !==
+          plan.storeProduct.identifier ||
+        !Number.isFinite(Date.parse(purchaseIntent.expiresAt)) ||
+        Date.parse(purchaseIntent.expiresAt) <= Date.now()
+      ) {
+        throw new Error("The purchase preparation is no longer valid.");
+      }
+
+      if (!isCurrentScreen(purchaseUserId, purchaseFamilyId)) return;
+
+      await purchaseRevenueCatProduct({
+        userId: purchaseUserId,
+        product: plan.storeProduct,
+      });
+
+      storePurchaseCompleted = true;
+
+      if (isCurrentScreen(purchaseUserId, purchaseFamilyId)) {
+        setPurchaseNeedsVerification(true);
+      }
+
+      const isPremium = await confirmPremium(purchaseUserId, purchaseFamilyId);
+
+      if (!isCurrentScreen(purchaseUserId, purchaseFamilyId)) return;
 
       showToast({
-        type: "info",
-        title: t("Subscription purchase"),
-        message: t("The store purchase screen will open here"),
+        type: isPremium ? "success" : "info",
+        title: t(isPremium ? "Premium activated" : "Purchase received"),
+        message: t(
+          isPremium
+            ? "Your family now has Premium access"
+            : "Your purchase is being verified. Use Restore purchases to check again.",
+        ),
       });
     } catch (error) {
+      if (__DEV__) {
+        console.log(
+          "[Billing] Purchase failed",
+          JSON.stringify(
+            {
+              code: error?.code,
+              status: error?.status,
+              message: error?.message,
+              userCancelled: error?.userCancelled,
+              storePurchaseCompleted,
+            },
+            null,
+            2,
+          ),
+        );
+      }
+
+      if (
+        error?.userCancelled ||
+        !isCurrentScreen(purchaseUserId, purchaseFamilyId)
+      ) {
+        return;
+      }
+
       showToast({
-        type: "error",
-        title: t("Unable to start purchase"),
-        message: t("Please try again"),
+        type: storePurchaseCompleted ? "info" : "error",
+        title: t(
+          storePurchaseCompleted
+            ? "Purchase verification pending"
+            : "Unable to complete purchase",
+        ),
+        message: t(
+          storePurchaseCompleted
+            ? "Do not purchase again. Use Restore purchases to check your access."
+            : "Please try again. If you already purchased, use Restore purchases.",
+        ),
       });
     } finally {
-      setIsPurchasing(false);
+      busyRef.current = false;
+      if (mountedRef.current) setIsPurchasing(false);
     }
   };
 
   const handleRestorePurchases = async () => {
-    if (isRestoring) {
-      return;
-    }
+    if (busyRef.current || !userId || !familyId) return;
 
+    const restoreUserId = userId;
+    const restoreFamilyId = familyId;
+
+    busyRef.current = true;
     setIsRestoring(true);
 
     try {
-      /*
-       * Plus tard :
-       *
-       * const customerInfo =
-       *   await Purchases.restorePurchases();
-       */
+      await restoreRevenueCatPurchases({
+        userId: restoreUserId,
+      });
+
+      const isPremium = await confirmPremium(restoreUserId, restoreFamilyId);
+
+      if (!isCurrentScreen(restoreUserId, restoreFamilyId)) return;
 
       showToast({
-        type: "success",
-        title: t("Purchases restored"),
-        message: t("Your previous purchases have been checked"),
+        type: isPremium ? "success" : "info",
+        title: t(isPremium ? "Purchases restored" : "No active Premium access"),
+        message: t(
+          isPremium
+            ? "Your family now has Premium access"
+            : "No active Premium access was confirmed for this family.",
+        ),
       });
     } catch (error) {
+      if (!isCurrentScreen(restoreUserId, restoreFamilyId)) return;
+
       showToast({
         type: "error",
         title: t("Unable to restore purchases"),
-        message: t("Please try again"),
+        message: t(
+          error?.code === "REVENUECAT_FAMILY_BINDING_MISSING" ||
+            error?.code === "BILLING_FAMILY_CHANGE_REQUIRES_REVIEW"
+            ? "Use the Nelo account and family used for the original purchase."
+            : "Please try again",
+        ),
       });
     } finally {
-      setIsRestoring(false);
+      busyRef.current = false;
+      if (mountedRef.current) setIsRestoring(false);
     }
   };
 
@@ -363,19 +807,76 @@ export default function SubscriptionScreen({ navigation }) {
           </Text>
         </View>
 
-        <View accessibilityRole="radiogroup" style={styles.plansContainer}>
-          {SUBSCRIPTION_PLANS.map((plan) => (
-            <PlanCard
-              key={plan.id}
-              plan={plan}
-              selected={plan.id === selectedPlan}
-              onPress={setSelectedPlan}
-              colors={colors}
-              styles={styles}
-              t={t}
-            />
-          ))}
+        <Text style={styles.legalText} accessibilityLiveRegion="polite">
+          {isLoading
+            ? t("Loading subscriptions")
+            : entitlements?.isPremium
+              ? t("Your family has Premium access")
+              : !familyId
+                ? t("Select a child to view subscriptions")
+                : loadFailed
+                  ? t("Unable to load subscriptions")
+                  : entitlements?.currentUserRole !== "owner"
+                    ? t("Only a family owner can purchase a subscription")
+                    : plans.length === 0
+                      ? t("Subscriptions are not available yet")
+                      : null}
+        </Text>
+
+        <View
+          accessibilityRole={isLoading ? undefined : "radiogroup"}
+          style={styles.plansContainer}
+        >
+          {isLoading
+            ? LOADING_PLANS.map((plan) => (
+                <LoadingPlanCard
+                  key={plan.id}
+                  plan={plan}
+                  styles={styles}
+                  t={t}
+                />
+              ))
+            : plans.map((plan) => (
+                <PlanCard
+                  key={plan.id}
+                  plan={plan}
+                  selected={plan.id === selectedPlan}
+                  onPress={(id) => {
+                    if (!busyRef.current) {
+                      setSelectedPlan(id);
+                    }
+                  }}
+                  colors={colors}
+                  styles={styles}
+                  t={t}
+                />
+              ))}
         </View>
+
+        {!isLoading &&
+        userId &&
+        familyId &&
+        (loadFailed || plans.length === 0) ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("Retry")}
+            disabled={isPurchasing || isRestoring}
+            onPress={() => {
+              if (busyRef.current) return;
+
+              setLoadFailed(false);
+              setIsLoading(true);
+              setReloadCount((count) => count + 1);
+            }}
+            style={({ pressed }) => [
+              styles.textButton,
+              pressed && styles.textButtonPressed,
+              (isPurchasing || isRestoring) && styles.textButtonDisabled,
+            ]}
+          >
+            <Text style={styles.textButtonLabel}>{t("Retry")}</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.featuresSection}>
           <Text style={styles.sectionTitle}>{t("Everything included")}</Text>
@@ -401,7 +902,7 @@ export default function SubscriptionScreen({ navigation }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("Restore purchases")}
-          disabled={isRestoring}
+          disabled={isRestoring || isPurchasing || isLoading || !familyId}
           onPress={handleRestorePurchases}
           style={({ pressed }) => [
             styles.textButton,
@@ -423,15 +924,33 @@ export default function SubscriptionScreen({ navigation }) {
 
       <View style={styles.fixedFooter}>
         <PrimaryButton
-          title={t("Continue with selected plan", {
-            plan: t(selectedPlan === "yearly" ? "Yearly" : "Monthly"),
-          })}
-          loading={isPurchasing}
-          onPress={handleSubscribe}
-          icon={
-            !isPurchasing ? (
-              <Ionicons name="arrow-forward" size={19} color={colors.white} />
-            ) : null
+          title={
+            isLoading
+              ? t("Loading subscriptions")
+              : entitlements?.isPremium
+                ? t("Manage subscription")
+                : purchaseNeedsVerification
+                  ? t("Restore purchases")
+                  : t("Continue with selected plan", {
+                      plan: t(selectedPlan === "yearly" ? "Yearly" : "Monthly"),
+                    })
+          }
+          loading={isPurchasing || isRestoring}
+          disabled={
+            isLoading ||
+            isPurchasing ||
+            isRestoring ||
+            !familyId ||
+            (!entitlements?.isPremium &&
+              !purchaseNeedsVerification &&
+              (plans.length === 0 || entitlements?.currentUserRole !== "owner"))
+          }
+          onPress={
+            entitlements?.isPremium
+              ? handleManageSubscription
+              : purchaseNeedsVerification
+                ? handleRestorePurchases
+                : handleSubscribe
           }
         />
       </View>
@@ -941,5 +1460,21 @@ const createStyles = (colors) =>
       borderRadius: 12,
 
       backgroundColor: colors.selectedBackground,
+    },
+
+    skeletonPrice: {
+      width: 110,
+      height: 29,
+      borderRadius: 8,
+      overflow: "hidden",
+      backgroundColor: colors.border,
+    },
+
+    shimmerWave: {
+      position: "absolute",
+      top: 0,
+      bottom: 0,
+      left: 0,
+      width: 80,
     },
   });

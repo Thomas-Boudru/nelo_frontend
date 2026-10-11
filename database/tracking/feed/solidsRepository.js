@@ -3,6 +3,8 @@ import * as Crypto from "expo-crypto";
 import { getLocalDatabase } from "../../localDatabase.js";
 import { enqueueSyncOperation } from "../../../sync/syncQueueRepository.js";
 
+import { saveLocalFeedingUpdate } from "./feedingUpdatesRepository.js";
+
 import {
   prepareLocalTrackingPhotos,
   enqueueTrackingPhotos,
@@ -242,13 +244,187 @@ export async function createLocalSolidFeedingEntry({ userId, childId, data }) {
   };
 }
 
-// Un repas ne doit pas être envoyé avant la création
-// de ses aliments personnalisés sur le serveur.
-export async function prepareSolidFeedingPayload({ operation, payload }) {
+export async function updateLocalSolidFeedingEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
   if (
-    operation.http_method !== "POST" ||
-    !operation.endpoint.endsWith("/solids")
+    !data ||
+    !Array.isArray(data.foods) ||
+    data.foods.length < 1 ||
+    data.foods.length > 100
   ) {
+    throw new Error("A meal must contain between 1 and 100 foods.");
+  }
+
+  if (
+    !(data.feedingDate instanceof Date) &&
+    typeof data.feedingDate !== "string"
+  ) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  const date = new Date(data.feedingDate);
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  const amountEaten = data.amountEaten ?? null;
+
+  // Un null explicite permet d'effacer l'appréciation.
+  const reaction =
+    data.appreciation !== undefined
+      ? data.appreciation
+      : (data.reaction ?? null);
+
+  if (amountEaten !== null && !AMOUNTS_EATEN.has(amountEaten)) {
+    throw new Error("Invalid amount eaten.");
+  }
+
+  if (reaction !== null && !REACTIONS.has(reaction)) {
+    throw new Error("Invalid food reaction.");
+  }
+
+  if (
+    data.note != null &&
+    (typeof data.note !== "string" || data.note.length > 10000)
+  ) {
+    throw new Error("The note must not exceed 10000 characters.");
+  }
+
+  const payloadFoods = data.foods.map((food) => {
+    if (
+      !food ||
+      typeof food.foodId !== "string" ||
+      !food.foodId ||
+      typeof food.isCustom !== "boolean"
+    ) {
+      throw new Error("Invalid meal food.");
+    }
+
+    const amount = food.amount ?? null;
+    const unit = food.unit ?? null;
+
+    if ((amount === null) !== (unit === null)) {
+      throw new Error("Food amount and unit must be provided together.");
+    }
+
+    let normalizedAmount = null;
+
+    if (amount !== null) {
+      if (
+        typeof amount !== "number" ||
+        !Number.isFinite(amount) ||
+        amount <= 0 ||
+        amount > 999999999.999 ||
+        !UNITS.has(unit)
+      ) {
+        throw new Error("Invalid food quantity.");
+      }
+
+      normalizedAmount = Math.round(amount * 1000) / 1000;
+
+      if (normalizedAmount <= 0) {
+        throw new Error("The quantity is too small.");
+      }
+    }
+
+    return {
+      foodId: food.isCustom ? food.foodId.toLowerCase() : food.foodId,
+      isCustom: food.isCustom,
+      amount: normalizedAmount,
+      unit,
+    };
+  });
+
+  const localFoods = payloadFoods.map((food, index) => ({
+    ...food,
+    id: data.foods[index].id ?? Crypto.randomUUID(),
+    name: data.foods[index].name ?? "",
+    translationKey: data.foods[index].translationKey ?? null,
+    emoji: data.foods[index].emoji ?? null,
+    sortOrder: index,
+  }));
+
+  const feedingDate = date.toISOString();
+
+  return saveLocalFeedingUpdate({
+    userId,
+    childId,
+    entryId,
+    type: "solids",
+    startedAt: feedingDate,
+
+    values: {
+      feedingDate,
+      amountEaten,
+      reaction,
+      note: data.note?.trim() || null,
+      foods: payloadFoods,
+    },
+
+    // Les photos restent celles de l'entrée SQLite.
+    // Elles ne sont ni recopiées ni remises dans la queue.
+    localValues: {
+      foods: localFoods,
+      appreciation: reaction,
+    },
+
+    validateLocal: async ({ transaction }) => {
+      const pendingPhoto = await transaction.getFirstAsync(
+        `
+          SELECT id
+          FROM sync_queue
+          WHERE user_id = ?
+            AND entity_type = 'tracking_photo'
+            AND entity_id = ?
+          LIMIT 1
+        `,
+        [userId, entryId],
+      );
+
+      if (pendingPhoto) {
+        const error = new Error(
+          "Wait for this meal's photos to sync before editing it.",
+        );
+
+        error.code = "MEAL_PHOTOS_SYNC_PENDING";
+        throw error;
+      }
+
+      for (const food of payloadFoods.filter((item) => item.isCustom)) {
+        const customFood = await transaction.getFirstAsync(
+          `
+            SELECT food_id
+            FROM child_custom_foods_local
+            WHERE user_id = ?
+              AND child_id = ?
+              AND food_id = ?
+              AND deleted_at IS NULL
+          `,
+          [userId, childId, food.foodId],
+        );
+
+        if (!customFood) {
+          throw new Error("A custom food is unavailable for this child.");
+        }
+      }
+    },
+  });
+}
+
+export async function prepareSolidFeedingPayload({ operation, payload }) {
+  const isSolidCreation =
+    operation.http_method === "POST" && operation.endpoint.endsWith("/solids");
+
+  const isSolidUpdate =
+    operation.http_method === "PUT" &&
+    /\/solids\/[^/]+$/.test(operation.endpoint);
+
+  if (!isSolidCreation && !isSolidUpdate) {
     return payload;
   }
 

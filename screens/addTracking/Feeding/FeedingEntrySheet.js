@@ -32,8 +32,10 @@ import PumpingForm from "../../../components/addTracking/feeding/PumpingForm.js"
 import BreastfeedingForm, {
   getCurrentBreastfeedingDurations,
 } from "../../../components/addTracking/feeding/BreastfeedingForm.js";
-
-import { createLocalSolidFeedingEntry } from "../../../database/tracking/feed/solidsRepository.js";
+import {
+  createLocalSolidFeedingEntry,
+  updateLocalSolidFeedingEntry,
+} from "../../../database/tracking/feed/solidsRepository.js";
 
 import BottleCapacitySheet from "./BottleCapacitySheet.js";
 import MilkTypeSheet from "../../../components/addTracking/feeding/MilkyTypeSheet.js";
@@ -42,10 +44,19 @@ import ManualBreastfeedingSheet from "./ManualBreastFeedingSheet.js";
 import NoteSheet from "./NoteSheet.js";
 import AddFoodSheet from "./AddFoodSheet.js";
 
-import { createLocalBottleEntry } from "../../../database/tracking/feed/bottleRepository.js";
-import { createLocalBreastfeedingEntry } from "../../../database/tracking/feed/breastFeedingRepository.js";
-import { createLocalPumpingEntry } from "../../../database/tracking/feed/pumpingRepository.js";
+import {
+  createLocalBottleEntry,
+  updateLocalBottleEntry,
+} from "../../../database/tracking/feed/bottleRepository.js";
+import {
+  createLocalBreastfeedingEntry,
+  updateLocalBreastfeedingEntry,
+} from "../../../database/tracking/feed/breastFeedingRepository.js";
 
+import {
+  createLocalPumpingEntry,
+  updateLocalPumpingEntry,
+} from "../../../database/tracking/feed/pumpingRepository.js";
 import {
   getLocalCustomFoods,
   saveCustomFoodLocally,
@@ -215,6 +226,10 @@ function createBreastfeedingEntryFromTrackingEntry(entry) {
     rightDurationSeconds: Number(
       entry?.rightDurationSeconds ?? entry?.details?.rightDurationSeconds ?? 0,
     ),
+
+    firstSide: entry?.firstSide ?? entry?.details?.firstSide ?? null,
+
+    lastSide: entry?.lastSide ?? entry?.details?.lastSide ?? null,
 
     activeSide: null,
     activeStartedAt: null,
@@ -724,51 +739,33 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           return;
         }
 
-        // L'édition sera branchée à son repository local ensuite.
-        if (isEditMode) {
-          if (typeof onSaveBottle !== "function") {
-            throw new Error("Missing bottle save handler.");
-          }
+        const data = {
+          amountMl: bottleAmountMl,
+          bottleCapacityMl: bottleEntry.bottleCapacityMl,
+          milkType: bottleEntry.milkType,
+          feedingDate: bottleEntry.feedingDate,
+          note: bottleEntry.note,
+        };
 
-          const result = await onSaveBottle({
-            ...editingEntry,
-            ...bottleEntry,
-            id: editingEntry?.id,
-            type: "bottle",
-            mode: sheetMode,
-            amountMl: bottleAmountMl,
-          });
+        const localEntry = isEditMode
+          ? await updateLocalBottleEntry({
+              userId,
+              childId,
+              entryId: editingEntry?.id,
+              data,
+            })
+          : await createLocalBottleEntry({
+              userId,
+              childId,
+              data,
+            });
 
-          if (result !== false) {
-            modalRef.current?.dismiss();
-          }
-
-          return;
-        }
-
-        // Enregistrer le repas et son opération de synchronisation
-        // dans une seule transaction SQLite.
-        const localEntry = await createLocalBottleEntry({
-          userId,
-          childId,
-          data: {
-            amountMl: bottleAmountMl,
-            bottleCapacityMl: bottleEntry.bottleCapacityMl,
-            milkType: bottleEntry.milkType,
-            feedingDate: bottleEntry.feedingDate,
-            note: bottleEntry.note,
-          },
-        });
-
-        // L'enregistrement est réussi : fermer la feuille.
         modalRef.current?.dismiss();
 
-        // Informer le parent pour actualiser l'affichage.
-        // Une erreur d'affichage ne doit pas provoquer une seconde création.
         try {
           await onSaveBottle?.({
             ...localEntry,
-            mode: "create",
+            mode: isEditMode ? "edit" : "create",
             persistedLocally: true,
           });
         } catch (displayError) {
@@ -778,7 +775,6 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           );
         }
 
-        // L'envoi réseau ne bloque pas l'utilisateur.
         if (
           user?.id === userId &&
           accessToken &&
@@ -810,31 +806,34 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           return;
         }
 
-        // L'édition locale doit encore être branchée.
-        // Ne pas créer une nouvelle entrée lorsqu'on modifie une séance.
-        if (isEditMode) {
-          throw new Error("Breastfeeding editing is not available yet.");
-        }
+        const data = {
+          feedingDate: breastfeedingEntry.feedingDate,
+          leftDurationSeconds: currentDurations.leftDurationSeconds,
+          rightDurationSeconds: currentDurations.rightDurationSeconds,
+          firstSide: breastfeedingEntry.firstSide ?? null,
+          lastSide: breastfeedingEntry.lastSide ?? null,
+          note: breastfeedingEntry.note,
+        };
 
-        const localEntry = await createLocalBreastfeedingEntry({
-          userId,
-          childId,
-          data: {
-            feedingDate: breastfeedingEntry.feedingDate,
-            leftDurationSeconds: currentDurations.leftDurationSeconds,
-            rightDurationSeconds: currentDurations.rightDurationSeconds,
-            firstSide: breastfeedingEntry.firstSide ?? null,
-            lastSide: breastfeedingEntry.lastSide ?? null,
-            note: breastfeedingEntry.note,
-          },
-        });
+        const localEntry = isEditMode
+          ? await updateLocalBreastfeedingEntry({
+              userId,
+              childId,
+              entryId: editingEntry?.id,
+              data,
+            })
+          : await createLocalBreastfeedingEntry({
+              userId,
+              childId,
+              data,
+            });
 
         modalRef.current?.dismiss();
 
         try {
           await onSaveBreastfeeding?.({
             ...localEntry,
-            mode: "create",
+            mode: isEditMode ? "edit" : "create",
             persistedLocally: true,
           });
         } catch (displayError) {
@@ -872,22 +871,24 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           return;
         }
 
-        if (isEditMode) {
-          throw new Error(t("Meal editing is not available yet."));
-        }
-
-        const localEntry = await createLocalSolidFeedingEntry({
-          userId,
-          childId,
-          data: solidsEntry,
-        });
-
+        const localEntry = isEditMode
+          ? await updateLocalSolidFeedingEntry({
+              userId,
+              childId,
+              entryId: editingEntry?.id,
+              data: solidsEntry,
+            })
+          : await createLocalSolidFeedingEntry({
+              userId,
+              childId,
+              data: solidsEntry,
+            });
         modalRef.current?.dismiss();
 
         try {
           await onSaveSolids?.({
             ...localEntry,
-            mode: "create",
+            mode: isEditMode ? "edit" : "create",
             persistedLocally: true,
           });
         } catch (displayError) {
@@ -922,28 +923,31 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
           return;
         }
 
-        // L'édition ne doit pas créer une deuxième séance.
-        if (isEditMode) {
-          throw new Error(t("Pumping editing is not available yet."));
-        }
+        const data = {
+          pumpingDate: pumpingEntry.pumpingDate,
+          leftAmountMl: pumpingEntry.leftAmountMl ?? 0,
+          rightAmountMl: pumpingEntry.rightAmountMl ?? 0,
+          note: pumpingEntry.note,
+        };
 
-        const localEntry = await createLocalPumpingEntry({
-          userId,
-          childId,
-          data: {
-            pumpingDate: pumpingEntry.pumpingDate,
-            leftAmountMl: pumpingEntry.leftAmountMl ?? 0,
-            rightAmountMl: pumpingEntry.rightAmountMl ?? 0,
-            note: pumpingEntry.note,
-          },
-        });
-
+        const localEntry = isEditMode
+          ? await updateLocalPumpingEntry({
+              userId,
+              childId,
+              entryId: editingEntry?.id,
+              data,
+            })
+          : await createLocalPumpingEntry({
+              userId,
+              childId,
+              data,
+            });
         modalRef.current?.dismiss();
 
         try {
           await onSavePumping?.({
             ...localEntry,
-            mode: "create",
+            mode: isEditMode ? "edit" : "create",
             persistedLocally: true,
           });
         } catch (displayError) {
@@ -975,7 +979,11 @@ const FeedingEntrySheet = forwardRef(function FeedingEntrySheet(
     } catch (error) {
       console.error("Unable to save feeding:", error);
 
-      setFeedingSaveError(t("Unable to save this feeding. Please try again."));
+      setFeedingSaveError(
+        error.code === "MEAL_PHOTOS_SYNC_PENDING"
+          ? t("Wait for this meal's photos to sync before editing it.")
+          : t("Unable to save this feeding. Please try again."),
+      );
     } finally {
       savingFeedingRef.current = false;
       setIsSavingFeeding(false);

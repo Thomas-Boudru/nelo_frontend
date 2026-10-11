@@ -26,7 +26,10 @@ import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import { useAuth } from "../../../auth/AuthProvider.js";
 
-import { createLocalToiletingEntry } from "../../../database/tracking/diaper/toiletingRepository.js";
+import {
+  createLocalToiletingEntry,
+  updateLocalToiletingEntry,
+} from "../../../database/tracking/diaper/toiletingRepository.js";
 
 import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
@@ -271,50 +274,71 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
       return;
     }
 
-    if (isEditMode) {
-      Alert.alert(
-        t("Editing is not available yet"),
-        t("Diaper and potty editing will be available later."),
-      );
+    if (!user?.id || !childId) {
+      Alert.alert(t("Unable to save entry"), t("Missing user ID or child ID."));
       return;
     }
 
-    if (!user?.id || !childId) {
-      Alert.alert(t("Unable to save entry"), t("Missing user ID or child ID."));
+    if (
+      isEditMode &&
+      (!editingEntry?.id || editingEntry.type !== selectedType)
+    ) {
+      Alert.alert(
+        t("Unable to save entry"),
+        t("The entry could not be identified. Reopen it and try again."),
+      );
       return;
     }
 
     savingRef.current = true;
     setIsSaving(true);
 
-    // Capturer les valeurs avant le premier appel asynchrone.
     const type = selectedType;
+    const mode = isEditMode ? "edit" : "create";
+    const entryId = editingEntry?.id;
     const form = type === "diaper" ? diaperEntry : pottyEntry;
     const dateField = type === "diaper" ? "diaperDate" : "pottyDate";
 
+    const includesPoop =
+      type === "diaper" && ["dirty", "wetAndDirty"].includes(form.content);
+
     const data = {
       content: form.content,
-      consistency: type === "diaper" ? form.consistency : null,
+      // Retirer la consistance si l'on passe d'une couche sale à mouillée.
+      consistency: includesPoop ? (form.consistency ?? null) : null,
       isAccident: type === "potty" ? form.isAccident : false,
-      note: form.note,
-
-      // "Now" correspond au moment où l'on enregistre.
-      [dateField]: form.isDateEdited ? form[dateField] : new Date(),
+      note: form.note ?? "",
+      [dateField]:
+        isEditMode || form.isDateEdited ? form[dateField] : new Date(),
     };
 
     try {
-      const entry = await createLocalToiletingEntry({
-        userId: user.id,
-        childId,
-        type,
-        data,
-      });
+      const entry =
+        mode === "edit"
+          ? await updateLocalToiletingEntry({
+              userId: user.id,
+              childId,
+              entryId,
+              type,
+              data,
+            })
+          : await createLocalToiletingEntry({
+              userId: user.id,
+              childId,
+              type,
+              data,
+            });
 
-      // L'entrée est déjà sauvegardée : le parent affiche le toast.
+      // La sauvegarde locale a réussi :
+      // le parent actualise l'affichage et affiche la confirmation.
       try {
         const notifySaved = type === "diaper" ? onSaveDiaper : onSavePotty;
 
-        await notifySaved?.(entry);
+        await notifySaved?.({
+          ...entry,
+          mode,
+          persistedLocally: true,
+        });
       } catch (error) {
         console.error("Unable to display tracking confirmation:", error);
       }
@@ -333,10 +357,14 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
     } catch (error) {
       console.error("Unable to save toileting entry:", error);
 
-      Alert.alert(
-        t("Unable to save entry"),
-        t("Check the selected date and try again."),
-      );
+      const message =
+        error?.code === "TOILETING_SYNC_PENDING"
+          ? "Wait for this entry to finish syncing before editing it."
+          : error?.code === "TRACKING_VERSION_CONFLICT"
+            ? "Resolve this entry's synchronization conflict before editing it."
+            : "Check the selected date and try again.";
+
+      Alert.alert(t("Unable to save entry"), t(message));
     } finally {
       savingRef.current = false;
       setIsSaving(false);
@@ -447,9 +475,9 @@ const DiaperEntrySheet = forwardRef(function DiaperEntrySheet(
 
                 <View style={styles.footerButton}>
                   <PrimaryButton
-                    title={t("Save changes")}
+                    title={isSaving ? t("Saving...") : t("Save changes")}
                     onPress={handleSave}
-                    disabled={!canSave}
+                    disabled={!canSave || isSaving}
                   />
                 </View>
               </View>

@@ -3,6 +3,8 @@ import * as Crypto from "expo-crypto";
 import { getLocalDatabase } from "../../localDatabase.js";
 import { enqueueSyncOperation } from "../../../sync/syncQueueRepository.js";
 
+import { saveLocalFeedingUpdate } from "./feedingUpdatesRepository.js";
+
 function normalizeVolume(value) {
   if (
     typeof value !== "number" ||
@@ -156,4 +158,61 @@ export async function createLocalPumpingEntry({ userId, childId, data }) {
     localRevision: 1,
     syncStatus: "pending",
   };
+}
+
+export async function updateLocalPumpingEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Invalid pumping entry.");
+  }
+
+  const leftAmountMl = normalizeVolume(data.leftAmountMl);
+  const rightAmountMl = normalizeVolume(data.rightAmountMl);
+
+  if (leftAmountMl === 0 && rightAmountMl === 0) {
+    throw new Error("The total pumping amount must be greater than zero.");
+  }
+
+  if (
+    !(data.pumpingDate instanceof Date) &&
+    typeof data.pumpingDate !== "string"
+  ) {
+    throw new Error("Invalid pumping date.");
+  }
+
+  const date = new Date(data.pumpingDate);
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Invalid pumping date.");
+  }
+
+  if (
+    data.note != null &&
+    (typeof data.note !== "string" || data.note.length > 10000)
+  ) {
+    throw new Error("The note must not exceed 10000 characters.");
+  }
+
+  const pumpingDate = date.toISOString();
+
+  return saveLocalFeedingUpdate({
+    userId,
+    childId,
+    entryId,
+    type: "pumping",
+    startedAt: pumpingDate,
+    values: {
+      pumpingDate,
+      leftAmountMl,
+      rightAmountMl,
+      note: data.note?.trim() || null,
+    },
+    localValues: {
+      totalAmountMl: Math.round((leftAmountMl + rightAmountMl) * 1000) / 1000,
+    },
+  });
 }

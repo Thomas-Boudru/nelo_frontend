@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Keyboard,
@@ -26,9 +26,32 @@ import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import DateField from "../../components/onboarding/DateField.js";
 import FormField from "../../components/onboarding/FormField.js";
 
+import { useAuth } from "../../auth/AuthProvider.js";
+
+import {
+  createLocalMoment,
+  updateLocalMoment,
+} from "../../database/moments/momentsRepository.js";
+
+import { parseMomentDate } from "../../utils/momentDisplay.js";
+
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
+
 import { useThemeColors } from "../../theme/useThemeColors.js";
 import { useToast } from "../../components/ui/toast/useToast.js";
 import { radius, spacing } from "../../theme/index.js";
+
+function formatLocalDate(date) {
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
+    throw new Error("Invalid moment date.");
+  }
+
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
 
 const MOMENT_CONFIG = {
   photo: {
@@ -52,6 +75,10 @@ const MOMENT_CONFIG = {
 
 export default function MomentEditorScreen({ navigation, route }) {
   const { t, i18n } = useTranslation();
+
+  const { user, accessToken, refreshSession } = useAuth();
+  const saveInProgressRef = useRef(false);
+
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
@@ -71,28 +98,39 @@ export default function MomentEditorScreen({ navigation, route }) {
 
   const isEditing = mode === "edit";
 
-  const [photos, setPhotos] = useState(
-    moment?.photos?.map((photo, index) => ({
-      id: photo.id ?? `existing-${index}`,
-      uri: photo.uri,
-    })) ?? [],
+  const [photos, setPhotos] = useState(() =>
+    (moment?.photos ?? []).map((photo, index) => ({
+      ...photo,
+      id: photo.attachmentId ?? photo.id ?? `existing-${index}`,
+      uri: photo.uri ?? photo.url ?? null,
+    })),
   );
 
   const [title, setTitle] = useState(moment?.title ?? "");
-  const [content, setContent] = useState(moment?.description ?? "");
+  const [content, setContent] = useState(
+    moment?.story ?? moment?.description ?? "",
+  );
 
   const [selectedMilestone, setSelectedMilestone] = useState(
     moment?.milestone ?? null,
   );
 
   const [momentDate, setMomentDate] = useState(() => {
-    if (!moment?.happenedAt) {
-      return new Date();
+    const storedDate = parseMomentDate(moment?.occurredOn);
+
+    if (storedDate) {
+      return storedDate;
     }
 
-    const parsedDate = new Date(moment.happenedAt);
+    if (moment?.happenedAt) {
+      const parsedDate = new Date(moment.happenedAt);
 
-    return Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+      if (Number.isFinite(parsedDate.getTime())) {
+        return parsedDate;
+      }
+    }
+
+    return new Date();
   });
 
   const [temporaryDate, setTemporaryDate] = useState(momentDate);
@@ -239,7 +277,13 @@ export default function MomentEditorScreen({ navigation, route }) {
   }
 
   function handleOpenMilestonePicker() {
+    if (saveInProgressRef.current) {
+      return;
+    }
+
     navigation.navigate("MilestonePicker", {
+      childId,
+      editorRouteKey: route.key,
       selectedMilestoneId: selectedMilestone?.id ?? null,
       editorParams: {
         mode,
@@ -285,72 +329,136 @@ export default function MomentEditorScreen({ navigation, route }) {
   async function handleSave() {
     setHasSubmitted(true);
 
-    if (!isFormValid || isSaving) {
+    if (!isFormValid || saveInProgressRef.current || isPickingPhotos) {
       return;
     }
 
+    const errorTitle = isEditing
+      ? t("Unable to update moment")
+      : t("Unable to add moment");
+
+    if (!user?.id || !childId) {
+      showToast({
+        type: "error",
+        title: errorTitle,
+        message: t("Missing user ID or child ID."),
+      });
+
+      return;
+    }
+
+    if (
+      isEditing &&
+      (!moment?.id ||
+        !Number.isSafeInteger(moment.localRevision) ||
+        moment.localRevision < 1)
+    ) {
+      showToast({
+        type: "error",
+        title: errorTitle,
+        message: t("Reload this moment before editing it."),
+      });
+
+      return;
+    }
+
+    saveInProgressRef.current = true;
     setIsSaving(true);
+    Keyboard.dismiss();
 
     try {
-      const momentPayload = {
-        id: moment?.id ?? null,
-        childId,
+      let milestone = null;
+
+      if (momentType === "milestone") {
+        const customMilestoneId =
+          selectedMilestone.customMilestoneId ??
+          (selectedMilestone.isCustom ? selectedMilestone.id : null);
+
+        const catalogCode = customMilestoneId
+          ? null
+          : (selectedMilestone.catalogCode ?? selectedMilestone.id);
+
+        milestone = {
+          catalogCode,
+          customMilestoneId,
+          nameSnapshot:
+            selectedMilestone.nameSnapshot ??
+            selectedMilestone.displayLabel ??
+            (customMilestoneId
+              ? selectedMilestone.label
+              : t(selectedMilestone.label)),
+        };
+      }
+
+      const data = {
         type: momentType,
+        title: title.trim() || null,
+        story: content,
+        occurredOn: formatLocalDate(momentDate),
 
-        title:
-          momentType === "note" ? title.trim() || null : title.trim() || null,
+        // Conserver le fuseau du souvenir lors de son édition.
+        timezoneAtEvent: isEditing
+          ? (moment.timezoneAtEvent ?? null)
+          : (Intl.DateTimeFormat().resolvedOptions().timeZone ?? null),
 
-        description: content.trim() || null,
+        milestone,
 
         photos:
           momentType === "photo" || momentType === "milestone" ? photos : [],
-
-        milestone: momentType === "milestone" ? selectedMilestone : null,
-
-        happenedAt: momentDate.toISOString(),
       };
 
-      /*
-       * Plus tard :
-       *
-       * if (isEditing) {
-       *   await api.patch(
-       *     `/moments/${moment.id}`,
-       *     momentPayload,
-       *   );
-       * } else {
-       *   await api.post(
-       *     `/children/${childId}/moments`,
-       *     momentPayload,
-       *   );
-       * }
-       *
-       * Les images devront idéalement être envoyées
-       * séparément avec FormData.
-       */
+      if (isEditing) {
+        await updateLocalMoment({
+          userId: user.id,
+          childId,
+          momentId: moment.id,
+          expectedLocalRevision: moment.localRevision,
+          data,
+        });
+      } else {
+        await createLocalMoment({
+          userId: user.id,
+          childId,
+          data,
+        });
+      }
+    } catch (error) {
+      console.error("Unable to save moment locally:", error);
 
-      console.log("Save moment:", momentPayload);
+      saveInProgressRef.current = false;
+      setIsSaving(false);
 
       showToast({
+        type: "error",
+        title: errorTitle,
+        message:
+          error?.code === "LOCAL_MOMENT_CHANGED"
+            ? t("This moment has changed. Reopen it before saving.")
+            : t("The moment could not be saved. Please try again."),
+      });
+
+      return;
+    }
+
+    // SQLite est déjà sauvegardé. Le réseau ne bloque pas la fermeture.
+    void processSyncQueue({
+      userId: user.id,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.warn("Unable to synchronize moments:", error);
+    });
+
+    try {
+      showToast({
         type: "success",
-        title: isEditing ? t("Moment updated") : t("Moment added"),
-        message: isEditing
-          ? t("Your changes have been saved.")
-          : t("This moment has been added to child story", {
-              childName,
-            }),
+        title: isEditing ? t("Moment updated") : t("Moment saved"),
+        message: t("The moment was saved on this device."),
       });
 
       navigation.goBack();
-    } catch (error) {
-      showToast({
-        type: "error",
-        title: isEditing
-          ? t("Unable to update moment")
-          : t("Unable to add moment"),
-        message: error?.message ?? t("Please try again in a moment."),
-      });
     } finally {
+      saveInProgressRef.current = false;
       setIsSaving(false);
     }
   }
@@ -524,7 +632,7 @@ export default function MomentEditorScreen({ navigation, route }) {
             <PrimaryButton
               title={isEditing ? t("Save changes") : t("Save moment")}
               loading={isSaving}
-              disabled={isSaving}
+              disabled={isSaving || isPickingPhotos}
               onPress={handleSave}
             />
           </View>
@@ -844,7 +952,11 @@ function MilestoneField({
               !milestone && styles.milestonePlaceholder,
             ]}
           >
-            {milestone ? t(milestone.label) : t("Choose a milestone")}
+            {milestone
+              ? (milestone.displayLabel ??
+                milestone.nameSnapshot ??
+                (milestone.isCustom ? milestone.label : t(milestone.label)))
+              : t("Choose a milestone")}
           </Text>
 
           {milestone?.category ? (

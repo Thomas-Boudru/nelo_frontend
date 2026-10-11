@@ -3,6 +3,8 @@ import * as Crypto from "expo-crypto";
 import { getLocalDatabase } from "../../localDatabase.js";
 import { enqueueSyncOperation } from "../../../sync/syncQueueRepository.js";
 
+import { prepareNextTrackingDeletion } from "../trackingDeletionRepository.js";
+
 import {
   getActiveSleep,
   getSleepEntry,
@@ -441,18 +443,245 @@ export async function stopLocalSleepEntry({ userId, childId, entryId, data }) {
   return savedEntry;
 }
 
-export async function prepareSleepSyncPayload({ operation, payload }) {
+export async function updateLocalSleepEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
+  if (!userId || !childId || !entryId) {
+    throw new Error("Missing user ID, child ID or sleep ID.");
+  }
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Missing sleep entry.");
+  }
+
+  if (!SLEEP_TYPES.has(data.sleepType)) {
+    throw new Error("Invalid sleep type.");
+  }
+
+  const startedAt = normalizeDate(data.startedAt, "start");
+  const endedAt = normalizeDate(data.endedAt, "end");
+
+  const startTime = Date.parse(startedAt);
+  const endTime = Date.parse(endedAt);
+  const nowTime = Date.now();
+
+  if (endTime <= startTime) {
+    throw new Error("End time must be after start time.");
+  }
+
+  if (startTime > nowTime || endTime > nowTime) {
+    throw new Error("Sleep dates cannot be in the future.");
+  }
+
   if (
-    operation.entity_type !== "tracking_entry" ||
-    operation.http_method !== "PATCH" ||
-    !/^stop:([1-9]\d*)$/.test(operation.operation) ||
-    !operation.endpoint.endsWith("/stop")
+    data.note != null &&
+    (typeof data.note !== "string" || data.note.length > 10000)
   ) {
+    throw new Error("The note must not exceed 10000 characters.");
+  }
+
+  const note = data.note?.trim() || null;
+  const database = await getLocalDatabase();
+
+  let savedEntry;
+
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    const row = await transaction.getFirstAsync(
+      `
+        SELECT *
+        FROM tracking_entries_local
+        WHERE user_id = ?
+          AND child_id = ?
+          AND entry_id = ?
+          AND entry_type = 'sleep'
+          AND deleted_at IS NULL
+      `,
+      [userId, childId, entryId],
+    );
+
+    if (!row) {
+      throw new Error("Local sleep entry not found.");
+    }
+
+    const currentEntry = JSON.parse(row.entry_json);
+
+    if (currentEntry.endedAt == null) {
+      throw new Error(
+        "Stop this sleep timer before editing the completed sleep.",
+      );
+    }
+
+    if (row.sync_status === "conflict") {
+      throw new Error(
+        "Resolve the sleep synchronization conflict before editing.",
+      );
+    }
+
+    const previous = await transaction.getFirstAsync(
+      `
+        SELECT *
+        FROM sync_queue
+        WHERE user_id = ?
+          AND entity_type IN ('tracking_entry', 'tracking_photo')
+          AND entity_id = ?
+        ORDER BY rowid DESC
+        LIMIT 1
+      `,
+      [userId, entryId],
+    );
+
+    const baseEndpoint = `/api/children/${encodeURIComponent(childId)}/sleep`;
+
+    const entryEndpoint = `${baseEndpoint}/${encodeURIComponent(entryId)}`;
+
+    let version = row.server_version;
+
+    if (previous) {
+      if (
+        previous.entity_type === "tracking_entry" &&
+        previous.http_method === "POST" &&
+        previous.endpoint === baseEndpoint &&
+        /^create:[1-9]\d*$/.test(previous.operation)
+      ) {
+        // Sommeil terminé créé manuellement, pas encore synchronisé.
+        version = 1;
+      } else if (
+        previous.entity_type === "tracking_entry" &&
+        previous.http_method === "PATCH" &&
+        previous.endpoint === entryEndpoint &&
+        /^update:[1-9]\d*$/.test(previous.operation)
+      ) {
+        const previousPayload = JSON.parse(previous.payload_json);
+
+        if (
+          !Number.isSafeInteger(previousPayload?.version) ||
+          previousPayload.version < 1
+        ) {
+          throw new Error("Invalid pending sleep version.");
+        }
+
+        version = previousPayload.version + 1;
+      } else {
+        // Un arrêt peut être réconcilié avec celui d'un autre parent.
+        // Sa version finale n'est donc pas prévisible ici.
+        const error = new Error(
+          "Wait for this sleep to finish syncing before editing it.",
+        );
+
+        error.code = "SLEEP_SYNC_PENDING";
+        throw error;
+      }
+    }
+
+    if (!Number.isSafeInteger(version) || version < 1) {
+      throw new Error("Missing sleep server version.");
+    }
+
+    const localRevision = row.local_revision + 1;
+
+    if (!Number.isSafeInteger(localRevision) || localRevision < 2) {
+      throw new Error("Invalid sleep local revision.");
+    }
+
+    const now = new Date().toISOString();
+
+    const entry = {
+      ...currentEntry,
+      sleepType: data.sleepType,
+      startedAt,
+      endedAt,
+      durationSeconds: Math.floor((endTime - startTime) / 1000),
+      note: note ?? "",
+      updatedByUserId: userId,
+      updatedAt: now,
+    };
+
+    await transaction.runAsync(
+      `
+        UPDATE tracking_entries_local
+        SET entry_json = ?,
+            local_revision = ?,
+            sync_status = 'pending',
+            started_at = ?,
+            updated_at = ?
+        WHERE user_id = ?
+          AND child_id = ?
+          AND entry_id = ?
+      `,
+      [
+        JSON.stringify(entry),
+        localRevision,
+        startedAt,
+        now,
+        userId,
+        childId,
+        entryId,
+      ],
+    );
+
+    await enqueueSyncOperation({
+      userId,
+      entityType: "tracking_entry",
+      entityId: entryId,
+      operation: `update:${localRevision}`,
+      endpoint: entryEndpoint,
+      method: "PATCH",
+      payload: {
+        sleepType: data.sleepType,
+        startedAt,
+        endedAt,
+        note,
+        version,
+      },
+      database: transaction,
+    });
+
+    savedEntry = {
+      ...entry,
+      serverVersion: row.server_version,
+      localRevision,
+      syncStatus: "pending",
+      persistedLocally: true,
+    };
+  });
+
+  return savedEntry;
+}
+
+export async function prepareSleepSyncPayload({ operation, payload }) {
+  const isSleepUpdate =
+    operation.entity_type === "tracking_entry" &&
+    operation.http_method === "PATCH" &&
+    /^update:[1-9]\d*$/.test(operation.operation) &&
+    /\/sleep\/[^/]+$/.test(operation.endpoint);
+
+  if (isSleepUpdate) {
+    if (
+      !payload ||
+      !Number.isSafeInteger(payload.version) ||
+      payload.version < 1
+    ) {
+      throw new Error("Invalid sleep synchronization version.");
+    }
+
+    // La version de cette modification est déjà fixée.
+    return payload;
+  }
+
+  const isSleepStop =
+    operation.entity_type === "tracking_entry" &&
+    operation.http_method === "PATCH" &&
+    /^stop:[1-9]\d*$/.test(operation.operation) &&
+    operation.endpoint.endsWith("/stop");
+
+  if (!isSleepStop) {
     return payload;
   }
 
   const database = await getLocalDatabase();
-
   let preparedPayload;
 
   await database.withExclusiveTransactionAsync(async (transaction) => {
@@ -479,10 +708,10 @@ export async function prepareSleepSyncPayload({ operation, payload }) {
       throw new Error("Invalid sleep synchronization payload.");
     }
 
-    // Réutiliser exactement la version du premier envoi.
+    // Une nouvelle tentative conserve la version du premier envoi.
     if (storedPayload.version !== undefined) {
       if (
-        !Number.isInteger(storedPayload.version) ||
+        !Number.isSafeInteger(storedPayload.version) ||
         storedPayload.version < 1
       ) {
         throw new Error("Invalid sleep synchronization version.");
@@ -504,7 +733,7 @@ export async function prepareSleepSyncPayload({ operation, payload }) {
     if (
       !row ||
       row.entry_type !== "sleep" ||
-      !Number.isInteger(row.server_version) ||
+      !Number.isSafeInteger(row.server_version) ||
       row.server_version < 1
     ) {
       const error = new Error(
@@ -843,10 +1072,17 @@ export async function resolveSleepSyncConflict({
         `
           SELECT *
           FROM tracking_entries_local
-          WHERE user_id = ? AND entry_id = ?
+          WHERE user_id = ?
+            AND entry_id = ?
+            AND child_id = ?
+            AND entry_type = 'sleep'
         `,
-        [operation.user_id, operation.entity_id],
+        [operation.user_id, operation.entity_id, childId],
       );
+
+      if (!row) {
+        throw new Error("Local sleep entry not found.");
+      }
 
       const entry = JSON.parse(row.entry_json);
       const now = new Date().toISOString();
@@ -874,7 +1110,8 @@ export async function resolveSleepSyncConflict({
         ],
       );
 
-      // Un arrêt de ce démarrage refusé ne doit pas être envoyé.
+      // Les opérations suivantes sur ce démarrage refusé
+      // ne doivent pas être envoyées au serveur.
       await transaction.runAsync(
         `
           DELETE FROM sync_queue
@@ -925,10 +1162,17 @@ export async function resolveSleepSyncConflict({
       `
         SELECT *
         FROM tracking_entries_local
-        WHERE user_id = ? AND entry_id = ?
+        WHERE user_id = ?
+          AND entry_id = ?
+          AND child_id = ?
+          AND entry_type = 'sleep'
       `,
-      [operation.user_id, operation.entity_id],
+      [operation.user_id, operation.entity_id, childId],
     );
+
+    if (!row) {
+      throw new Error("Local sleep entry not found.");
+    }
 
     if (
       row.server_version !== null &&
@@ -942,8 +1186,7 @@ export async function resolveSleepSyncConflict({
     const now = new Date().toISOString();
 
     if (serverEntry.endedAt != null) {
-      // L'autre parent a déjà arrêté le sommeil.
-      // Garder notre proposition et notre note dans syncConflict.
+      // Le serveur a déjà enregistré un arrêt.
       const entry = {
         ...serverEntry,
         startedAt: normalizeDate(serverEntry.startedAt, "start"),
@@ -958,27 +1201,56 @@ export async function resolveSleepSyncConflict({
         },
       };
 
+      const stopMatch = /^stop:([1-9]\d*)$/.exec(queued.operation);
+
+      if (!stopMatch) {
+        throw new Error("Invalid sleep stop operation.");
+      }
+
+      const hasNewerLocalChange = row.local_revision > Number(stopMatch[1]);
+
+      // Préserver une modification ou une suppression locale
+      // effectuée après la mise en file de l'arrêt.
+      const entryToSave = hasNewerLocalChange
+        ? {
+            ...localEntry,
+            version: serverEntry.version,
+            syncConflict: entry.syncConflict,
+          }
+        : entry;
+
+      const nextSyncStatus = hasNewerLocalChange ? "pending" : "synced";
+
       await transaction.runAsync(
         `
           UPDATE tracking_entries_local
           SET entry_json = ?,
               server_version = ?,
-              sync_status = 'synced',
+              sync_status = ?,
               deleted_at = ?,
               started_at = ?,
               updated_at = ?
           WHERE user_id = ? AND entry_id = ?
         `,
         [
-          JSON.stringify(entry),
-          entry.version,
-          entry.deletedAt,
-          entry.startedAt,
-          entry.updatedAt,
+          JSON.stringify(entryToSave),
+          serverEntry.version,
+          nextSyncStatus,
+          hasNewerLocalChange ? row.deleted_at : entry.deletedAt,
+          entryToSave.startedAt,
+          entryToSave.updatedAt,
           operation.user_id,
           operation.entity_id,
         ],
       );
+
+      // Préparer une éventuelle suppression avant de retirer
+      // l'arrêt de la file, dans la même transaction.
+      await prepareNextTrackingDeletion({
+        database: transaction,
+        operation,
+        serverVersion: serverEntry.version,
+      });
 
       await transaction.runAsync(
         "DELETE FROM sync_queue WHERE id = ? AND user_id = ?",
@@ -988,11 +1260,15 @@ export async function resolveSleepSyncConflict({
       return;
     }
 
-    // Le sommeil est toujours actif : réessayer avec la version
-    // actuelle, uniquement après un refus explicite du serveur.
+    // Le sommeil est toujours actif : après un refus explicite
+    // pour conflit de version, préparer une nouvelle tentative.
+    const requestedEnd = Date.parse(payload?.endedAt);
+    const serverStart = Date.parse(serverEntry.startedAt);
+
     if (
       error.code !== "TRACKING_VERSION_CONFLICT" ||
-      Date.parse(payload.endedAt) <= Date.parse(serverEntry.startedAt)
+      !Number.isFinite(requestedEnd) ||
+      requestedEnd <= serverStart
     ) {
       throw new Error("Unable to reconcile the sleep stop.");
     }

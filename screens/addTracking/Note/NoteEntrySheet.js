@@ -8,8 +8,10 @@ import {
   useState,
 } from "react";
 import {
+  Alert,
   Image,
   Keyboard,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,15 +35,28 @@ import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import FeedingPhotoSourceSheet from "../Feeding/FeedingPhotoSourceSheet.js";
 
+import {
+  createLocalNoteEntry,
+  updateLocalNoteEntry,
+} from "../../../database/tracking/note/noteRepository.js";
+
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
+
 const MAX_PHOTOS = 5;
-const MAX_NOTE_LENGTH = 1000;
+const MAX_NOTE_LENGTH = 10000;
 
 function normalizePhotos(photos) {
   if (!Array.isArray(photos)) {
     return [];
   }
 
-  return photos.filter((photo) => photo?.uri).slice(0, MAX_PHOTOS);
+  return photos
+    .map((photo) => ({
+      ...photo,
+      uri: photo?.uri ?? photo?.url,
+    }))
+    .filter((photo) => photo.uri)
+    .slice(0, MAX_PHOTOS);
 }
 
 function createNoteStateFromTrackingEntry(entry) {
@@ -77,7 +92,16 @@ function createNoteStateFromTrackingEntry(entry) {
 }
 
 const NoteEntrySheet = forwardRef(function NoteEntrySheet(
-  { onSave, onDismiss, onRequestDelete, onPressHistory },
+  {
+    userId,
+    childId,
+    accessToken,
+    refreshSession,
+    onSave,
+    onDismiss,
+    onRequestDelete,
+    onPressHistory,
+  },
   ref,
 ) {
   const { t } = useTranslation();
@@ -87,11 +111,14 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
   const photoSourceSheetRef = useRef(null);
   const photoSourceTimeoutRef = useRef(null);
   const shouldOpenPhotoSourceRef = useRef(false);
+  const saveInProgressRef = useRef(false);
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [note, setNote] = useState("");
   const [photos, setPhotos] = useState([]);
+  const [previewPhotoUri, setPreviewPhotoUri] = useState(null);
+
   const [noteDate, setNoteDate] = useState(new Date());
   const [isNow, setIsNow] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -141,6 +168,7 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
       initialDate = new Date(),
       initialIsNow = true,
     } = {}) => {
+      setPreviewPhotoUri(null);
       setNote(initialNote ?? "");
       setPhotos(normalizePhotos(initialPhotos));
       setNoteDate(
@@ -156,6 +184,10 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
     ref,
     () => ({
       present(parameters = {}) {
+        if (saveInProgressRef.current) {
+          return;
+        }
+
         const {
           mode = "create",
           entry = null,
@@ -198,6 +230,9 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
       },
 
       dismiss() {
+        if (saveInProgressRef.current) {
+          return;
+        }
         Keyboard.dismiss();
         photoSourceSheetRef.current?.dismiss();
         modalRef.current?.dismiss();
@@ -217,12 +252,12 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
          * toute la sheet, ce qui ferait perdre la note en cours de saisie.
          * `0` = on reste sur le détent courant, donc rien ne bouge.
          */
-        pressBehavior={keyboardVisible ? 0 : "close"}
+        pressBehavior={isSaving ? "none" : keyboardVisible ? 0 : "close"}
         onPress={Keyboard.dismiss}
         opacity={0.35}
       />
     ),
-    [keyboardVisible],
+    [keyboardVisible, isSaving],
   );
 
   const handleSheetChange = useCallback((index) => {
@@ -243,7 +278,7 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
 
   const handleSheetDismiss = useCallback(() => {
     Keyboard.dismiss();
-
+    setPreviewPhotoUri(null);
     shouldOpenPhotoSourceRef.current = false;
     setIsSaving(false);
 
@@ -351,45 +386,103 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
   }, [onPressHistory]);
 
   const handleSave = useCallback(async () => {
-    if (!canSave || isSaving) {
+    if (!canSave || saveInProgressRef.current) {
       return;
     }
 
-    Keyboard.dismiss();
+    if (!userId || !childId) {
+      Alert.alert(t("Unable to save note"), t("Missing user ID or child ID."));
+
+      return;
+    }
+
+    saveInProgressRef.current = true;
     setIsSaving(true);
+    Keyboard.dismiss();
+
+    let savedEntry;
 
     try {
-      await Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Success,
-      ).catch(() => {});
-
-      await onSave?.({
-        ...editingEntry,
-
-        id: editingEntry?.id,
-
-        type: "note",
-        mode: sheetMode,
-
-        note: note.trim(),
+      const data = {
+        note,
         photos,
-        notedAt: noteDate,
-      });
+        notedAt: isNow ? new Date() : noteDate,
+      };
 
-      modalRef.current?.dismiss();
+      savedEntry = isEditMode
+        ? await updateLocalNoteEntry({
+            userId,
+            childId,
+            entryId: editingEntry?.id,
+            data,
+          })
+        : await createLocalNoteEntry({
+            userId,
+            childId,
+            data,
+          });
     } catch (error) {
-      console.error("Unable to save note:", error);
+      console.error("Unable to save note locally:", error);
+
+      saveInProgressRef.current = false;
+      setIsSaving(false);
+
+      const message =
+        error.code === "NOTE_SYNC_PENDING"
+          ? "Wait for this note to finish syncing before editing it again."
+          : error.code === "NOTE_CHANGED_DURING_SAVE"
+            ? "This note changed. Reopen it before saving."
+            : "The note could not be saved. Please try again.";
+
+      Alert.alert(t("Unable to save note"), t(message));
+
+      return;
+    }
+
+    // La note est désormais enregistrée sur l'appareil.
+    // Une erreur réseau ne doit pas annuler cette sauvegarde.
+    void processSyncQueue({
+      userId,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.warn("Unable to synchronize the note:", error);
+    });
+
+    void Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Success,
+    ).catch(() => {});
+
+    try {
+      // Le parent affiche la confirmation et actualise son interface.
+      // Il ne doit pas créer une deuxième entrée.
+      await onSave?.({
+        ...savedEntry,
+        mode: isEditMode ? "edit" : "create",
+        persistedLocally: true,
+      });
+    } catch (error) {
+      // La sauvegarde SQLite a déjà réussi.
+      console.error("Unable to update the interface after saving:", error);
+    } finally {
+      modalRef.current?.dismiss();
+      saveInProgressRef.current = false;
       setIsSaving(false);
     }
   }, [
+    accessToken,
     canSave,
+    childId,
     editingEntry,
-    isSaving,
+    isEditMode,
+    isNow,
     note,
     noteDate,
     onSave,
     photos,
-    sheetMode,
+    refreshSession,
+    t,
+    userId,
   ]);
 
   return (
@@ -399,7 +492,7 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
         index={0}
         stackBehavior="push"
         enableDynamicSizing
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         // Faire glisser la sheet referme aussi le clavier.
         enableBlurKeyboardOnGesture
         /*
@@ -508,11 +601,20 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
 
                   return (
                     <View key={photoKey} style={styles.photoContainer}>
-                      <Image
-                        source={{ uri: photo.uri }}
-                        resizeMode="cover"
-                        style={styles.photo}
-                      />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t("View photo")}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setPreviewPhotoUri(photo.uri);
+                        }}
+                      >
+                        <Image
+                          source={{ uri: photo.uri }}
+                          resizeMode="cover"
+                          style={styles.photo}
+                        />
+                      </Pressable>
 
                       <Pressable
                         accessibilityRole="button"
@@ -608,6 +710,35 @@ const NoteEntrySheet = forwardRef(function NoteEntrySheet(
         remainingPhotoCount={remainingPhotoCount}
         onPhotosSelected={handlePhotosSelected}
       />
+
+      <Modal
+        visible={previewPhotoUri !== null}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setPreviewPhotoUri(null)}
+      >
+        <View style={styles.photoPreview}>
+          <View style={styles.photoPreviewToolbar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("Close photo")}
+              hitSlop={12}
+              onPress={() => setPreviewPhotoUri(null)}
+              style={styles.photoPreviewClose}
+            >
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          {previewPhotoUri ? (
+            <Image
+              source={{ uri: previewPhotoUri }}
+              resizeMode="contain"
+              style={styles.photoPreviewImage}
+            />
+          ) : null}
+        </View>
+      </Modal>
     </>
   );
 });
@@ -850,6 +981,30 @@ function createStyles(colors) {
 
     pressed: {
       opacity: 0.72,
+    },
+
+    photoPreview: {
+      flex: 1,
+      backgroundColor: "#000000",
+      paddingTop: 60,
+      paddingBottom: 30,
+    },
+    photoPreviewToolbar: {
+      alignItems: "flex-end",
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+    },
+    photoPreviewClose: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "#252525",
+    },
+    photoPreviewImage: {
+      flex: 1,
+      width: "100%",
     },
   });
 }

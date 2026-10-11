@@ -508,7 +508,7 @@ export async function prepareCustomProductPayload({ operation, payload }) {
         FROM sync_queue
         WHERE user_id = ?
           AND entity_type = 'tracking_entry'
-          AND http_method = 'POST'
+          AND http_method IN ('POST', 'PUT', 'PATCH')
       `,
       [operation.user_id],
     );

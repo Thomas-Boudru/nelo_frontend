@@ -1,7 +1,12 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { useSelector } from "react-redux";
+
 import {
+  ActivityIndicator,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,8 +16,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
-import { mockSleepHistoryEntries } from "../../data/mockTrackingData.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+import useTrackingPeriod from "../../hooks/useTrackingPeriod.js";
 
 const NIGHT_SLEEP_IMAGE = require("../../assets/illustrations/tracking/night.png");
 
@@ -110,63 +117,50 @@ function formatDecimal(value, language) {
   }).format(value);
 }
 
-function getLatestDate(entries) {
-  const dates = entries
-    .flatMap((entry) => [parseDate(entry.startedAt), parseDate(entry.endedAt)])
-    .filter(Boolean);
-
-  if (dates.length === 0) {
-    return startOfDay(new Date());
-  }
-
-  return startOfDay(new Date(Math.max(...dates.map((date) => date.getTime()))));
-}
-
-function createVisibleDays(entries, numberOfDays = NUMBER_OF_VISIBLE_DAYS) {
-  const latestDate = getLatestDate(entries);
-
-  return Array.from({ length: numberOfDays }, (_, index) =>
-    addDays(latestDate, index - numberOfDays + 1),
-  );
-}
-
-function getSleepSegmentsForDay(entries, day) {
+function getSleepSegmentsForDay(entries, day, now = Date.now()) {
   const dayStart = startOfDay(day);
   const dayEnd = addDays(dayStart, 1);
+
+  // Position sur l'axe des heures locales.
+  // Les durées sont calculées séparément en temps réellement écoulé.
+  function clockMinutes(timestamp) {
+    if (timestamp <= dayStart.getTime()) return 0;
+    if (timestamp >= dayEnd.getTime()) return MINUTES_PER_DAY;
+
+    const date = new Date(timestamp);
+
+    return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+  }
 
   return entries
     .map((entry) => {
       const startedAt = parseDate(entry.startedAt);
-      const endedAt = parseDate(entry.endedAt);
+      const endedAt = entry.endedAt ? parseDate(entry.endedAt) : new Date(now);
 
       if (!startedAt || !endedAt) {
         return null;
       }
 
-      const segmentStart = new Date(
-        Math.max(startedAt.getTime(), dayStart.getTime()),
-      );
+      const start = Math.max(startedAt.getTime(), dayStart.getTime());
 
-      const segmentEnd = new Date(
-        Math.min(endedAt.getTime(), dayEnd.getTime()),
-      );
+      const end = Math.min(endedAt.getTime(), dayEnd.getTime(), now);
 
-      if (segmentEnd.getTime() <= segmentStart.getTime()) {
+      if (end <= start) {
         return null;
       }
 
-      const startMinutes =
-        (segmentStart.getTime() - dayStart.getTime()) / 60000;
-
-      const durationMinutes =
-        (segmentEnd.getTime() - segmentStart.getTime()) / 60000;
+      const startMinutes = clockMinutes(start);
+      const endMinutes = clockMinutes(end);
 
       return {
         id: `${entry.id}-${getDateKey(day)}`,
+        entryId: entry.id,
         sleepType: isNapEntry(entry) ? "nap" : "night",
-        durationMinutes,
+        start,
+        end,
+        durationMinutes: (end - start) / 60000,
         left: (startMinutes / MINUTES_PER_DAY) * 100,
-        width: (durationMinutes / MINUTES_PER_DAY) * 100,
+        width: (Math.max(0, endMinutes - startMinutes) / MINUTES_PER_DAY) * 100,
       };
     })
     .filter(Boolean);
@@ -200,64 +194,101 @@ function getCircularAverageMinutes(values) {
 
   return (angle / (Math.PI * 2)) * MINUTES_PER_DAY;
 }
+function getMergedDurationMinutes(segments) {
+  const intervals = segments
+    .map(({ start, end }) => ({ start, end }))
+    .sort((first, second) => first.start - second.start);
 
-function calculateStatistics(entries, visibleDays) {
-  const visibleDateKeys = new Set(visibleDays.map((day) => getDateKey(day)));
+  let total = 0;
+  let current = null;
+
+  for (const interval of intervals) {
+    if (!current) {
+      current = { ...interval };
+    } else if (interval.start <= current.end) {
+      current.end = Math.max(current.end, interval.end);
+    } else {
+      total += current.end - current.start;
+      current = { ...interval };
+    }
+  }
+
+  if (current) {
+    total += current.end - current.start;
+  }
+
+  return total / 60000;
+}
+
+function calculateStatistics(entries, visibleDays, now) {
+  const visibleDateKeys = new Set(visibleDays.map(getDateKey));
 
   const dailyData = visibleDays.map((day) => {
-    const segments = getSleepSegmentsForDay(entries, day);
+    const segments = getSleepSegmentsForDay(entries, day, now);
 
     return {
-      totalMinutes: segments.reduce(
-        (total, segment) => total + segment.durationMinutes,
-        0,
-      ),
+      totalMinutes: getMergedDurationMinutes(segments),
+      napCount: entries.filter((entry) => {
+        const startedAt = parseDate(entry.startedAt);
 
-      napCount: segments.filter((segment) => segment.sleepType === "nap")
-        .length,
+        return (
+          isNapEntry(entry) &&
+          startedAt &&
+          startedAt.getTime() <= now &&
+          getDateKey(startedAt) === getDateKey(day)
+        );
+      }).length,
     };
   });
 
   const recordedDays = dailyData.filter((day) => day.totalMinutes > 0);
 
-  const recordedDayDivisor = Math.max(recordedDays.length, 1);
-
   const nightEntries = entries.filter((entry) => {
     const startedAt = parseDate(entry.startedAt);
 
-    if (!startedAt || isNapEntry(entry)) {
-      return false;
-    }
-
-    return visibleDateKeys.has(getDateKey(startOfDay(startedAt)));
+    return (
+      startedAt &&
+      startedAt.getTime() <= now &&
+      !isNapEntry(entry) &&
+      visibleDateKeys.has(getDateKey(startedAt))
+    );
   });
 
-  const averageDailyMinutes =
-    recordedDays.reduce((total, day) => total + day.totalMinutes, 0) /
-    recordedDayDivisor;
+  // Un sommeil en cours ne compte pas comme une nuit terminée.
+  const completedNights = nightEntries.filter((entry) => {
+    const startedAt = parseDate(entry.startedAt);
+    const endedAt = parseDate(entry.endedAt);
 
-  const averageNightMinutes =
-    nightEntries.reduce(
-      (total, entry) => total + getDurationMinutes(entry),
-      0,
-    ) / Math.max(nightEntries.length, 1);
+    return (
+      startedAt && endedAt && endedAt > startedAt && endedAt.getTime() <= now
+    );
+  });
 
-  const averageNapCount =
-    recordedDays.reduce((total, day) => total + day.napCount, 0) /
-    recordedDayDivisor;
+  const bedtimeMinutes = nightEntries.map((entry) => {
+    const date = parseDate(entry.startedAt);
 
-  const bedtimeMinutes = nightEntries
-    .map((entry) => parseDate(entry.startedAt))
-    .filter(Boolean)
-    .map((date) => date.getHours() * 60 + date.getMinutes());
+    return date.getHours() * 60 + date.getMinutes();
+  });
 
   return {
-    averageDailyMinutes,
-    averageNightMinutes,
-    averageNapCount,
+    averageDailyMinutes: recordedDays.length
+      ? recordedDays.reduce((sum, day) => sum + day.totalMinutes, 0) /
+        recordedDays.length
+      : null,
+
+    averageNightMinutes: completedNights.length
+      ? completedNights.reduce(
+          (sum, entry) => sum + getDurationMinutes(entry),
+          0,
+        ) / completedNights.length
+      : null,
+
+    averageNapCount: recordedDays.length
+      ? recordedDays.reduce((sum, day) => sum + day.napCount, 0) /
+        recordedDays.length
+      : null,
 
     averageBedtimeMinutes: getCircularAverageMinutes(bedtimeMinutes),
-
     recordedDayCount: recordedDays.length,
   };
 }
@@ -370,8 +401,8 @@ function SummaryCard({
   );
 }
 
-function SleepRhythmRow({ day, entries, language, styles }) {
-  const segments = getSleepSegmentsForDay(entries, day);
+function SleepRhythmRow({ day, entries, language, styles, now }) {
+  const segments = getSleepSegmentsForDay(entries, day, now);
 
   return (
     <View style={styles.rhythmRow}>
@@ -414,18 +445,37 @@ function SleepRhythmRow({ day, entries, language, styles }) {
 
 function SleepHistoryCard({ entry, language, onPress, t, styles }) {
   const isNap = isNapEntry(entry);
+  const isOngoing = !entry.endedAt;
+  const canOpen = typeof onPress === "function";
+
+  const start = parseDate(entry.startedAt);
+  const end = parseDate(entry.endedAt);
+
+  const endLabel = isOngoing
+    ? t("In progress")
+    : start && end && getDateKey(start) !== getDateKey(end)
+      ? new Intl.DateTimeFormat(language, {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(end)
+      : formatTime(entry.endedAt, language);
 
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityHint={t("Opens this entry for editing")}
+      accessibilityRole={canOpen ? "button" : undefined}
+      accessibilityHint={canOpen ? t("Opens this entry") : undefined}
+      disabled={!canOpen}
       onPress={() => onPress?.(entry)}
-      style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.historyCard,
+        pressed && canOpen && styles.pressed,
+      ]}
     >
       <View
         style={[
           styles.historyImageContainer,
-
           isNap ? styles.napImageContainer : styles.nightImageContainer,
         ]}
       >
@@ -444,42 +494,116 @@ function SleepHistoryCard({ entry, language, onPress, t, styles }) {
         <Text style={styles.historyTime}>
           {formatTime(entry.startedAt, language)}
           {" – "}
-          {formatTime(entry.endedAt, language)}
+          {endLabel}
         </Text>
       </View>
 
-      <Text style={styles.historyDuration}>
-        {formatDuration(getDurationMinutes(entry))}
-      </Text>
+      {!isOngoing ? (
+        <Text style={styles.historyDuration}>
+          {formatDuration(getDurationMinutes(entry))}
+        </Text>
+      ) : null}
 
-      <Ionicons name="chevron-forward" size={18} color="#91A0B5" />
+      {canOpen ? (
+        <Ionicons name="chevron-forward" size={18} color="#91A0B5" />
+      ) : null}
     </Pressable>
   );
 }
 
 export default function SleepHistoryScreen({
   navigation,
+  route,
   onEditTrackingEntry,
 }) {
   const { t, i18n } = useTranslation();
+  const { user, accessToken, refreshSession } = useAuth();
 
   const colors = useThemeColors();
-
   const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const entries = mockSleepHistoryEntries;
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
+  const childId = route?.params?.childId ?? selectedChildId;
+
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [now, setNow] = useState(Date.now());
+
+  // Actualise les sommeils en cours et le jour courant
+  // uniquement lorsque cet écran est visible.
+  useFocusEffect(
+    useCallback(() => {
+      setNow(Date.now());
+
+      const interval = setInterval(() => {
+        setNow(Date.now());
+      }, 60000);
+
+      return () => clearInterval(interval);
+    }, []),
+  );
+
+  const todayKey = getDateKey(new Date(now));
+
+  const periodEndDay = useMemo(() => {
+    const [year, month, day] = todayKey.split("-").map(Number);
+
+    return addDays(
+      new Date(year, month - 1, day),
+      weekOffset * NUMBER_OF_VISIBLE_DAYS,
+    );
+  }, [todayKey, weekOffset]);
+
+  const dateKey = getDateKey(periodEndDay);
 
   const visibleDays = useMemo(
-    () => createVisibleDays(entries, NUMBER_OF_VISIBLE_DAYS),
-    [entries],
+    () =>
+      Array.from({ length: NUMBER_OF_VISIBLE_DAYS }, (_, index) =>
+        addDays(periodEndDay, index - NUMBER_OF_VISIBLE_DAYS + 1),
+      ),
+    [periodEndDay],
+  );
+
+  const { weekEntries, loading, error, syncError, isRefreshing, refresh } =
+    useTrackingPeriod({
+      userId: user?.id,
+      childId,
+      dateKey,
+      accessToken,
+      refreshSession,
+    });
+
+  const entries = useMemo(
+    () => weekEntries.filter((entry) => entry.type === "sleep"),
+    [weekEntries],
   );
 
   const historyGroups = useMemo(() => createHistoryGroups(entries), [entries]);
 
   const statistics = useMemo(
-    () => calculateStatistics(entries, visibleDays),
-    [entries, visibleDays],
+    () => calculateStatistics(entries, visibleDays, now),
+    [entries, visibleDays, now],
   );
+
+  const periodLabel = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(i18n.language, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+
+    return (
+      `${formatter.format(visibleDays[0])} – ` + formatter.format(periodEndDay)
+    );
+  }, [i18n.language, visibleDays, periodEndDay]);
+
+  const durationLabel = (value) =>
+    value === null ? "—" : formatDuration(value);
+
+  const canDisplay = Boolean(user?.id && childId);
+  const showContent = canDisplay && !loading && !error;
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -488,7 +612,7 @@ export default function SleepHistoryScreen({
           accessibilityRole="button"
           accessibilityLabel={t("Go back")}
           hitSlop={10}
-          onPress={navigation.goBack}
+          onPress={() => navigation.goBack()}
           style={({ pressed }) => [
             styles.backButton,
             pressed && styles.pressed,
@@ -499,7 +623,6 @@ export default function SleepHistoryScreen({
 
         <View style={styles.headerText}>
           <Text style={styles.title}>{t("Sleep")}</Text>
-
           <Text style={styles.subtitle}>
             {t("Rhythm, duration and history")}
           </Text>
@@ -509,123 +632,213 @@ export default function SleepHistoryScreen({
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary}
+          />
+        }
       >
-        <View style={styles.heroCard}>
-          <View style={styles.heroContent}>
-            <Text style={styles.heroLabel}>{t("Average sleep per day")}</Text>
-
-            <Text style={styles.heroValue}>
-              {formatDuration(statistics.averageDailyMinutes)}
-            </Text>
-
-            <Text style={styles.heroDescription}>
-              {t("Based on {{count}} recorded days", {
-                count: statistics.recordedDayCount,
-              })}
-            </Text>
-          </View>
-
-          <View style={styles.heroImageContainer}>
-            <Image
-              source={NIGHT_SLEEP_IMAGE}
-              resizeMode="contain"
-              style={styles.heroImage}
-            />
-          </View>
-        </View>
-
-        <View style={styles.summaryGrid}>
-          <SummaryCard
-            label={t("Average night")}
-            value={formatDuration(statistics.averageNightMinutes)}
-            icon="moon-outline"
-            iconColor={SLEEP_COLORS.night}
-            iconBackground={SLEEP_COLORS.nightSoft}
-            styles={styles}
-          />
-
-          <SummaryCard
-            label={t("Naps per day")}
-            value={formatDecimal(statistics.averageNapCount, i18n.language)}
-            icon="partly-sunny-outline"
-            iconColor={SLEEP_COLORS.nap}
-            iconBackground={SLEEP_COLORS.napSoft}
-            styles={styles}
-          />
-
-          <SummaryCard
-            label={t("Average bedtime")}
-            value={formatClockMinutes(
-              statistics.averageBedtimeMinutes,
-              i18n.language,
-            )}
-            icon="time-outline"
-            iconColor={SLEEP_COLORS.bedtime}
-            iconBackground={SLEEP_COLORS.bedtimeSoft}
-            styles={styles}
-          />
-        </View>
-
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t("Sleep rhythm")}</Text>
-
-          <Text style={styles.sectionMetadata}>{t("Last 7 days")}</Text>
-        </View>
-
-        <View style={styles.rhythmCard}>
-          <View style={styles.rhythmHours}>
-            {["0h", "6h", "12h", "18h", "24h"].map((hour) => (
-              <Text key={hour} style={styles.rhythmHour}>
-                {hour}
-              </Text>
-            ))}
-          </View>
-
-          {visibleDays.map((day) => (
-            <SleepRhythmRow
-              key={getDateKey(day)}
-              day={day}
-              entries={entries}
-              language={i18n.language}
-              styles={styles}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("Previous 7 days")}
+            onPress={() => setWeekOffset((value) => value - 1)}
+            style={styles.backButton}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={colors.textPrimary}
             />
-          ))}
+          </Pressable>
 
-          <View style={styles.legend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.nightSegment]} />
+          <Text
+            style={[
+              styles.sectionMetadata,
+              { flex: 1, textAlign: "center", marginHorizontal: 8 },
+            ]}
+          >
+            {periodLabel}
+          </Text>
 
-              <Text style={styles.legendText}>{t("Night")}</Text>
-            </View>
-
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, styles.napSegment]} />
-
-              <Text style={styles.legendText}>{t("Nap")}</Text>
-            </View>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t("Next 7 days")}
+            disabled={weekOffset >= 0}
+            onPress={() => setWeekOffset((value) => Math.min(0, value + 1))}
+            style={[styles.backButton, weekOffset >= 0 && { opacity: 0.3 }]}
+          >
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={colors.textPrimary}
+            />
+          </Pressable>
         </View>
 
-        <Text style={styles.historyTitle}>{t("History")}</Text>
+        {!canDisplay ? (
+          <Text style={styles.heroDescription}>
+            {t("Unable to identify the child. Go back and try again.")}
+          </Text>
+        ) : loading ? (
+          <ActivityIndicator
+            color={colors.primary}
+            style={{ marginVertical: 24 }}
+          />
+        ) : error ? (
+          <Text style={styles.heroDescription}>
+            {t("Unable to load tracking data. Pull down to try again.")}
+          </Text>
+        ) : null}
 
-        {historyGroups.map((group) => (
-          <View key={getDateKey(group.date)} style={styles.historyGroup}>
-            <Text style={styles.historyDate}>
-              {formatFullDate(group.date, i18n.language)}
-            </Text>
+        {canDisplay && syncError ? (
+          <Text style={styles.heroDescription}>
+            {t("Synchronization failed. Showing data saved on this device.")}
+          </Text>
+        ) : null}
 
-            {group.entries.map((entry) => (
-              <SleepHistoryCard
-                key={entry.id}
-                entry={entry}
-                language={i18n.language}
-                onPress={onEditTrackingEntry}
-                t={t}
+        {showContent ? (
+          <>
+            <View style={styles.heroCard}>
+              <View style={styles.heroContent}>
+                <Text style={styles.heroLabel}>
+                  {t("Average sleep per recorded day")}
+                </Text>
+
+                <Text style={styles.heroValue}>
+                  {durationLabel(statistics.averageDailyMinutes)}
+                </Text>
+
+                <Text style={styles.heroDescription}>
+                  {t("Days with recorded sleep: {{number}}", {
+                    number: statistics.recordedDayCount,
+                  })}
+                </Text>
+
+                <Text style={styles.heroDescription}>
+                  {t(
+                    "Includes ongoing sleep. Unrecorded sleep is not counted.",
+                  )}
+                </Text>
+              </View>
+
+              <View style={styles.heroImageContainer}>
+                <Image
+                  source={NIGHT_SLEEP_IMAGE}
+                  resizeMode="contain"
+                  style={styles.heroImage}
+                />
+              </View>
+            </View>
+
+            <View style={styles.summaryGrid}>
+              <SummaryCard
+                label={t("Average completed night session")}
+                value={durationLabel(statistics.averageNightMinutes)}
+                icon="moon-outline"
+                iconColor={SLEEP_COLORS.night}
+                iconBackground={SLEEP_COLORS.nightSoft}
                 styles={styles}
               />
-            ))}
-          </View>
-        ))}
+
+              <SummaryCard
+                label={t("Naps per recorded day")}
+                value={
+                  statistics.averageNapCount === null
+                    ? "—"
+                    : formatDecimal(statistics.averageNapCount, i18n.language)
+                }
+                icon="partly-sunny-outline"
+                iconColor={SLEEP_COLORS.nap}
+                iconBackground={SLEEP_COLORS.napSoft}
+                styles={styles}
+              />
+
+              <SummaryCard
+                label={t("Average bedtime")}
+                value={formatClockMinutes(
+                  statistics.averageBedtimeMinutes,
+                  i18n.language,
+                )}
+                icon="time-outline"
+                iconColor={SLEEP_COLORS.bedtime}
+                iconBackground={SLEEP_COLORS.bedtimeSoft}
+                styles={styles}
+              />
+            </View>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{t("Sleep rhythm")}</Text>
+              <Text style={styles.sectionMetadata}>
+                {t("Displayed 7 days")}
+              </Text>
+            </View>
+
+            <View style={styles.rhythmCard}>
+              <View style={styles.rhythmHours}>
+                {["0h", "6h", "12h", "18h", "24h"].map((hour) => (
+                  <Text key={hour} style={styles.rhythmHour}>
+                    {hour}
+                  </Text>
+                ))}
+              </View>
+
+              {visibleDays.map((day) => (
+                <SleepRhythmRow
+                  key={getDateKey(day)}
+                  day={day}
+                  entries={entries}
+                  language={i18n.language}
+                  styles={styles}
+                  now={now}
+                />
+              ))}
+
+              <View style={styles.legend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, styles.nightSegment]} />
+                  <Text style={styles.legendText}>{t("Night")}</Text>
+                </View>
+
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, styles.napSegment]} />
+                  <Text style={styles.legendText}>{t("Nap")}</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.historyTitle}>
+              {t("Sleep sessions in this period")}
+            </Text>
+
+            {historyGroups.length === 0 ? (
+              <Text style={styles.heroDescription}>
+                {t("No sleep recorded for this period on this device.")}
+              </Text>
+            ) : (
+              historyGroups.map((group) => (
+                <View key={getDateKey(group.date)} style={styles.historyGroup}>
+                  <Text style={styles.historyDate}>
+                    {formatFullDate(group.date, i18n.language)}
+                  </Text>
+
+                  {group.entries.map((entry) => (
+                    <SleepHistoryCard
+                      key={entry.id}
+                      entry={entry}
+                      language={i18n.language}
+                      onPress={onEditTrackingEntry}
+                      t={t}
+                      styles={styles}
+                    />
+                  ))}
+                </View>
+              ))
+            )}
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

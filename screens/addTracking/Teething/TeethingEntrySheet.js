@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import {
+  Alert,
   Animated,
   Easing,
   Image,
@@ -32,6 +33,20 @@ import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
 import NoteSheet from "../Feeding/NoteSheet.js";
 import TrackingHistoryButton from "../../../components/addTracking/TrackingHistoryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
+
+import {
+  createLocalTeethingEntry,
+  updateLocalTeethingEntry,
+  getLocalEruptedToothCodes,
+} from "../../../database/tracking/teething/teethingRepository.js";
+
+import {
+  formatEruptionDate,
+  parseEruptionDate,
+} from "../../../utils/teethingUtils.js";
 
 const mouthBackground = require("../../../assets/illustrations/tracking/teething/mouth.png");
 
@@ -114,7 +129,7 @@ const TEETH = [
   // Supérieures gauches
 
   {
-    id: "upperLeftSecondMolar",
+    id: "upper_left_second_molar",
     type: "secondMolar",
     x: 199,
     y: 366,
@@ -124,7 +139,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "upperLeftFirstMolar",
+    id: "upper_left_first_molar",
     type: "firstMolar",
     x: 210,
     y: 255,
@@ -134,7 +149,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "upperLeftCanine",
+    id: "upper_left_canine",
     type: "canine",
     x: 260,
     y: 168,
@@ -144,7 +159,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "upperLeftLateralIncisor",
+    id: "upper_left_lateral_incisor",
     type: "lateralIncisor",
     x: 320,
     y: 121,
@@ -154,7 +169,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "upperLeftCentralIncisor",
+    id: "upper_left_central_incisor",
     type: "centralIncisor",
     x: 390,
     y: 90,
@@ -167,7 +182,7 @@ const TEETH = [
   // Supérieures droites
 
   {
-    id: "upperRightCentralIncisor",
+    id: "upper_right_central_incisor",
     type: "centralIncisor",
     x: 470,
     y: 90,
@@ -177,7 +192,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "upperRightLateralIncisor",
+    id: "upper_right_lateral_incisor",
     type: "lateralIncisor",
     x: 545,
     y: 121,
@@ -187,7 +202,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "upperRightCanine",
+    id: "upper_right_canine",
     type: "canine",
     x: 590,
     y: 165,
@@ -197,7 +212,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "upperRightFirstMolar",
+    id: "upper_right_first_molar",
     type: "firstMolar",
     x: 637,
     y: 250,
@@ -207,7 +222,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "upperRightSecondMolar",
+    id: "upper_right_second_molar",
     type: "secondMolar",
     x: 685,
     y: 370,
@@ -220,7 +235,7 @@ const TEETH = [
   // Inférieures gauches
 
   {
-    id: "lowerLeftSecondMolar",
+    id: "lower_left_second_molar",
     type: "secondMolar",
     x: 200,
     y: 565,
@@ -230,7 +245,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "lowerLeftFirstMolar",
+    id: "lower_left_first_molar",
     type: "firstMolar",
     x: 215,
     y: 650,
@@ -240,7 +255,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "lowerLeftCanine",
+    id: "lower_left_canine",
     type: "canine",
     x: 285,
     y: 705,
@@ -250,7 +265,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "lowerLeftLateralIncisor",
+    id: "lower_left_lateral_incisor",
     type: "lateralIncisor",
     x: 330,
     y: 760,
@@ -260,7 +275,7 @@ const TEETH = [
     mirrored: false,
   },
   {
-    id: "lowerLeftCentralIncisor",
+    id: "lower_left_central_incisor",
     type: "centralIncisor",
     x: 395,
     y: 780,
@@ -273,7 +288,7 @@ const TEETH = [
   // Inférieures droites
 
   {
-    id: "lowerRightCentralIncisor",
+    id: "lower_right_central_incisor",
     type: "centralIncisor",
     x: 470,
     y: 780,
@@ -283,7 +298,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "lowerRightLateralIncisor",
+    id: "lower_right_lateral_incisor",
     type: "lateralIncisor",
     x: 525,
     y: 760,
@@ -293,7 +308,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "lowerRightCanine",
+    id: "lower_right_canine",
     type: "canine",
     x: 565,
     y: 705,
@@ -303,7 +318,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "lowerRightFirstMolar",
+    id: "lower_right_first_molar",
     type: "firstMolar",
     x: 630,
     y: 650,
@@ -313,7 +328,7 @@ const TEETH = [
     mirrored: true,
   },
   {
-    id: "lowerRightSecondMolar",
+    id: "lower_right_second_molar",
     type: "secondMolar",
     x: 675,
     y: 565,
@@ -324,53 +339,25 @@ const TEETH = [
   },
 ];
 
-const TOOTH_ID_ALIASES = {
-  "lower-central-incisor-left": "lowerLeftCentralIncisor",
-  "lower-central-incisor-right": "lowerRightCentralIncisor",
-  "upper-central-incisor-left": "upperLeftCentralIncisor",
-  "upper-central-incisor-right": "upperRightCentralIncisor",
-};
-
-function normalizeToothId(toothId) {
-  return TOOTH_ID_ALIASES[toothId] ?? toothId;
-}
-
 function createTeethingStateFromTrackingEntry(entry) {
   const entryData = entry?.data ?? entry ?? {};
 
-  let teeth = [];
+  const validToothCodes = new Set(TEETH.map((tooth) => tooth.id));
 
-  if (Array.isArray(entryData.teeth)) {
-    teeth = entryData.teeth;
-  } else if (Array.isArray(entryData.toothIds)) {
-    teeth = entryData.toothIds;
-  } else if (entryData.toothId) {
-    teeth = [entryData.toothId];
-  }
+  const teeth = Array.isArray(entryData.toothCodes)
+    ? [
+        ...new Set(
+          entryData.toothCodes.filter((code) => validToothCodes.has(code)),
+        ),
+      ]
+    : [];
 
-  const validToothIds = new Set(TEETH.map((tooth) => tooth.id));
-
-  const normalizedTeeth = teeth
-    .map(normalizeToothId)
-    .filter((toothId) => validToothIds.has(toothId));
-
-  const dateValue =
-    entryData.teethingDate ??
-    entryData.date ??
-    entry?.teethingDate ??
-    entry?.occurredAt ??
-    entry?.startedAt ??
-    entry?.date;
-
-  const parsedDate = dateValue ? new Date(dateValue) : null;
-
-  const hasValidDate =
-    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+  const date = parseEruptionDate(entryData.eruptionDate);
 
   return {
-    teeth: normalizedTeeth,
-    date: hasValidDate ? parsedDate : new Date(),
-    hasRecordedDate: hasValidDate,
+    teeth,
+    date: date ?? new Date(),
+    hasRecordedDate: date !== null,
     note: entryData.note ?? "",
   };
 }
@@ -658,11 +645,21 @@ function ResponsiveTeethingMouth({
 }
 
 const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
-  { childName, eruptedTeeth = [], onSave, onRequestDelete, onPressHistory },
+  { userId, childId, childName, onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+
+  const { accessToken, refreshSession } = useAuth();
+
+  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
+
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isLoadingTeeth, setIsLoadingTeeth] = useState(true);
+  const [teethLoadFailed, setTeethLoadFailed] = useState(false);
+  const [lockedEruptedTeeth, setLockedEruptedTeeth] = useState([]);
 
   const modalRef = useRef(null);
   const noteSheetRef = useRef(null);
@@ -682,16 +679,60 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
 
   const isEditMode = sheetMode === "edit";
 
-  const canSave = selectedTeeth.length > 0;
+  const canSave =
+    Boolean(userId && childId) &&
+    selectedTeeth.length > 0 &&
+    !isSaving &&
+    !isLoadingTeeth &&
+    !teethLoadFailed;
 
-  const lockedEruptedTeeth = useMemo(() => {
-    if (!isEditMode) {
-      return eruptedTeeth;
+  const editingEntryId = isEditMode ? editingEntry?.id : null;
+
+  useEffect(() => {
+    if (!isSheetOpen) {
+      return undefined;
     }
-    return eruptedTeeth.filter(
-      (toothId) => !editingEntryTeeth.includes(toothId),
-    );
-  }, [editingEntryTeeth, eruptedTeeth, isEditMode]);
+
+    let cancelled = false;
+
+    setIsLoadingTeeth(true);
+    setTeethLoadFailed(false);
+
+    async function loadTeeth() {
+      try {
+        const toothCodes = await getLocalEruptedToothCodes({
+          userId,
+          childId,
+          excludeEntryId: editingEntryId,
+        });
+
+        if (!cancelled) {
+          setLockedEruptedTeeth(toothCodes);
+        }
+      } catch (error) {
+        console.warn("Unable to load recorded teeth:", error);
+
+        if (!cancelled) {
+          setTeethLoadFailed(true);
+
+          Alert.alert(
+            t("Unable to load teeth"),
+            t("Please close this screen and try again."),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingTeeth(false);
+        }
+      }
+    }
+
+    void loadTeeth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSheetOpen, userId, childId, editingEntryId, t]);
 
   const resetForm = useCallback(() => {
     setSelectedTeeth([]);
@@ -702,18 +743,28 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
     setSheetMode("create");
     setEditingEntry(null);
     setEditingEntryTeeth([]);
+
+    setIsSheetOpen(false);
+    setIsLoadingTeeth(true);
+    setTeethLoadFailed(false);
+    setLockedEruptedTeeth([]);
   }, []);
 
   useImperativeHandle(
     ref,
     () => ({
       present(options = {}) {
-        /*
-         * Compatibilité avec :
-         * teethingSheetRef.current?.present()
-         */
+        if (isSavingRef.current) {
+          return;
+        }
+
+        setIsLoadingTeeth(true);
+        setTeethLoadFailed(false);
+        setLockedEruptedTeeth([]);
+
         if (!options || typeof options !== "object") {
           resetForm();
+          setIsSheetOpen(true);
           modalRef.current?.present();
           return;
         }
@@ -742,10 +793,16 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
           setNote("");
         }
 
+        setIsSheetOpen(true);
+
         modalRef.current?.present();
       },
 
       dismiss() {
+        if (isSavingRef.current) {
+          return;
+        }
+
         noteSheetRef.current?.dismiss();
         modalRef.current?.dismiss();
       },
@@ -759,38 +816,45 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleToggleTooth = useCallback(
     (toothId) => {
-      if (lockedEruptedTeeth.includes(toothId)) {
+      if (
+        isSavingRef.current ||
+        isLoadingTeeth ||
+        teethLoadFailed ||
+        lockedEruptedTeeth.includes(toothId)
+      ) {
         return;
       }
 
-      Haptics.selectionAsync().catch(() => {});
+      setSelectedTeeth((current) =>
+        current.includes(toothId)
+          ? current.filter((id) => id !== toothId)
+          : [...current, toothId],
+      );
 
-      setSelectedTeeth((currentTeeth) => {
-        if (currentTeeth.includes(toothId)) {
-          return currentTeeth.filter((id) => id !== toothId);
-        }
-
-        return [...currentTeeth, toothId];
-      });
+      void Haptics.selectionAsync().catch(() => {});
     },
-    [lockedEruptedTeeth],
+    [isLoadingTeeth, teethLoadFailed, lockedEruptedTeeth],
   );
 
   const handleOpenNote = useCallback(() => {
+    if (isSavingRef.current) {
+      return;
+    }
+
     noteSheetRef.current?.present(note);
   }, [note]);
 
   const handleRequestDelete = useCallback(() => {
-    if (!isEditMode || !editingEntry) {
+    if (isSavingRef.current || !isEditMode || !editingEntry) {
       return;
     }
 
@@ -798,43 +862,117 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
   }, [editingEntry, isEditMode, onRequestDelete]);
 
   const handleOpenHistory = useCallback(() => {
+    if (isSavingRef.current) {
+      return;
+    }
+
     modalRef.current?.dismiss();
 
     setTimeout(() => {
       onPressHistory?.("teething");
     }, 220);
   }, [onPressHistory]);
-
   const handleSave = useCallback(async () => {
-    if (!canSave) {
+    if (isSavingRef.current || !canSave) {
       return;
     }
 
-    await Haptics.notificationAsync(
+    const selectedDate = isTeethingDateToday ? new Date() : teethingDate;
+
+    const eruptionDate = formatEruptionDate(selectedDate);
+    const today = formatEruptionDate(new Date());
+
+    if (eruptionDate > today) {
+      Alert.alert(
+        t("Invalid eruption date"),
+        t("The eruption date cannot be in the future."),
+      );
+      return;
+    }
+
+    isSavingRef.current = true;
+    setIsSaving(true);
+
+    let savedEntry;
+
+    try {
+      const data = {
+        toothCodes: [...selectedTeeth],
+        eruptionDate,
+        note: note.trim() || null,
+      };
+
+      savedEntry = isEditMode
+        ? await updateLocalTeethingEntry({
+            userId,
+            childId,
+            entryId: editingEntry?.id,
+            data,
+          })
+        : await createLocalTeethingEntry({
+            userId,
+            childId,
+            data,
+          });
+    } catch (error) {
+      console.warn("Unable to save teething entry:", error);
+
+      Alert.alert(
+        t("Unable to save teething"),
+        error.code === "TOOTH_ALREADY_RECORDED"
+          ? t("One or more selected teeth have already been recorded.")
+          : t("Please try again."),
+      );
+
+      isSavingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+
+    // La sauvegarde locale est terminée : lancer immédiatement la sync.
+    if (accessToken) {
+      void processSyncQueue({
+        userId,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.warn("Unable to synchronize tracking entries:", error);
+      });
+    }
+
+    void Haptics.notificationAsync(
       Haptics.NotificationFeedbackType.Success,
     ).catch(() => {});
 
-    await onSave?.({
-      ...editingEntry,
+    try {
+      await onSave?.({
+        ...savedEntry,
+        mode: isEditMode ? "edit" : "create",
+      });
+    } catch (error) {
+      // L'entrée est déjà enregistrée : ne pas proposer de la recréer.
+      console.warn("Unable to display teething save confirmation:", error);
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
 
-      id: editingEntry?.id,
-
-      type: "teething",
-      mode: sheetMode,
-
-      teeth: selectedTeeth,
-      date: teethingDate,
-      note: note.trim() || null,
-    });
-    modalRef.current?.dismiss();
+      noteSheetRef.current?.dismiss();
+      modalRef.current?.dismiss();
+    }
   }, [
     canSave,
-    editingEntry,
-    note,
-    onSave,
-    selectedTeeth,
-    sheetMode,
+    isTeethingDateToday,
     teethingDate,
+    selectedTeeth,
+    note,
+    isEditMode,
+    editingEntry?.id,
+    userId,
+    childId,
+    accessToken,
+    refreshSession,
+    onSave,
+    t,
   ]);
 
   return (
@@ -844,7 +982,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
         index={0}
         snapPoints={snapPoints}
         enableDynamicSizing={false}
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         enableContentPanningGesture
         enableHandlePanningGesture
         backdropComponent={renderBackdrop}
@@ -956,6 +1094,7 @@ const TeethingEntrySheet = forwardRef(function TeethingEntrySheet(
                     title={t("Delete")}
                     variant="destructive"
                     onPress={handleRequestDelete}
+                    disabled={isSaving}
                   />
                 </View>
 

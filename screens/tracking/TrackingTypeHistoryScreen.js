@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Image,
   Pressable,
@@ -6,15 +6,19 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
+import { TRACKING_TYPE_CONFIG } from "../../data/mockTrackingData.js";
+import { useSelector } from "react-redux";
+import { useTrackingHistory } from "../../hooks/useTrackingHistory.js";
 import {
-  mockTrackingDay,
-  TRACKING_TYPE_CONFIG,
-} from "../../data/mockTrackingData.js";
+  getHistoryEntryDate,
+  getHistoryPresentation,
+} from "../../utils/trackingHistoryPresentation.js";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
@@ -52,19 +56,7 @@ function parseDate(value) {
 }
 
 function getEntryDate(entry) {
-  const data = getEntryData(entry);
-
-  const dateValue =
-    data.measuredAt ??
-    data.medicationDate ??
-    data.vaccineDate ??
-    data.teethingDate ??
-    data.notedAt ??
-    entry?.occurredAt ??
-    entry?.startedAt ??
-    entry?.date;
-
-  return parseDate(dateValue) ?? new Date();
+  return getHistoryEntryDate(entry);
 }
 
 function getDateKey(date) {
@@ -108,6 +100,8 @@ function formatSectionDate(date, language, t) {
 }
 
 function formatEntryTime(entry, language) {
+  if (entry.type === "teething") return "—";
+
   return new Intl.DateTimeFormat(language, {
     hour: "2-digit",
     minute: "2-digit",
@@ -118,8 +112,13 @@ function formatLatestEntryDate(entry, language) {
   return new Intl.DateTimeFormat(language, {
     day: "numeric",
     month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
+    year: "numeric",
+    ...(entry.type === "teething"
+      ? {}
+      : {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
   }).format(getEntryDate(entry));
 }
 
@@ -288,7 +287,13 @@ function createHistorySections(entries, language, t) {
 }
 
 function HistoryEntryCard({ entry, language, onPress, t, colors, styles }) {
-  const presentation = getEntryPresentation(entry, t);
+  const units = useSelector((state) => state.measurementUnits);
+
+  const presentation = getHistoryPresentation(entry, {
+    language,
+    units,
+    t,
+  });
 
   const visual = TRACKING_TYPE_CONFIG[entry.type] ?? TRACKING_TYPE_CONFIG.note;
 
@@ -364,6 +369,36 @@ export default function TrackingTypeHistoryScreen({
 
   const trackingType = route?.params?.trackingType ?? "temperature";
 
+  const selectedChildId = useSelector(
+    (state) => state.children.selectedChildId,
+  );
+
+  const childId = route?.params?.childId ?? selectedChildId;
+
+  const units = useSelector((state) => state.measurementUnits);
+
+  const {
+    entries: localEntries,
+    loading,
+    error,
+    syncError,
+    isRefreshing,
+    refresh,
+  } = useTrackingHistory(childId, trackingType);
+
+  useEffect(() => {
+    if (!error) return;
+
+    console.error(
+      "Tracking history error:",
+      error?.message ?? String(error),
+      "| childId:",
+      childId,
+      "| type:",
+      trackingType,
+    );
+  }, [error, childId, trackingType]);
+
   const titleKey = route?.params?.titleKey ?? null;
 
   const visual =
@@ -374,14 +409,16 @@ export default function TrackingTypeHistoryScreen({
       return [];
     }
 
-    return mockTrackingDay.entries
-      .filter((entry) => entry.type === trackingType)
+    return localEntries
+      .filter((entry) => getEntryDate(entry) !== null)
       .sort(
-        (firstEntry, secondEntry) =>
-          getEntryDate(secondEntry).getTime() -
-          getEntryDate(firstEntry).getTime(),
+        (first, second) =>
+          getEntryDate(second).getTime() - getEntryDate(first).getTime() ||
+          second.id.localeCompare(first.id),
       );
-  }, [trackingType]);
+  }, [localEntries, trackingType]);
+
+  const invalidDateCount = localEntries.length - entries.length;
 
   const sections = useMemo(
     () => createHistorySections(entries, i18n.language, t),
@@ -391,7 +428,11 @@ export default function TrackingTypeHistoryScreen({
   const latestEntry = entries[0] ?? null;
 
   const latestPresentation = latestEntry
-    ? getEntryPresentation(latestEntry, t)
+    ? getHistoryPresentation(latestEntry, {
+        language: i18n.language,
+        units,
+        t,
+      })
     : null;
 
   const screenTitle = titleKey ?? visual.titleKey ?? "Tracking";
@@ -415,12 +456,33 @@ export default function TrackingTypeHistoryScreen({
         <View style={styles.headerText}>
           <Text style={styles.title}>{t(screenTitle)}</Text>
 
-          <Text style={styles.subtitle}>{t("Complete tracking history")}</Text>
+          <Text style={styles.subtitle}>{t("Tracking history")}</Text>
         </View>
       </View>
 
       <SectionList
-        sections={sections}
+        sections={loading || error ? [] : sections}
+        refreshing={isRefreshing}
+        onRefresh={refresh}
+        ListFooterComponent={
+          <>
+            {syncError ? (
+              <Text style={styles.emptyDescription}>
+                {t(
+                  "Synchronization failed. Showing data saved on this device.",
+                )}
+              </Text>
+            ) : null}
+
+            {invalidDateCount > 0 ? (
+              <Text style={styles.emptyDescription}>
+                {t(
+                  "Some entries have an invalid date and cannot be displayed.",
+                )}
+              </Text>
+            ) : null}
+          </>
+        }
         keyExtractor={(entry) => entry.id}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
@@ -429,7 +491,7 @@ export default function TrackingTypeHistoryScreen({
           sections.length === 0 && styles.emptyListContent,
         ]}
         ListHeaderComponent={
-          latestEntry && latestPresentation ? (
+          !loading && !error && latestEntry && latestPresentation ? (
             <View style={styles.summaryCard}>
               <View
                 style={[
@@ -461,30 +523,43 @@ export default function TrackingTypeHistoryScreen({
           ) : null
         }
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <View
-              style={[
-                styles.emptyImageContainer,
-                {
-                  backgroundColor: visual.backgroundColor,
-                },
-              ]}
-            >
-              <Image
-                source={visual.image}
-                resizeMode="contain"
-                style={styles.emptyImage}
-              />
+          loading ? (
+            <ActivityIndicator
+              color={colors.primary}
+              style={{ marginVertical: 32 }}
+            />
+          ) : error ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>
+                {t("Unable to load tracking history")}
+              </Text>
+
+              <Text style={styles.emptyDescription}>
+                {t("Pull down to try again.")}
+              </Text>
             </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View
+                style={[
+                  styles.emptyImageContainer,
+                  { backgroundColor: visual.backgroundColor },
+                ]}
+              >
+                <Image
+                  source={visual.image}
+                  resizeMode="contain"
+                  style={styles.emptyImage}
+                />
+              </View>
 
-            <Text style={styles.emptyTitle}>{t("No entries yet")}</Text>
+              <Text style={styles.emptyTitle}>{t("No matching entries")}</Text>
 
-            <Text style={styles.emptyDescription}>
-              {t(
-                "The entries recorded for this tracking type will appear here.",
-              )}
-            </Text>
-          </View>
+              <Text style={styles.emptyDescription}>
+                {t("No entries match this view.")}
+              </Text>
+            </View>
+          )
         }
         renderSectionHeader={({ section }) => (
           <Text style={styles.sectionTitle}>{section.title}</Text>

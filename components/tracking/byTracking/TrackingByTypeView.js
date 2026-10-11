@@ -290,14 +290,8 @@ function CompactTrackingTypeRow({ item, isLast, onPress, colors, styles, t }) {
 }
 
 export default function TrackingByTypeView({
+  entries = [],
   onPressTrackingType,
-
-  /*
-   * Plus tard, cette liste pourra venir du store :
-   * - types les plus consultés ;
-   * - types récemment consultés ;
-   * - éléments épinglés par l’utilisateur.
-   */
   quickAccessTypeIds = DEFAULT_QUICK_ACCESS_IDS,
 }) {
   const { t } = useTranslation();
@@ -308,28 +302,60 @@ export default function TrackingByTypeView({
 
   const [searchQuery, setSearchQuery] = useState("");
 
+  const sections = useMemo(
+    () =>
+      mockTrackingTypeSections.map((section) => ({
+        ...section,
+
+        items: (section.items ?? []).map((item) => {
+          const type = item.trackingType ?? item.type ?? item.id;
+
+          const types =
+            type === "feeding"
+              ? ["bottle", "breastfeeding", "solids", "pumping"]
+              : type === "diaper"
+                ? ["diaper", "potty"]
+                : [type];
+
+          const count = entries.filter((entry) =>
+            types.includes(entry.type),
+          ).length;
+
+          return {
+            ...item,
+            subtitleKey: undefined,
+            subtitle: "",
+            metadataKey: undefined,
+            metadata: t("Entries in the displayed 7 days: {{count}}", {
+              count,
+            }),
+          };
+        }),
+      })),
+    [entries, t],
+  );
+
   const quickAccessItems = useMemo(
-    () => getQuickAccessItems(mockTrackingTypeSections, quickAccessTypeIds),
-    [quickAccessTypeIds],
+    () => getQuickAccessItems(sections, quickAccessTypeIds),
+    [sections, quickAccessTypeIds],
   );
 
   const visibleSections = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
 
     if (!query) {
-      return mockTrackingTypeSections;
+      return sections;
     }
 
-    return mockTrackingTypeSections
+    return sections
       .map((section) => ({
         ...section,
-
         items: (section.items ?? []).filter((item) =>
           getSearchableText(item, t).includes(query),
         ),
       }))
       .filter((section) => section.items.length > 0);
-  }, [searchQuery, t]);
+  }, [sections, searchQuery, t]);
 
   const handlePressItem = (item) => {
     onPressTrackingType?.(item);

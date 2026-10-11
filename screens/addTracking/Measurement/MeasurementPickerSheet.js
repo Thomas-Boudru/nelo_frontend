@@ -20,44 +20,31 @@ import * as Haptics from "expo-haptics";
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 
+import {
+  getGrowthMeasurementConfig,
+  toGrowthDisplayValue,
+  toGrowthStorageValue,
+} from "../../../utils/growthMeasurementUtils.js";
+
 /*
  * Deux décimales pour toutes les mesures : c'est ce que la saisie autorise,
  * donc arrondir plus court afficherait une valeur différente de celle tapée.
  */
 const MAX_DECIMALS = 2;
 
-const MEASUREMENT_CONFIG = {
-  weight: {
-    title: "Weight",
-    unit: "kg",
-    step: 0.01,
-    decimals: MAX_DECIMALS,
-    placeholder: "0.00",
-  },
-
-  height: {
-    title: "Height",
-    unit: "cm",
-    step: 0.1,
-    decimals: MAX_DECIMALS,
-    placeholder: "0.00",
-  },
-
-  headCircumference: {
-    title: "Head circumference",
-    unit: "cm",
-    step: 0.1,
-    decimals: MAX_DECIMALS,
-    placeholder: "0.00",
-  },
-};
-
 function parseMeasurement(value) {
-  const parsedValue = Number(String(value).trim().replace(",", "."));
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(",", ".");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsedValue = Number(normalized);
 
   return Number.isFinite(parsedValue) ? parsedValue : null;
 }
-
 /*
  * Le pavé décimal laisse taper autant de chiffres et de séparateurs que
  * voulu : on ne garde que des chiffres, un seul séparateur et deux décimales.
@@ -106,6 +93,15 @@ const MeasurementPickerSheet = forwardRef(function MeasurementPickerSheet(
   const [hasExistingValue, setHasExistingValue] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
+  const [config, setConfig] = useState(() =>
+    getGrowthMeasurementConfig("weight"),
+  );
+
+  const initialMeasurementRef = useRef({
+    storageValue: null,
+    draftValue: "",
+  });
+
   useEffect(() => {
     const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
       setKeyboardVisible(true);
@@ -121,39 +117,55 @@ const MeasurementPickerSheet = forwardRef(function MeasurementPickerSheet(
     };
   }, []);
 
-  const config = MEASUREMENT_CONFIG[measurementType];
-
   const parsedValue = parseMeasurement(draftValue);
 
   const canConfirm = parsedValue !== null && parsedValue > 0;
 
-  useImperativeHandle(ref, () => ({
-    present({ type, value, previousValue }) {
-      const nextType = MEASUREMENT_CONFIG[type] ? type : "weight";
+  useImperativeHandle(
+    ref,
+    () => ({
+      present({ type, value, previousValue, config: requestedConfig } = {}) {
+        if (!["weight", "height", "headCircumference"].includes(type)) {
+          return;
+        }
 
-      const nextConfig = MEASUREMENT_CONFIG[nextType];
+        const nextConfig = requestedConfig ?? getGrowthMeasurementConfig(type);
 
-      setMeasurementType(nextType);
-      setHasExistingValue(value !== null && value !== undefined);
+        const initialStorageValue = value ?? previousValue ?? null;
 
-      /*
-       * Si la mesure n’est pas encore renseignée,
-       * on préremplit avec la précédente.
-       */
-      const initialValue = value ?? previousValue ?? null;
+        const initialDisplayValue = toGrowthDisplayValue(
+          initialStorageValue,
+          type,
+          nextConfig.unit,
+        );
 
-      setDraftValue(formatMeasurement(initialValue, nextConfig.decimals));
+        const initialDraftValue = formatMeasurement(
+          initialDisplayValue,
+          nextConfig.decimals,
+        );
 
-      requestAnimationFrame(() => {
-        modalRef.current?.present();
-      });
-    },
+        setMeasurementType(type);
+        setConfig(nextConfig);
+        setHasExistingValue(value !== null && value !== undefined);
 
-    dismiss() {
-      modalRef.current?.dismiss();
-    },
-  }));
+        initialMeasurementRef.current = {
+          storageValue: initialStorageValue,
+          draftValue: initialDraftValue,
+        };
 
+        setDraftValue(initialDraftValue);
+
+        requestAnimationFrame(() => {
+          modalRef.current?.present();
+        });
+      },
+
+      dismiss() {
+        modalRef.current?.dismiss();
+      },
+    }),
+    [],
+  );
   const renderBackdrop = useCallback(
     (props) => (
       <BottomSheetBackdrop
@@ -199,17 +211,43 @@ const MeasurementPickerSheet = forwardRef(function MeasurementPickerSheet(
       return;
     }
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {},
-    );
+    const initial = initialMeasurementRef.current;
+
+    const initialParsedValue = parseMeasurement(initial.draftValue);
+
+    // Une ouverture suivie d'une confirmation sans changement
+    // conserve la valeur interne exacte, malgré l'affichage arrondi.
+    const hasUnchangedValue =
+      initial.storageValue !== null &&
+      initial.storageValue !== undefined &&
+      parsedValue === initialParsedValue;
+
+    const storageValue = hasUnchangedValue
+      ? initial.storageValue
+      : toGrowthStorageValue(
+          roundMeasurement(parsedValue, config.decimals),
+          measurementType,
+          config.unit,
+        );
+
+    void Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Success,
+    ).catch(() => {});
 
     onConfirm?.({
       type: measurementType,
-      value: roundMeasurement(parsedValue, config.decimals),
+      value: storageValue,
     });
 
     modalRef.current?.dismiss();
-  }, [canConfirm, config.decimals, measurementType, onConfirm, parsedValue]);
+  }, [
+    canConfirm,
+    parsedValue,
+    config.decimals,
+    config.unit,
+    measurementType,
+    onConfirm,
+  ]);
 
   const handleRemove = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});

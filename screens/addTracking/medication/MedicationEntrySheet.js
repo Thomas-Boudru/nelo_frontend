@@ -51,7 +51,9 @@ import {
 
 import {
   createLocalMedicationEntry,
+  updateLocalMedicationEntry,
   createLocalVaccineEntry,
+  updateLocalVaccineEntry,
   getLocalMedicationEntries,
 } from "../../../database/tracking/medication/medicationRepository.js";
 
@@ -286,17 +288,20 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
     });
   }, [userId, user?.id, accessToken, refreshSession]);
 
+  const modalRef = useRef(null);
+  const medicationPickerRef = useRef(null);
+  const isPresentedRef = useRef(false);
+
   useEffect(() => {
     setMedicationEntry(createMedicationEntry());
     setVaccineEntry(createVaccineEntry());
     setEditingEntry(null);
     setSheetMode("create");
 
-    modalRef.current?.dismiss();
+    if (isPresentedRef.current) {
+      modalRef.current?.dismiss();
+    }
   }, [scope]);
-
-  const modalRef = useRef(null);
-  const medicationPickerRef = useRef(null);
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -472,7 +477,10 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
           setMedicationEntry(createMedicationEntry());
         }
 
-        modalRef.current?.present();
+        if (modalRef.current) {
+          isPresentedRef.current = true;
+          modalRef.current.present();
+        }
         return;
       }
 
@@ -505,13 +513,17 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
         }
       }
 
-      modalRef.current?.present();
+      if (modalRef.current) {
+        isPresentedRef.current = true;
+        modalRef.current.present();
+      }
     },
 
     dismiss() {
-      if (savingRef.current) {
+      if (savingRef.current || !isPresentedRef.current) {
         return;
       }
+
       modalRef.current?.dismiss();
     },
   }));
@@ -579,16 +591,25 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
       return;
     }
 
-    if (isEditMode) {
+    if (!userId || !childId || user?.id !== userId) {
+      Alert.alert(t("Unable to save"), t("Missing user ID or child ID."));
+      return;
+    }
+
+    const originalEntry = getTrackingEntryData(editingEntry);
+    const entryId = editingEntry?.id ?? originalEntry.id;
+
+    if (isEditMode && !entryId) {
       Alert.alert(
-        t("Editing is not available yet"),
-        t("Editing medication and vaccine entries is not available yet."),
+        t("Unable to save"),
+        t("The entry could not be identified. Reopen it and try again."),
       );
       return;
     }
 
     const saveScope = scope;
     const savedType = selectedType;
+    const savedMode = isEditMode ? "edit" : "create";
 
     savingRef.current = true;
     setIsSaving(true);
@@ -597,50 +618,73 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
 
     try {
       if (savedType === "medication") {
-        savedEntry = await createLocalMedicationEntry({
-          userId,
-          childId,
-          data: {
-            ...medicationEntry,
-
-            // La conversion fl oz → ml est faite dans le repository.
-            amount: medicationAmount,
-            unit: medicationEntry.unit,
-            isCustomMedication: medicationEntry.isCustomMedication === true,
-
-            medicationDate: medicationEntry.isDateEdited
+        const data = {
+          ...medicationEntry,
+          amount: medicationAmount,
+          unit: medicationEntry.unit,
+          isCustomMedication: medicationEntry.isCustomMedication === true,
+          medicationDate:
+            isEditMode || medicationEntry.isDateEdited
               ? medicationEntry.medicationDate
               : new Date(),
-          },
-        });
-      } else {
-        savedEntry = await createLocalVaccineEntry({
-          userId,
-          childId,
-          data: {
-            ...vaccineEntry,
-            isCustomVaccine: vaccineEntry.isCustomVaccine === true,
+        };
 
-            vaccineDate: vaccineEntry.isDateEdited
+        savedEntry =
+          savedMode === "edit"
+            ? await updateLocalMedicationEntry({
+                userId,
+                childId,
+                entryId,
+                data,
+              })
+            : await createLocalMedicationEntry({
+                userId,
+                childId,
+                data,
+              });
+      } else {
+        const data = {
+          ...vaccineEntry,
+          isCustomVaccine: vaccineEntry.isCustomVaccine === true,
+          vaccineDate:
+            isEditMode || vaccineEntry.isDateEdited
               ? vaccineEntry.vaccineDate
               : new Date(),
+          nextDoseDate: vaccineEntry.hasNextDose
+            ? vaccineEntry.nextDoseDate
+            : null,
+        };
 
-            nextDoseDate: vaccineEntry.hasNextDose
-              ? vaccineEntry.nextDoseDate
-              : null,
-          },
-        });
+        savedEntry =
+          savedMode === "edit"
+            ? await updateLocalVaccineEntry({
+                userId,
+                childId,
+                entryId,
+                data,
+              })
+            : await createLocalVaccineEntry({
+                userId,
+                childId,
+                data,
+              });
       }
     } catch (error) {
       console.error("Unable to save medication locally:", error);
 
       if (scopeRef.current === saveScope) {
-        Alert.alert(
-          t("Unable to save"),
-          t(
-            "The entry could not be saved on this device. Check the information and try again.",
-          ),
-        );
+        const message = [
+          "MEDICATION_SYNC_PENDING",
+          "VACCINE_SYNC_PENDING",
+        ].includes(error?.code)
+          ? "Wait for this entry to finish syncing before editing it."
+          : error?.code === "VACCINATION_REMINDER_COMPLETED"
+            ? "A completed reminder cannot be changed from this entry."
+            : error?.code === "TRACKING_VERSION_CONFLICT"
+              ? "This entry changed. Reopen it before saving."
+              : "The entry could not be saved on this device. Check the information and try again.";
+
+        Alert.alert(t("Unable to save"), t(message));
       }
 
       savingRef.current = false;
@@ -648,8 +692,6 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
       return;
     }
 
-    // À partir d'ici, la sauvegarde locale est terminée.
-    // Une erreur du toast ne doit pas provoquer un deuxième INSERT.
     try {
       if (scopeRef.current !== saveScope) {
         return;
@@ -680,7 +722,8 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
 
       await onSaved?.({
         ...savedEntry,
-        mode: "create",
+        mode: savedMode,
+        persistedLocally: true,
       });
     } catch (error) {
       console.warn("The entry was saved, but its confirmation failed:", error);
@@ -1186,7 +1229,8 @@ const MedicationEntrySheet = forwardRef(function MedicationEntrySheet(
                   <PrimaryButton
                     title={t("Save changes")}
                     onPress={handleSave}
-                    disabled={!canSave}
+                    disabled={!canSave || isSaving}
+                    loading={isSaving}
                   />
                 </View>
               </View>

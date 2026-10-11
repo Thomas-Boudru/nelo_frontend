@@ -12,6 +12,18 @@ import {
 } from "../database/user/userPreferencesRepository.js";
 import { processSyncQueue } from "./processSyncQueue.js";
 
+import { useDispatch } from "react-redux";
+
+import {
+  measurementUnitsLoaded,
+  measurementUnitsReset,
+} from "../store/slices/measurementUnitsSlice.js";
+
+import {
+  getDeviceMeasurementUnits,
+  toMeasurementUnitsState,
+} from "../utils/deviceMeasurementUnits.js";
+
 const SUPPORTED_LANGUAGES = new Set(["en", "fr", "de", "es", "it", "nl", "pt"]);
 
 function getDeviceLanguage() {
@@ -42,6 +54,7 @@ async function fetchUserPreferences(accessToken, refreshSession) {
 
 export default function SyncManager() {
   const { i18n } = useTranslation();
+  const dispatch = useDispatch();
 
   const { isAuthenticated, user, accessToken, refreshSession } = useAuth();
 
@@ -66,8 +79,15 @@ export default function SyncManager() {
   }, [accessToken, isAuthenticated, refreshSession, user?.id]);
 
   /*
-   * Charge la langue enregistrée localement, puis récupère
-   * celle du compte si aucune modification locale n'attend.
+   * Réinitialise les unités lorsque le compte change.
+   */
+  useEffect(() => {
+    dispatch(measurementUnitsReset());
+  }, [dispatch, user?.id]);
+
+  /*
+   * Charge les préférences locales, puis celles du serveur.
+   * Les modifications locales en attente restent prioritaires.
    */
   useEffect(() => {
     let cancelled = false;
@@ -77,10 +97,28 @@ export default function SyncManager() {
         console.error("Unable to restore device language:", error);
       });
 
-      return undefined;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    async function loadLanguage() {
+    async function applyPreferences(preferences) {
+      if (cancelled) {
+        return;
+      }
+
+      dispatch(
+        measurementUnitsLoaded(
+          toMeasurementUnitsState(preferences ?? getDeviceMeasurementUnits()),
+        ),
+      );
+
+      await i18n.changeLanguage(
+        preferences?.languageCode ?? getDeviceLanguage(),
+      );
+    }
+
+    async function loadPreferences() {
       try {
         const localPreferences = await getLocalUserPreferences(user.id);
 
@@ -88,15 +126,12 @@ export default function SyncManager() {
           return;
         }
 
-        await i18n.changeLanguage(
-          localPreferences?.languageCode ?? getDeviceLanguage(),
-        );
+        await applyPreferences(localPreferences);
 
         if (!accessToken || cancelled) {
           return;
         }
 
-        // Une modification locale en attente a priorité sur le serveur.
         if (localPreferences?.syncStatus === "pending") {
           return;
         }
@@ -110,20 +145,18 @@ export default function SyncManager() {
           return;
         }
 
-        /*
-         * Si l'utilisateur a changé sa langue pendant l'appel réseau,
-         * on ignore la réponse devenue ancienne.
-         */
         const latestLocalPreferences = await getLocalUserPreferences(user.id);
 
         if (cancelled) {
           return;
         }
 
+        // Ne pas remplacer un changement effectué pendant la requête.
         if (
           latestLocalPreferences?.syncStatus === "pending" ||
           latestLocalPreferences?.updatedAt !== localPreferences?.updatedAt
         ) {
+          await applyPreferences(latestLocalPreferences);
           return;
         }
 
@@ -132,24 +165,18 @@ export default function SyncManager() {
           preferences: response.preferences,
         });
 
-        if (cancelled) {
-          return;
-        }
-
-        await i18n.changeLanguage(
-          preferences.languageCode ?? getDeviceLanguage(),
-        );
+        await applyPreferences(preferences);
       } catch (error) {
-        console.error("Unable to load user language:", error);
+        console.error("Unable to load user preferences:", error);
       }
     }
 
-    loadLanguage();
+    void loadPreferences();
 
     return () => {
       cancelled = true;
     };
-  }, [accessToken, i18n, isAuthenticated, refreshSession, user?.id]);
+  }, [accessToken, dispatch, i18n, isAuthenticated, refreshSession, user?.id]);
 
   /*
    * Synchronisation lors de la connexion ou du démarrage.

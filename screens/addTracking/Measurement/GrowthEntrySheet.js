@@ -3,10 +3,11 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useEffect,
   useRef,
   useState,
 } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -23,6 +24,23 @@ import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import NoteSheet from "../Feeding/NoteSheet.js";
 import MeasurementPickerSheet from "./MeasurementPickerSheet.js";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
+
+import {
+  createLocalGrowthEntry,
+  updateLocalGrowthEntry,
+  getLatestLocalGrowthMeasurements,
+} from "../../../database/tracking/growth/growthRepository.js";
+
+import {
+  DEFAULT_GROWTH_UNIT_PREFERENCES,
+  getGrowthMeasurementConfig,
+  toGrowthDisplayValue,
+  formatGrowthDate,
+  parseGrowthDate,
+} from "../../../utils/growthMeasurementUtils.js";
 
 const EMPTY_MEASUREMENTS = {
   weight: null,
@@ -47,95 +65,37 @@ const MEASUREMENT_OPTIONS = [
     id: "weight",
     title: "Weight",
     description: "Record the current weight",
-    unit: "kg",
     image: WEIGHT_IMAGE,
   },
   {
     id: "height",
     title: "Height",
     description: "Record the current height",
-    unit: "cm",
     image: HEIGHT_IMAGE,
   },
   {
     id: "headCircumference",
     title: "Head circumference",
     description: "Record the head measurement",
-    unit: "cm",
     image: HEAD_CIRCUMFERENCE_IMAGE,
   },
 ];
 
 function createGrowthStateFromTrackingEntry(entry) {
   const entryData = entry?.data ?? entry ?? {};
-
-  let weight =
-    entryData.weightKg ??
-    entryData.weight ??
-    entry?.weightKg ??
-    entry?.weight ??
-    null;
-
-  let height =
-    entryData.heightCm ??
-    entryData.height ??
-    entry?.heightCm ??
-    entry?.height ??
-    null;
-
-  let headCircumference =
-    entryData.headCircumferenceCm ??
-    entryData.headCircumference ??
-    entry?.headCircumferenceCm ??
-    entry?.headCircumference ??
-    null;
-
-  /*
-   * Compatibilité avec l’ancien mock qui enregistrait
-   * une seule mesure sous measurementType + value.
-   */
-  const measurementType = entryData.measurementType ?? entry?.measurementType;
-
-  const singleValue = entryData.value ?? entry?.value ?? null;
-
-  if (measurementType === "weight" && weight === null) {
-    weight = singleValue;
-  }
-
-  if (measurementType === "height" && height === null) {
-    height = singleValue;
-  }
-
-  if (measurementType === "headCircumference" && headCircumference === null) {
-    headCircumference = singleValue;
-  }
-
-  const dateValue =
-    entryData.measuredAt ??
-    entry?.measuredAt ??
-    entry?.occurredAt ??
-    entry?.startedAt ??
-    entry?.date;
-
-  const parsedDate = dateValue ? new Date(dateValue) : null;
-
-  const hasValidDate =
-    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+  const date = parseGrowthDate(entryData.measurementDate);
 
   return {
     measurements: {
-      weight,
-      height,
-      headCircumference,
+      weight: entryData.weightKg ?? null,
+      height: entryData.heightCm ?? null,
+      headCircumference: entryData.headCircumferenceCm ?? null,
     },
-
-    measuredAt: hasValidDate ? parsedDate : new Date(),
-    hasRecordedDate: hasValidDate,
-
-    note: entryData.note ?? entry?.note ?? "",
+    measuredAt: date ?? new Date(),
+    hasRecordedDate: date !== null,
+    note: entryData.note ?? "",
   };
 }
-
 function isDefined(value) {
   return value !== null && value !== undefined;
 }
@@ -151,10 +111,12 @@ function normalizeMeasurements(measurements = {}) {
 const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   {
     childName,
+    userId,
+    childId,
+    unitPreferences = DEFAULT_GROWTH_UNIT_PREFERENCES,
 
     visibleMeasurementTypes = DEFAULT_VISIBLE_MEASUREMENT_TYPES,
 
-    previousMeasurements = EMPTY_MEASUREMENTS,
     onSave,
     onDismiss,
     onRequestDelete,
@@ -169,6 +131,18 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   const noteSheetRef = useRef(null);
   const measurementPickerRef = useRef(null);
 
+  const { accessToken, refreshSession } = useAuth();
+
+  const isSavingRef = useRef(false);
+
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+
+  const [previousMeasurements, setPreviousMeasurements] =
+    useState(EMPTY_MEASUREMENTS);
+
+  const [isLoadingPreviousMeasurements, setIsLoadingPreviousMeasurements] =
+    useState(true);
+
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [measurements, setMeasurements] = useState(EMPTY_MEASUREMENTS);
@@ -181,6 +155,52 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   const [editingEntry, setEditingEntry] = useState(null);
 
   const isEditMode = sheetMode === "edit";
+
+  const editingEntryId = isEditMode ? editingEntry?.id : null;
+
+  const selectedMeasurementDate = formatGrowthDate(
+    isNow ? new Date() : measurementDate,
+  );
+
+  useEffect(() => {
+    if (!isSheetOpen || !userId || !childId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    setIsLoadingPreviousMeasurements(true);
+    setPreviousMeasurements(EMPTY_MEASUREMENTS);
+
+    async function loadPreviousMeasurements() {
+      try {
+        const previous = await getLatestLocalGrowthMeasurements({
+          userId,
+          childId,
+          onOrBefore: selectedMeasurementDate,
+          excludeEntryId: editingEntryId,
+        });
+
+        if (!cancelled) {
+          setPreviousMeasurements(previous);
+        }
+      } catch (error) {
+        console.warn("Unable to load previous growth measurements:", error);
+
+        // La saisie manuelle reste disponible sans suggestion.
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPreviousMeasurements(false);
+        }
+      }
+    }
+
+    void loadPreviousMeasurements();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSheetOpen, userId, childId, selectedMeasurementDate, editingEntryId]);
 
   const availableMeasurementTypes = useMemo(() => {
     const validMeasurementTypes = DEFAULT_VISIBLE_MEASUREMENT_TYPES;
@@ -245,6 +265,17 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     ref,
     () => ({
       present(parameters = {}) {
+        if (isSavingRef.current) {
+          return;
+        }
+
+        if (!parameters || typeof parameters !== "object") {
+          parameters = {};
+        }
+
+        setPreviousMeasurements(EMPTY_MEASUREMENTS);
+        setIsLoadingPreviousMeasurements(true);
+
         const {
           mode = "create",
           entry = null,
@@ -279,12 +310,18 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
           });
         }
 
+        setIsSheetOpen(true);
+
         requestAnimationFrame(() => {
           modalRef.current?.present();
         });
       },
 
       dismiss() {
+        if (isSavingRef.current) {
+          return;
+        }
+
         noteSheetRef.current?.dismiss();
         measurementPickerRef.current?.dismiss();
         modalRef.current?.dismiss();
@@ -299,35 +336,51 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.35}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleSheetDismiss = useCallback(() => {
-    setIsSaving(false);
+    setIsSheetOpen(false);
+    setPreviousMeasurements(EMPTY_MEASUREMENTS);
+
     onDismiss?.();
   }, [onDismiss]);
 
   const handleOpenMeasurement = useCallback(
     (type) => {
-      if (!type) {
+      if (
+        isSavingRef.current ||
+        isLoadingPreviousMeasurements ||
+        !userId ||
+        !childId ||
+        !DEFAULT_VISIBLE_MEASUREMENT_TYPES.includes(type)
+      ) {
         return;
       }
 
-      const previous = normalizeMeasurements(previousMeasurements);
+      const config = getGrowthMeasurementConfig(type, unitPreferences);
 
-      Haptics.selectionAsync().catch(() => {});
+      void Haptics.selectionAsync().catch(() => {});
 
       measurementPickerRef.current?.present({
         type,
         value: measurements[type],
-        previousValue: previous[type],
+        previousValue: previousMeasurements[type],
+        config,
       });
     },
-    [measurements, previousMeasurements],
+    [
+      isLoadingPreviousMeasurements,
+      userId,
+      childId,
+      measurements,
+      previousMeasurements,
+      unitPreferences,
+    ],
   );
 
   const handleConfirmMeasurement = useCallback(({ type, value } = {}) => {
@@ -352,16 +405,33 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
     }));
   }, []);
 
-  const handleChangeDate = useCallback((nextDate) => {
-    if (!nextDate) {
+  const handleChangeDate = useCallback(
+    (nextDate) => {
+      if (
+        isSavingRef.current ||
+        !(nextDate instanceof Date) ||
+        !Number.isFinite(nextDate.getTime())
+      ) {
+        return;
+      }
+
+      const nextDateKey = formatGrowthDate(nextDate);
+
+      if (nextDateKey !== selectedMeasurementDate) {
+        setIsLoadingPreviousMeasurements(true);
+      }
+
+      setMeasurementDate(nextDate);
+      setIsNow(false);
+    },
+    [selectedMeasurementDate],
+  );
+
+  const handleOpenNote = useCallback(() => {
+    if (isSavingRef.current) {
       return;
     }
 
-    setMeasurementDate(nextDate);
-    setIsNow(false);
-  }, []);
-
-  const handleOpenNote = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
 
     noteSheetRef.current?.present(note);
@@ -381,6 +451,10 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   }, []);
 
   const handleRequestDelete = useCallback(() => {
+    if (isSavingRef.current) {
+      return;
+    }
+
     if (!isEditMode || !editingEntry || isSaving) {
       return;
     }
@@ -389,6 +463,10 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   }, [editingEntry, isEditMode, isSaving, onRequestDelete]);
 
   const handleOpenHistory = useCallback(() => {
+    if (isSavingRef.current) {
+      return;
+    }
+
     modalRef.current?.dismiss();
 
     setTimeout(() => {
@@ -397,47 +475,101 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
   }, [onPressHistory]);
 
   const handleSave = useCallback(async () => {
-    if (!hasMeasurement || isSaving) {
+    if (isSavingRef.current || !hasMeasurement || !userId || !childId) {
       return;
     }
 
+    const measurementDateValue = formatGrowthDate(
+      isNow ? new Date() : measurementDate,
+    );
+
+    if (measurementDateValue > formatGrowthDate(new Date())) {
+      Alert.alert(
+        t("Invalid measurement date"),
+        t("The measurement date cannot be in the future."),
+      );
+      return;
+    }
+
+    isSavingRef.current = true;
     setIsSaving(true);
 
+    let savedEntry;
+
     try {
-      await Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Success,
-      ).catch(() => {});
-
-      await onSave?.({
-        ...editingEntry,
-
-        id: editingEntry?.id,
-
-        type: "growth",
-        mode: sheetMode,
-
+      const data = {
+        measurementDate: measurementDateValue,
         weightKg: measurements.weight,
         heightCm: measurements.height,
         headCircumferenceCm: measurements.headCircumference,
+        note: note.trim() || null,
+      };
 
-        measuredAt: measurementDate,
-        note: note.trim(),
+      savedEntry = isEditMode
+        ? await updateLocalGrowthEntry({
+            userId,
+            childId,
+            entryId: editingEntry?.id,
+            data,
+          })
+        : await createLocalGrowthEntry({
+            userId,
+            childId,
+            data,
+          });
+    } catch (error) {
+      console.warn("Unable to save growth measurements:", error);
+
+      Alert.alert(t("Unable to save growth"), t("Please try again."));
+
+      isSavingRef.current = false;
+      setIsSaving(false);
+      return;
+    }
+
+    // Déclenchement immédiat après l'écriture SQLite.
+    if (accessToken) {
+      void processSyncQueue({
+        userId,
+        accessToken,
+        refreshSession,
+      }).catch((error) => {
+        console.warn("Unable to synchronize tracking entries:", error);
       });
+    }
+
+    void Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Success,
+    ).catch(() => {});
+
+    try {
+      await onSave?.({
+        ...savedEntry,
+        mode: isEditMode ? "edit" : "create",
+      });
+    } catch (error) {
+      // La sauvegarde a déjà réussi : ne pas la refaire.
+      console.warn("Unable to display growth save confirmation:", error);
+    } finally {
+      isSavingRef.current = false;
+      setIsSaving(false);
 
       modalRef.current?.dismiss();
-    } catch (error) {
-      console.error("Unable to save growth measurement:", error);
-      setIsSaving(false);
     }
   }, [
-    editingEntry,
     hasMeasurement,
-    isSaving,
+    userId,
+    childId,
+    isNow,
     measurementDate,
     measurements,
     note,
+    isEditMode,
+    editingEntry?.id,
+    accessToken,
+    refreshSession,
     onSave,
-    sheetMode,
+    t,
   ]);
 
   return (
@@ -449,7 +581,7 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
         // tout le contenu soit dans un seul BottomSheetView, sinon gorhom
         // n'en mesure qu'une partie et la sheet s'ouvre trop bas.
         enableDynamicSizing
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         stackBehavior="push"
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBackground}
@@ -481,13 +613,14 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
             />
           </View>
 
-          <View style={styles.body}>
+          <View style={styles.body} pointerEvents={isSaving ? "none" : "auto"}>
             <View style={styles.measurementList}>
               {displayedMeasurementOptions.map((option) => (
                 <MeasurementRow
                   key={option.id}
                   option={option}
                   value={measurements[option.id]}
+                  unitPreferences={unitPreferences}
                   language={i18n.language}
                   onPress={() => handleOpenMeasurement(option.id)}
                   t={t}
@@ -558,7 +691,9 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
                   <PrimaryButton
                     title={t("Save changes")}
                     onPress={handleSave}
-                    disabled={!hasMeasurement || isSaving}
+                    disabled={
+                      !hasMeasurement || isSaving || !userId || !childId
+                    }
                     loading={isSaving}
                   />
                 </View>
@@ -567,7 +702,7 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
               <PrimaryButton
                 title={t("Save growth")}
                 onPress={handleSave}
-                disabled={!hasMeasurement || isSaving}
+                disabled={!hasMeasurement || isSaving || !userId || !childId}
                 loading={isSaving}
               />
             )}
@@ -594,6 +729,7 @@ const GrowthEntrySheet = forwardRef(function GrowthEntrySheet(
 function MeasurementRow({
   option,
   value,
+  unitPreferences,
   language,
   onPress,
   t,
@@ -602,20 +738,20 @@ function MeasurementRow({
 }) {
   const hasValue = isDefined(value);
 
+  const config = getGrowthMeasurementConfig(option.id, unitPreferences);
+
   const formattedValue = useMemo(() => {
     if (!hasValue) {
       return "";
     }
 
-    /*
-     * Deux décimales comme la saisie : arrondir plus court afficherait
-     * une valeur différente de celle tapée dans le sélecteur.
-     */
+    const displayValue = toGrowthDisplayValue(value, option.id, config.unit);
+
     return new Intl.NumberFormat(language, {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(value);
-  }, [hasValue, language, value]);
+      maximumFractionDigits: config.decimals,
+    }).format(displayValue);
+  }, [hasValue, value, option.id, config.unit, config.decimals, language]);
 
   return (
     <Pressable
@@ -659,7 +795,7 @@ function MeasurementRow({
           <View style={styles.valuePill}>
             <Text style={styles.valueLabel}>{formattedValue}</Text>
 
-            <Text style={styles.unitLabel}>{option.unit}</Text>
+            <Text style={styles.unitLabel}>{config.unit}</Text>
           </View>
         ) : (
           <View style={styles.addButton}>

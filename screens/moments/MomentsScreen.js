@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-
 import {
   Alert,
   Image,
@@ -14,124 +13,42 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
+import { useFocusEffect } from "@react-navigation/native";
+
 import ChildSelectorButton from "../../components/home/ChildSelectorButton.js";
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import AddMomentSheet from "./AddMomentSheet.js";
-import { useThemeColors } from "../../theme/useThemeColors.js";
 import MomentsFilterSheet from "./MomentsFilterSheet.js";
+
+import { useThemeColors } from "../../theme/useThemeColors.js";
+import { useAuth } from "../../auth/AuthProvider.js";
+
 import { loadChildren, selectChild } from "../../store/slices/childrenSlice.js";
 
-import { useAuth } from "../../auth/AuthProvider.js";
-import { processSyncQueue } from "../../sync/processSyncQueue.js";
+import { synchronizeMoments } from "../../sync/moments/synchronizeMoments.js";
+import { getLocalMoments } from "../../database/moments/momentsRepository.js";
 
-const MOCK_MEMBERS = [
-  {
-    id: "thomas",
-    firstName: "Thomas",
-  },
-  {
-    id: "julie",
-    firstName: "Julie",
-  },
-  {
-    id: "grandma",
-    firstName: "Grandma",
-  },
-];
+import {
+  buildMomentGroups,
+  toMomentDisplay,
+} from "../../utils/momentDisplay.js";
 
-const MOCK_MOMENT_IMAGES = {
-  bath: require("../../assets/images/moments/bath.jpg"),
-  tummy: require("../../assets/images/moments/tummy.jpeg"),
-  picnic: require("../../assets/images/moments/picnic.jpg"),
-};
-
-const MOCK_MOMENT_GROUPS = [
-  {
-    id: "today",
-    label: "Today",
-    moments: [
-      {
-        id: "bath-time",
-        type: "photo",
-        title: "Bath time giggles",
-        description: "She couldn't stop laughing with her yellow duck.",
-        authorName: "Thomas",
-        timeLabel: "18:42",
-        childAgeLabel: "9m",
-        image: MOCK_MOMENT_IMAGES.bath,
-      },
-      {
-        id: "first-tooth",
-        type: "milestone",
-        milestoneIcon: "tooth-outline",
-        title: "First tooth",
-        description: null,
-        authorName: "Grandma",
-        timeLabel: "16:20",
-        childAgeLabel: "9m",
-        backgroundTone: "yellow",
-      },
-    ],
-  },
-  {
-    id: "yesterday",
-    label: "Yesterday",
-    moments: [
-      {
-        id: "bottle-note",
-        type: "note",
-        title: null,
-        description: "She fell asleep in my arms after her bottle.",
-        authorName: "Grandma",
-        timeLabel: "14:20",
-        childAgeLabel: "9m",
-        backgroundTone: "purple",
-      },
-      {
-        id: "tummy-time",
-        type: "photo",
-        title: "Morning tummy time",
-        description: null,
-        authorName: "Julie",
-        timeLabel: "10:15",
-        childAgeLabel: "9m",
-        image: MOCK_MOMENT_IMAGES.tummy,
-        compact: true,
-      },
-    ],
-  },
-  {
-    id: "august-3",
-    label: "August 3, 2026",
-    moments: [
-      {
-        id: "picnic",
-        type: "photo",
-        title: "Our first picnic together",
-        description: "A beautiful afternoon at the park ☀️",
-        authorName: "Julie",
-        timeLabel: "10:15",
-        childAgeLabel: "8m",
-        image: MOCK_MOMENT_IMAGES.picnic,
-      },
-    ],
-  },
-];
-
-const EMPTY_FILTERS = {
-  types: [],
-  dateRange: "all",
-  authorIds: [],
-};
+function createEmptyFilters() {
+  return {
+    types: [],
+    dateRange: "all",
+    authorIds: [],
+  };
+}
 
 export default function MomentsScreen({ navigation }) {
-  const { t } = useTranslation();
-
+  const { t, i18n } = useTranslation();
   const dispatch = useDispatch();
 
   const { user, accessToken, refreshSession } = useAuth();
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const children = useSelector((state) => state.children.children);
 
@@ -139,16 +56,24 @@ export default function MomentsScreen({ navigation }) {
     (state) => state.children.selectedChildId,
   );
 
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-
   const childSelectorSheetRef = useRef(null);
-
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
-
   const momentsFilterSheetRef = useRef(null);
-
   const addMomentSheetRef = useRef(null);
+
+  const requestIdRef = useRef(0);
+  const focusSessionRef = useRef(null);
+  const refreshInProgressRef = useRef(false);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [filters, setFilters] = useState(createEmptyFilters);
+
+  const [momentsState, setMomentsState] = useState({
+    userId: null,
+    childId: null,
+    items: [],
+    loading: false,
+    error: null,
+  });
 
   const childPickerChildren = useMemo(
     () =>
@@ -161,34 +86,36 @@ export default function MomentsScreen({ navigation }) {
             .split("-")
             .map(Number);
 
-          const today = new Date();
+          if (
+            Number.isFinite(birthYear) &&
+            Number.isFinite(birthMonth) &&
+            Number.isFinite(birthDay)
+          ) {
+            const today = new Date();
 
-          ageInMonths =
-            (today.getFullYear() - birthYear) * 12 +
-            today.getMonth() -
-            (birthMonth - 1);
+            ageInMonths =
+              (today.getFullYear() - birthYear) * 12 +
+              today.getMonth() -
+              (birthMonth - 1);
 
-          if (today.getDate() < birthDay) {
-            ageInMonths -= 1;
+            if (today.getDate() < birthDay) {
+              ageInMonths -= 1;
+            }
+
+            ageInMonths = Math.max(0, ageInMonths);
           }
-
-          ageInMonths = Math.max(0, ageInMonths);
         }
 
         return {
           ...child,
-
           firstName: child.displayName || t("Baby"),
-
           ageInMonths,
-
           ageLabel:
             child.birthStatus === "expected"
               ? t("Expected date of birth")
               : t("Child age in months", {
                   count: ageInMonths,
                 }),
-
           profilePicture: child.avatar?.url
             ? {
                 uri: child.avatar.url,
@@ -201,58 +128,6 @@ export default function MomentsScreen({ navigation }) {
     [children, t],
   );
 
-  const handleRefresh = async () => {
-    if (isRefreshing || !user?.id || !accessToken) {
-      return;
-    }
-
-    setIsRefreshing(true);
-
-    try {
-      /*
-       * Envoie d'abord les modifications locales :
-       * nouveaux moments, modifications, etc.
-       */
-      await processSyncQueue({
-        userId: user.id,
-        accessToken,
-        refreshSession,
-      });
-
-      /*
-       * Recharge les informations des enfants.
-       */
-      await dispatch(
-        loadChildren({
-          userId: user.id,
-          accessToken,
-          refreshSession,
-        }),
-      ).unwrap();
-
-      /*
-       * Lorsque les moments seront connectés :
-       *
-       * await dispatch(
-       *   loadMoments({
-       *     childId: selectedChildId,
-       *     accessToken,
-       *     refreshSession,
-       *   }),
-       * ).unwrap();
-       */
-    } catch (error) {
-      console.error("Unable to refresh moments:", error);
-
-      Alert.alert(
-        t("Unable to refresh"),
-        t("Check your internet connection and try again."),
-      );
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   const selectedChild = useMemo(
     () =>
       childPickerChildren.find((child) => child.id === selectedChildId) ||
@@ -261,80 +136,208 @@ export default function MomentsScreen({ navigation }) {
     [childPickerChildren, selectedChildId],
   );
 
-  const handleOpenChildSelector = () => {
-    childSelectorSheetRef.current?.present();
-  };
+  const userId = user?.id ?? null;
+  const childId = selectedChild?.id ?? null;
 
-  const handleSelectChild = (child) => {
-    dispatch(selectChild(child.id));
-  };
-  const handleAddChild = () => {
-    navigation.navigate("ChildProfileForm", {
-      mode: "create",
-    });
-  };
+  useEffect(() => {
+    setFilters(createEmptyFilters());
+  }, [userId, childId]);
 
-  const handleAddMoment = () => {
-    addMomentSheetRef.current?.present();
-  };
+  const loadLocalMoments = useCallback(async () => {
+    const session = focusSessionRef.current;
 
-  const handleSelectPhotoMoment = () => {
-    navigation.navigate("MomentEditor", {
-      mode: "create",
-      type: "photo",
-      childId: selectedChild.id,
-      childName: selectedChild.firstName,
-    });
-  };
+    if (!session || session.userId !== userId || session.childId !== childId) {
+      return;
+    }
 
-  const handleSelectNoteMoment = () => {
-    navigation.navigate("MomentEditor", {
-      mode: "create",
-      type: "note",
-      childId: selectedChild.id,
-      childName: selectedChild.firstName,
-    });
-  };
+    const requestId = ++requestIdRef.current;
 
-  const handleSelectMilestoneMoment = () => {
-    navigation.navigate("MomentEditor", {
-      mode: "create",
-      type: "milestone",
-      childId: selectedChild.id,
-      childName: selectedChild.firstName,
-    });
-  };
-  const handleOpenFilters = () => {
-    momentsFilterSheetRef.current?.present();
-  };
+    const isStillCurrent = () =>
+      focusSessionRef.current === session && requestIdRef.current === requestId;
 
-  const handleOpenMoment = (moment) => {
-    navigation.navigate("MomentDetails", {
-      momentId: moment.id,
-      childId: selectedChild.id,
-    });
-  };
+    if (!userId || !childId) {
+      setMomentsState({
+        userId,
+        childId,
+        items: [],
+        loading: false,
+        error: null,
+      });
+
+      return;
+    }
+
+    setMomentsState((current) => ({
+      userId,
+      childId,
+      items:
+        current.userId === userId && current.childId === childId
+          ? current.items
+          : [],
+      loading: true,
+      error: null,
+    }));
+
+    try {
+      const items = await getLocalMoments({
+        userId,
+        childId,
+      });
+
+      if (!isStillCurrent()) {
+        return;
+      }
+
+      setMomentsState({
+        userId,
+        childId,
+        items,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      if (!isStillCurrent()) {
+        return;
+      }
+
+      console.error("Unable to load local moments:", error);
+
+      setMomentsState((current) => ({
+        ...current,
+        loading: false,
+        error,
+      }));
+    }
+  }, [userId, childId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const session = { userId, childId };
+
+      focusSessionRef.current = session;
+
+      const isStillCurrent = () => focusSessionRef.current === session;
+
+      async function loadAndSynchronize() {
+        // Affichage immédiat des données disponibles hors ligne.
+        await loadLocalMoments();
+
+        if (!isStillCurrent() || !userId || !childId || !accessToken) {
+          return;
+        }
+
+        try {
+          const result = await synchronizeMoments({
+            userId,
+            childId,
+            accessToken,
+            refreshSession,
+          });
+
+          if (result.deferred > 0) {
+            console.info(
+              "Remote moments deferred because local changes are pending:",
+              result.deferred,
+            );
+          }
+        } catch (error) {
+          // Conserver l'affichage local si le réseau échoue.
+          console.warn("Unable to synchronize moments:", error);
+        } finally {
+          if (isStillCurrent()) {
+            await loadLocalMoments();
+          }
+        }
+      }
+
+      void loadAndSynchronize();
+
+      return () => {
+        if (focusSessionRef.current === session) {
+          focusSessionRef.current = null;
+        }
+
+        requestIdRef.current += 1;
+      };
+    }, [userId, childId, accessToken, refreshSession, loadLocalMoments]),
+  );
+
+  const isCurrentChild =
+    momentsState.userId === userId && momentsState.childId === childId;
+
+  const moments = useMemo(() => {
+    if (!isCurrentChild) {
+      return [];
+    }
+
+    return momentsState.items.map((moment) =>
+      toMomentDisplay(moment, {
+        child: selectedChild,
+        userId,
+        language: i18n.language,
+        t,
+      }),
+    );
+  }, [
+    isCurrentChild,
+    momentsState.items,
+    selectedChild,
+    userId,
+    i18n.language,
+    t,
+  ]);
+
+  const members = useMemo(() => {
+    const result = new Map();
+
+    for (const moment of moments) {
+      if (!moment.createdByUserId) {
+        continue;
+      }
+
+      result.set(moment.createdByUserId, {
+        id: moment.createdByUserId,
+        firstName: moment.authorName,
+      });
+    }
+
+    return [...result.values()];
+  }, [moments]);
+
+  const momentGroups = useMemo(
+    () =>
+      buildMomentGroups(moments, filters, {
+        language: i18n.language,
+        t,
+      }),
+    [moments, filters, i18n.language, t],
+  );
+
+  const isLoadingMoments =
+    Boolean(userId && childId) && (!isCurrentChild || momentsState.loading);
+
+  const momentsError = isCurrentChild ? momentsState.error : null;
 
   const activeFilters = useMemo(() => {
     const result = [];
 
-    filters.types.forEach((typeId) => {
-      const labels = {
-        photo: t("Photos"),
-        note: t("Notes"),
-        milestone: t("Milestones"),
-      };
+    const typeLabels = {
+      photo: t("Photos"),
+      note: t("Notes"),
+      milestone: t("Milestones"),
+    };
 
+    for (const typeId of filters.types) {
       result.push({
         id: `type-${typeId}`,
         category: "type",
         value: typeId,
-        label: labels[typeId],
+        label: typeLabels[typeId] ?? typeId,
       });
-    });
+    }
 
     if (filters.dateRange !== "all") {
-      const labels = {
+      const dateLabels = {
         today: t("Today"),
         "last-7-days": t("Last 7 days"),
         "last-30-days": t("Last 30 days"),
@@ -344,25 +347,138 @@ export default function MomentsScreen({ navigation }) {
         id: `date-${filters.dateRange}`,
         category: "date",
         value: filters.dateRange,
-        label: labels[filters.dateRange],
+        label: dateLabels[filters.dateRange] ?? filters.dateRange,
       });
     }
 
-    filters.authorIds.forEach((authorId) => {
-      const member = MOCK_MEMBERS.find((item) => item.id === authorId);
+    for (const authorId of filters.authorIds) {
+      const member = members.find((item) => item.id === authorId);
 
-      if (member) {
-        result.push({
-          id: `author-${authorId}`,
-          category: "author",
-          value: authorId,
-          label: member.firstName,
-        });
-      }
-    });
+      result.push({
+        id: `author-${authorId}`,
+        category: "author",
+        value: authorId,
+        label: member?.firstName ?? t("Family member"),
+      });
+    }
 
     return result;
-  }, [filters, t]);
+  }, [filters, members, t]);
+
+  const handleRefresh = async () => {
+    const session = focusSessionRef.current;
+
+    if (refreshInProgressRef.current || !userId || !childId || !session) {
+      return;
+    }
+
+    refreshInProgressRef.current = true;
+    setIsRefreshing(true);
+
+    const isStillCurrent = () => focusSessionRef.current === session;
+
+    try {
+      await loadLocalMoments();
+
+      if (!isStillCurrent()) {
+        return;
+      }
+
+      const result = await synchronizeMoments({
+        userId,
+        childId,
+        accessToken,
+        refreshSession,
+      });
+
+      if (!isStillCurrent()) {
+        return;
+      }
+
+      if (!result.skipped) {
+        await dispatch(
+          loadChildren({
+            userId,
+            accessToken,
+            refreshSession,
+          }),
+        ).unwrap();
+      }
+
+      if (isStillCurrent() && result.deferred > 0) {
+        Alert.alert(
+          t("Some moments are still waiting to sync"),
+          t(
+            "Your local changes were kept. Some moments could not be updated from the server yet.",
+          ),
+        );
+      }
+    } catch (error) {
+      console.error("Unable to refresh moments:", error);
+
+      if (isStillCurrent()) {
+        Alert.alert(
+          t("Unable to refresh"),
+          t("Check your internet connection and try again."),
+        );
+      }
+    } finally {
+      // Recharger aussi les pages déjà enregistrées si une page suivante
+      // ou un téléchargement a échoué.
+      if (isStillCurrent()) {
+        await loadLocalMoments();
+      }
+
+      refreshInProgressRef.current = false;
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleOpenChildSelector = () => {
+    childSelectorSheetRef.current?.present();
+  };
+
+  const handleSelectChild = (child) => {
+    dispatch(selectChild(child.id));
+  };
+
+  const handleAddChild = () => {
+    navigation.navigate("ChildProfileForm", {
+      mode: "create",
+    });
+  };
+
+  const handleAddMoment = () => {
+    if (!selectedChild || !userId) {
+      return;
+    }
+
+    addMomentSheetRef.current?.present();
+  };
+
+  const handleCreateMoment = (type) => {
+    if (!selectedChild || !userId) {
+      return;
+    }
+
+    navigation.navigate("MomentEditor", {
+      mode: "create",
+      type,
+      childId: selectedChild.id,
+      childName: selectedChild.firstName,
+    });
+  };
+
+  const handleOpenFilters = () => {
+    momentsFilterSheetRef.current?.present();
+  };
+
+  const handleOpenMoment = (moment) => {
+    navigation.navigate("MomentDetails", {
+      momentId: moment.id,
+      childId: moment.childId,
+    });
+  };
 
   const handleRemoveFilter = (filter) => {
     setFilters((current) => {
@@ -391,6 +507,8 @@ export default function MomentsScreen({ navigation }) {
     });
   };
 
+  const canAddMoment = Boolean(selectedChild && userId);
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
@@ -414,7 +532,7 @@ export default function MomentsScreen({ navigation }) {
                 ? t("Child memories", {
                     childName: selectedChild.firstName,
                   })
-                : t("Child memories")}
+                : t("Select a child to see their moments.")}
             </Text>
           </View>
 
@@ -429,9 +547,12 @@ export default function MomentsScreen({ navigation }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("Add a moment")}
+          accessibilityState={{ disabled: !canAddMoment }}
+          disabled={!canAddMoment}
           onPress={handleAddMoment}
           style={({ pressed }) => [
             styles.addMomentCard,
+            !canAddMoment && styles.disabled,
             pressed && styles.addMomentCardPressed,
           ]}
         >
@@ -507,23 +628,64 @@ export default function MomentsScreen({ navigation }) {
         </ScrollView>
 
         <View style={styles.timeline}>
-          {MOCK_MOMENT_GROUPS.map((group) => (
-            <MomentGroup
-              key={group.id}
-              group={group}
-              onPressMoment={handleOpenMoment}
-              colors={colors}
-              styles={styles}
-              t={t}
-            />
-          ))}
+          {!selectedChild ? (
+            <Text style={styles.subtitle}>
+              {t("Select a child to see their moments.")}
+            </Text>
+          ) : !userId ? (
+            <Text style={styles.subtitle}>
+              {t("Sign in to see your moments.")}
+            </Text>
+          ) : (
+            <>
+              {momentsError ? (
+                <View>
+                  <Text style={styles.subtitle}>
+                    {t("Unable to load moments.")}
+                  </Text>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t("Try again")}
+                    onPress={() => void loadLocalMoments()}
+                    style={styles.retryButton}
+                  >
+                    <Text style={styles.filterButtonText}>
+                      {t("Try again")}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {isLoadingMoments && moments.length === 0 ? (
+                <Text style={styles.subtitle}>{t("Loading moments...")}</Text>
+              ) : momentGroups.length > 0 ? (
+                momentGroups.map((group) => (
+                  <MomentGroup
+                    key={group.id}
+                    group={group}
+                    onPressMoment={handleOpenMoment}
+                    colors={colors}
+                    styles={styles}
+                    t={t}
+                  />
+                ))
+              ) : !momentsError ? (
+                <Text style={styles.subtitle}>
+                  {moments.length === 0
+                    ? t("No moments yet. Add your first memory.")
+                    : t("No moments match these filters.")}
+                </Text>
+              ) : null}
+            </>
+          )}
         </View>
       </ScrollView>
 
       <ChildSelectorSheet
         ref={childSelectorSheetRef}
         children={childPickerChildren}
-        selectedChildId={selectedChildId}
+        selectedChildId={childId}
         onSelectChild={handleSelectChild}
         onAddChild={handleAddChild}
       />
@@ -532,16 +694,17 @@ export default function MomentsScreen({ navigation }) {
         <AddMomentSheet
           ref={addMomentSheetRef}
           childName={selectedChild.firstName}
-          onSelectPhoto={handleSelectPhotoMoment}
-          onSelectNote={handleSelectNoteMoment}
-          onSelectMilestone={handleSelectMilestoneMoment}
+          onSelectPhoto={() => handleCreateMoment("photo")}
+          onSelectNote={() => handleCreateMoment("note")}
+          onSelectMilestone={() => handleCreateMoment("milestone")}
         />
       ) : null}
 
       <MomentsFilterSheet
+        key={`${userId ?? "no-user"}:${childId ?? "no-child"}`}
         ref={momentsFilterSheetRef}
         filters={filters}
-        members={MOCK_MEMBERS}
+        members={members}
         onApply={setFilters}
       />
     </SafeAreaView>
@@ -553,7 +716,7 @@ function MomentGroup({ group, onPressMoment, colors, styles, t }) {
 
   return (
     <View style={styles.momentGroup}>
-      <Text style={styles.groupTitle}>{t(group.label)}</Text>
+      <Text style={styles.groupTitle}>{group.label}</Text>
 
       <View style={styles.groupContent}>
         {rows.map((row, rowIndex) => {
@@ -591,12 +754,28 @@ function MomentGroup({ group, onPressMoment, colors, styles, t }) {
   );
 }
 
+function AgeBadge({ label, styles }) {
+  if (!label) {
+    return null;
+  }
+
+  return (
+    <View style={styles.ageBadge}>
+      <Text style={styles.ageBadgeText}>{label}</Text>
+    </View>
+  );
+}
+
 function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
+  const authorLabel = t("Added by {{authorName}}", {
+    authorName: moment.authorName,
+  });
+
   if (moment.type === "milestone") {
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={moment.title}
+        accessibilityLabel={moment.title || t("Milestone")}
         onPress={onPress}
         style={({ pressed }) => [
           styles.momentCard,
@@ -606,36 +785,21 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
           pressed && styles.momentCardPressed,
         ]}
       >
-        <View style={styles.cardTopRow}>
-          <View style={styles.milestoneTypeIcon}>
-            <Ionicons
-              name="star"
-              size={18}
-              color={styles.milestoneIcon.color}
-            />
-          </View>
-        </View>
-
         <View style={styles.milestoneIllustration}>
           <Ionicons
-            name="happy-outline"
+            name={moment.milestone?.icon ?? "flag-outline"}
             size={35}
             color={styles.milestoneIcon.color}
           />
         </View>
 
-        <Text style={styles.milestoneTitle}>{moment.title}</Text>
-
-        <Text style={styles.momentMetadata}>
-          {t("By author at time", {
-            authorName: moment.authorName,
-            timeLabel: moment.timeLabel,
-          })}
+        <Text style={styles.milestoneTitle}>
+          {moment.title || t("Milestone")}
         </Text>
 
-        <View style={styles.ageBadge}>
-          <Text style={styles.ageBadgeText}>{moment.childAgeLabel}</Text>
-        </View>
+        <Text style={styles.momentMetadata}>{authorLabel}</Text>
+
+        <AgeBadge label={moment.childAgeLabel} styles={styles} />
       </Pressable>
     );
   }
@@ -644,7 +808,7 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={moment.description}
+        accessibilityLabel={moment.description || moment.title || t("Note")}
         onPress={onPress}
         style={({ pressed }) => [
           styles.momentCard,
@@ -654,23 +818,21 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
           pressed && styles.momentCardPressed,
         ]}
       >
-        <View style={styles.cardTopRow}></View>
+        <View style={styles.cardTopRow} />
 
         <Text style={styles.noteText} numberOfLines={5}>
           {moment.description}
         </Text>
 
         <View style={styles.noteBottomRow}>
-          <Text style={styles.momentMetadata} numberOfLines={1}>
-            {t("By author at time", {
-              authorName: moment.authorName,
-              timeLabel: moment.timeLabel,
-            })}
+          <Text
+            style={[styles.momentMetadata, styles.noteAuthor]}
+            numberOfLines={1}
+          >
+            {authorLabel}
           </Text>
 
-          <View style={styles.ageBadge}>
-            <Text style={styles.ageBadgeText}>{moment.childAgeLabel}</Text>
-          </View>
+          <AgeBadge label={moment.childAgeLabel} styles={styles} />
         </View>
       </Pressable>
     );
@@ -679,7 +841,7 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={moment.title}
+      accessibilityLabel={moment.title || t("Photo moment")}
       onPress={onPress}
       style={({ pressed }) => [
         styles.momentCard,
@@ -688,19 +850,37 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
       ]}
     >
       <View style={styles.photoContainer}>
-        <Image source={moment.image} resizeMode="cover" style={styles.photo} />
+        {moment.image ? (
+          <Image
+            source={moment.image}
+            resizeMode="cover"
+            style={styles.photo}
+          />
+        ) : (
+          <View style={[styles.photo, styles.photoPlaceholder]}>
+            <Ionicons
+              name="image-outline"
+              size={32}
+              color={colors.textSecondary}
+            />
+          </View>
+        )}
       </View>
 
       <View style={styles.photoContent}>
-        <View style={styles.photoTitleRow}>
-          <Text style={styles.photoTitle} numberOfLines={2}>
-            {moment.title}
-          </Text>
+        {moment.title || moment.childAgeLabel ? (
+          <View style={styles.photoTitleRow}>
+            {moment.title ? (
+              <Text style={styles.photoTitle} numberOfLines={2}>
+                {moment.title}
+              </Text>
+            ) : (
+              <View style={styles.photoTitleSpacer} />
+            )}
 
-          <View style={styles.ageBadge}>
-            <Text style={styles.ageBadgeText}>{moment.childAgeLabel}</Text>
+            <AgeBadge label={moment.childAgeLabel} styles={styles} />
           </View>
-        </View>
+        ) : null}
 
         {moment.description ? (
           <Text style={styles.photoDescription} numberOfLines={2}>
@@ -708,12 +888,7 @@ function MomentCard({ moment, fullWidth = false, onPress, colors, styles, t }) {
           </Text>
         ) : null}
 
-        <Text style={styles.momentMetadata}>
-          {t("By author at time", {
-            authorName: moment.authorName,
-            timeLabel: moment.timeLabel,
-          })}
-        </Text>
+        <Text style={styles.momentMetadata}>{authorLabel}</Text>
       </View>
     </Pressable>
   );
@@ -723,7 +898,7 @@ function buildMomentRows(moments) {
   const rows = [];
   let compactRow = [];
 
-  moments.forEach((moment) => {
+  for (const moment of moments) {
     const shouldUseFullWidth = moment.type === "photo" && !moment.compact;
 
     if (shouldUseFullWidth) {
@@ -733,7 +908,7 @@ function buildMomentRows(moments) {
       }
 
       rows.push([moment]);
-      return;
+      continue;
     }
 
     compactRow.push(moment);
@@ -742,7 +917,7 @@ function buildMomentRows(moments) {
       rows.push(compactRow);
       compactRow = [];
     }
-  });
+  }
 
   if (compactRow.length > 0) {
     rows.push(compactRow);
@@ -761,8 +936,6 @@ const createStyles = (colors) =>
     scrollContent: {
       paddingHorizontal: 20,
       paddingTop: 12,
-
-      // Indispensable, car la tab bar est flottante.
       paddingBottom: 125,
     },
 
@@ -770,9 +943,7 @@ const createStyles = (colors) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-
       gap: 14,
-
       marginBottom: 20,
     },
 
@@ -785,42 +956,30 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 22,
       lineHeight: 30,
-
       color: colors.textPrimary,
     },
 
     subtitle: {
       marginTop: 2,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 13,
       lineHeight: 19,
-
       color: colors.textSecondary,
     },
 
     addMomentCard: {
       minHeight: 78,
-
       flexDirection: "row",
       alignItems: "center",
-
       paddingHorizontal: 17,
-
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 22,
-
       backgroundColor: colors.white,
-
       shadowColor: colors.textPrimary,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
+      shadowOffset: { width: 0, height: 5 },
       shadowOpacity: 0.035,
       shadowRadius: 14,
-
       elevation: 2,
     },
 
@@ -832,21 +991,16 @@ const createStyles = (colors) =>
     addMomentIcon: {
       width: 46,
       height: 46,
-
       alignItems: "center",
       justifyContent: "center",
-
       marginRight: 13,
-
       borderRadius: 23,
-
       backgroundColor: colors.selectedBackground,
     },
 
     addMomentTextContainer: {
       flex: 1,
       minWidth: 0,
-
       marginRight: 10,
     },
 
@@ -854,49 +1008,39 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 15,
       lineHeight: 21,
-
       color: colors.textPrimary,
     },
 
     addMomentDescription: {
       marginTop: 3,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 11,
       lineHeight: 16,
-
       color: colors.textSecondary,
     },
 
     filtersScroll: {
       marginTop: 16,
       marginBottom: 24,
-
       marginHorizontal: -20,
     },
 
     filtersContent: {
       alignItems: "center",
-
       gap: 9,
-
       paddingHorizontal: 20,
     },
+
     filterButton: {
       minHeight: 40,
-
       flexDirection: "row",
       alignItems: "center",
       flexShrink: 0,
-
       gap: 7,
-
       paddingHorizontal: 13,
-
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 20,
-
       backgroundColor: colors.white,
     },
 
@@ -908,21 +1052,16 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 12,
       lineHeight: 17,
-
       color: colors.textPrimary,
     },
 
     filterCount: {
       minWidth: 20,
       height: 20,
-
       alignItems: "center",
       justifyContent: "center",
-
       paddingHorizontal: 5,
-
       borderRadius: 10,
-
       backgroundColor: colors.primary,
     },
 
@@ -930,47 +1069,37 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 10,
       lineHeight: 13,
-
       color: colors.white,
     },
 
     activeFilter: {
       minHeight: 40,
       maxWidth: 160,
-
       flexDirection: "row",
       alignItems: "center",
       flexShrink: 0,
-
       gap: 5,
-
       paddingLeft: 13,
       paddingRight: 7,
-
       borderWidth: 1,
       borderColor: `${colors.primary}45`,
       borderRadius: 20,
-
       backgroundColor: colors.selectedBackground,
     },
 
     activeFilterText: {
       flexShrink: 1,
-
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 12,
       lineHeight: 17,
-
       color: colors.primary,
     },
 
     removeFilterButton: {
       width: 25,
       height: 25,
-
       alignItems: "center",
       justifyContent: "center",
-
       borderRadius: 13,
     },
 
@@ -988,11 +1117,9 @@ const createStyles = (colors) =>
 
     groupTitle: {
       paddingHorizontal: 2,
-
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 17,
       lineHeight: 23,
-
       color: colors.textPrimary,
     },
 
@@ -1003,7 +1130,6 @@ const createStyles = (colors) =>
     compactRow: {
       flexDirection: "row",
       alignItems: "stretch",
-
       gap: 12,
     },
 
@@ -1011,19 +1137,12 @@ const createStyles = (colors) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 22,
-
       backgroundColor: colors.white,
-
       overflow: "hidden",
-
       shadowColor: colors.textPrimary,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
+      shadowOffset: { width: 0, height: 5 },
       shadowOpacity: 0.04,
       shadowRadius: 13,
-
       elevation: 2,
     },
 
@@ -1039,7 +1158,6 @@ const createStyles = (colors) =>
     compactMomentCard: {
       flex: 1,
       minHeight: 215,
-
       padding: 15,
     },
 
@@ -1053,10 +1171,8 @@ const createStyles = (colors) =>
 
     photoContainer: {
       position: "relative",
-
       width: "100%",
       aspectRatio: 1.55,
-
       backgroundColor: colors.selectedBackground,
     },
 
@@ -1065,21 +1181,9 @@ const createStyles = (colors) =>
       height: "100%",
     },
 
-    photoTypeIcon: {
-      position: "absolute",
-
-      top: 12,
-      left: 12,
-
-      width: 36,
-      height: 36,
-
+    photoPlaceholder: {
       alignItems: "center",
       justifyContent: "center",
-
-      borderRadius: 18,
-
-      backgroundColor: `${colors.white}E8`,
     },
 
     photoContent: {
@@ -1091,48 +1195,42 @@ const createStyles = (colors) =>
     photoTitleRow: {
       flexDirection: "row",
       alignItems: "flex-start",
-
       gap: 10,
     },
 
     photoTitle: {
       flex: 1,
-
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 15,
       lineHeight: 21,
-
       color: colors.textPrimary,
+    },
+
+    photoTitleSpacer: {
+      flex: 1,
     },
 
     photoDescription: {
       marginTop: 5,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 12,
       lineHeight: 18,
-
       color: colors.textSecondary,
     },
 
     momentMetadata: {
       marginTop: 6,
-
       fontFamily: "PlusJakartaSans_500Medium",
       fontSize: 10,
       lineHeight: 15,
-
       color: colors.textSecondary,
     },
 
     ageBadge: {
       alignSelf: "flex-start",
-
       paddingHorizontal: 8,
       paddingVertical: 4,
-
       borderRadius: 11,
-
       backgroundColor: colors.selectedBackground,
     },
 
@@ -1140,7 +1238,6 @@ const createStyles = (colors) =>
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 9,
       lineHeight: 12,
-
       color: colors.primary,
     },
 
@@ -1158,27 +1255,20 @@ const createStyles = (colors) =>
     milestoneTypeIcon: {
       width: 36,
       height: 36,
-
       alignItems: "center",
       justifyContent: "center",
-
       borderRadius: 18,
-
       backgroundColor: "#FFF1C8",
     },
 
     milestoneIllustration: {
       width: 62,
       height: 62,
-
       alignSelf: "center",
       alignItems: "center",
       justifyContent: "center",
-
       marginTop: 13,
-
       borderRadius: 31,
-
       backgroundColor: "#FFF1C8",
     },
 
@@ -1188,12 +1278,10 @@ const createStyles = (colors) =>
 
     milestoneTitle: {
       marginTop: 13,
-
       fontFamily: "PlusJakartaSans_700Bold",
       fontSize: 17,
       lineHeight: 23,
       textAlign: "center",
-
       color: colors.textPrimary,
     },
 
@@ -1202,42 +1290,34 @@ const createStyles = (colors) =>
       backgroundColor: colors.selectedBackground,
     },
 
-    noteTypeIcon: {
-      width: 36,
-      height: 36,
-
-      alignItems: "center",
-      justifyContent: "center",
-
-      borderRadius: 18,
-
-      backgroundColor: colors.white,
-    },
-
     noteText: {
       flex: 1,
-
       marginTop: 18,
-
       fontFamily: "PlusJakartaSans_600SemiBold",
       fontSize: 15,
       lineHeight: 24,
-
       color: colors.textPrimary,
     },
 
     noteBottomRow: {
       marginTop: 14,
-
       flexDirection: "row",
       alignItems: "flex-end",
       justifyContent: "space-between",
-
       gap: 8,
     },
 
-    pressed: {
-      opacity: 0.75,
-      transform: [{ scale: 0.98 }],
+    noteAuthor: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    retryButton: {
+      alignSelf: "flex-start",
+      paddingVertical: 12,
+    },
+
+    disabled: {
+      opacity: 0.5,
     },
   });

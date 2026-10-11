@@ -10,6 +10,8 @@ import {
   View,
 } from "react-native";
 
+import { getLatestLocalGrowthMeasurements } from "../../database/tracking/growth/growthRepository.js";
+
 import { useDispatch, useSelector } from "react-redux";
 import {
   getLocalUserPreferences,
@@ -88,6 +90,8 @@ import {
   removeDeletedChild,
   clearChildren,
 } from "../../store/slices/childrenSlice.js";
+
+import { useFocusEffect } from "@react-navigation/native";
 
 import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
@@ -303,6 +307,12 @@ export default function ChildProfileScreen({ navigation }) {
   const { showToast } = useToast();
   const languageSelectionSheetRef = useRef(null);
 
+  const [latestMeasurements, setLatestMeasurements] = useState({
+    weight: null,
+    height: null,
+    headCircumference: null,
+  });
+
   const [selectedLanguage, setSelectedLanguage] = useState(
     i18n.resolvedLanguage || i18n.language || "en",
   );
@@ -389,25 +399,6 @@ export default function ChildProfileScreen({ navigation }) {
               }
             : null,
 
-          /*
-           * These values remain unavailable until their
-           * corresponding backend endpoints are connected.
-           */
-          measurements: reduxChild.measurements || {
-            weight: {
-              value: "—",
-              date: null,
-            },
-            height: {
-              value: "—",
-              date: null,
-            },
-            headCircumference: {
-              value: "—",
-              date: null,
-            },
-          },
-
           sharedPeopleCount: reduxChild.sharedPeopleCount ?? 0,
 
           currentUserRelationship: reduxChild.currentUserRelationship ?? null,
@@ -487,6 +478,39 @@ export default function ChildProfileScreen({ navigation }) {
   const [isResendingInvitation, setIsResendingInvitation] = useState(false);
 
   const [isCancellingInvitation, setIsCancellingInvitation] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id || !child?.id) {
+        return undefined;
+      }
+
+      let cancelled = false;
+
+      async function loadLatestMeasurements() {
+        try {
+          const measurements = await getLatestLocalGrowthMeasurements({
+            userId: user.id,
+            childId: child.id,
+          });
+
+          if (cancelled) {
+            return;
+          }
+
+          setLatestMeasurements(measurements);
+        } catch (error) {
+          console.error("Unable to load latest growth measurements:", error);
+        }
+      }
+
+      loadLatestMeasurements();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [child?.id, user?.id]),
+  );
 
   const handleRefresh = async () => {
     if (isRefreshing || !user?.id || !accessToken) {
@@ -1272,24 +1296,59 @@ export default function ChildProfileScreen({ navigation }) {
     }
   };
 
+  function formatWeightMeasurement(value, unit) {
+    if (value == null) {
+      return "—";
+    }
+
+    if (unit === "lb") {
+      const pounds = value * 2.2046226218;
+      return `${Number(pounds.toFixed(1))} lb`;
+    }
+
+    return `${Number(value.toFixed(2))} kg`;
+  }
+
+  function formatLengthMeasurement(value, unit) {
+    if (value == null) {
+      return "—";
+    }
+
+    if (unit === "in") {
+      const inches = value / 2.54;
+      return `${Number(inches.toFixed(1))} in`;
+    }
+
+    return `${Number(value.toFixed(1))} cm`;
+  }
+
   const visibleMeasurements = [
     {
       id: "weight",
       image: WEIGHT_IMAGE,
       label: t("Weight"),
-      value: child.measurements.weight.value,
+      value: formatWeightMeasurement(
+        latestMeasurements.weight,
+        measurementUnits.weight,
+      ),
     },
     {
       id: "height",
       image: HEIGHT_IMAGE,
       label: t("Height"),
-      value: child.measurements.height.value,
+      value: formatLengthMeasurement(
+        latestMeasurements.height,
+        measurementUnits.length,
+      ),
     },
     {
       id: "headCircumference",
       image: HEAD_CIRCUMFERENCE_IMAGE,
       label: t("Head circumference"),
-      value: child.measurements.headCircumference.value,
+      value: formatLengthMeasurement(
+        latestMeasurements.headCircumference,
+        measurementUnits.length,
+      ),
     },
   ].filter((measurement) => visibleTrackingTypes.includes(measurement.id));
 

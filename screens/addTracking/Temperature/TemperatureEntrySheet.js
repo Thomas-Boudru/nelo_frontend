@@ -33,7 +33,15 @@ import { useThemeColors } from "../../../theme/useThemeColors.js";
 
 import MeasurementLocationSheet from "./MeasurementLocationSheet.js";
 
+import {
+  createLocalTemperatureEntry,
+  updateLocalTemperatureEntry,
+} from "../../../database/tracking/temperature/temperatureRepository.js";
+
 import { useSelector } from "react-redux";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 import {
   getTemperatureUnit,
@@ -213,6 +221,8 @@ function IllustratedControlButton({
 
 const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   {
+    userId,
+    childId,
     childName,
     initialLocation = "forehead",
     initialTemperature = DEFAULT_TEMPERATURE,
@@ -223,14 +233,13 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   ref,
 ) {
   const { t } = useTranslation();
+  const { accessToken, refreshSession } = useAuth();
   const colors = useThemeColors();
   const { width: screenWidth } = useWindowDimensions();
 
   const temperaturePreference = useSelector(
     (state) => state.measurementUnits?.temperature,
   );
-
-  console.log("temperaturePreference", temperaturePreference);
 
   const preferredUnit = getTemperatureUnit(temperaturePreference);
 
@@ -498,7 +507,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
   );
 
   const handleRequestDelete = useCallback(() => {
-    if (!isEditMode || !editingEntry) {
+    if (savingRef.current || !isEditMode || !editingEntry) {
       return;
     }
 
@@ -518,6 +527,34 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
       return;
     }
 
+    if (!userId || !childId) {
+      Alert.alert(
+        t("Unable to save temperature"),
+        t("Missing user ID or child ID."),
+      );
+      return;
+    }
+
+    if (isEditMode && !editingEntry?.id) {
+      Alert.alert(
+        t("Unable to save temperature"),
+        t("Missing tracking entry ID."),
+      );
+      return;
+    }
+
+    if (
+      isEditMode &&
+      editingEntry?.childId &&
+      editingEntry.childId !== childId
+    ) {
+      Alert.alert(
+        t("Unable to save temperature"),
+        t("This entry belongs to another child."),
+      );
+      return;
+    }
+
     const nextTemperature = resolveTemperature();
 
     if (nextTemperature === null) {
@@ -525,16 +562,10 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
       return;
     }
 
-    if (typeof onSave !== "function") {
-      Alert.alert(
-        t("Unable to save temperature"),
-        t("Temperature saving is not available yet."),
-      );
-      return;
-    }
-
     savingRef.current = true;
     setIsSaving(true);
+
+    let savedEntry;
 
     try {
       const originalData = editingEntry?.data ?? editingEntry ?? {};
@@ -556,8 +587,6 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
           ? null
           : parseTemperatureInput(originalInputValue);
 
-      // Préserve la saisie d'origine lors d'une modification
-      // de date ou de lieu sans changement de température.
       const keepOriginalInput =
         isEditMode &&
         parsedOriginalValue !== null &&
@@ -575,33 +604,64 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
         ? parsedOriginalValue
         : Number(formatTemperatureValue(nextTemperature, inputUnit));
 
-      updateTemperature(nextTemperature);
-      setIsEditing(false);
-      Keyboard.dismiss();
-
-      const result = await onSave({
-        ...editingEntry,
-
-        id: editingEntry?.id,
-        type: "temperature",
-        mode: sheetMode,
-
-        temperatureCelsius: Number(nextTemperature.toFixed(2)),
+      const data = {
         inputValue,
         inputUnit,
         measurementSite: location,
         measuredAt,
+      };
 
-        // Compatibilité avec le contrat actuel du composant.
-        temperature: nextTemperature,
-        value: nextTemperature,
-        unit: "celsius",
-        location,
-        measurementLocation: location,
-      });
+      savedEntry = isEditMode
+        ? await updateLocalTemperatureEntry({
+            userId,
+            childId,
+            entryId: editingEntry.id,
+            data,
+          })
+        : await createLocalTemperatureEntry({
+            userId,
+            childId,
+            data,
+          });
+    } catch (error) {
+      console.warn("[Temperature] Local save failed:", error);
 
-      if (result === false) {
-        throw new Error("Temperature save was rejected.");
+      savingRef.current = false;
+      setIsSaving(false);
+
+      Alert.alert(t("Unable to save temperature"), t("Please try again."));
+      return;
+    }
+
+    // La sauvegarde est acquise. Une erreur de notification
+    // ne doit pas proposer de recréer la même entrée.
+    try {
+      updateTemperature(savedEntry.temperatureCelsius);
+      setIsEditing(false);
+      Keyboard.dismiss();
+
+      // Si la sheet reste momentanément ouverte, un nouvel
+      // enregistrement modifiera cette entrée au lieu de la dupliquer.
+      setEditingEntry(savedEntry);
+      setSheetMode("edit");
+
+      try {
+        await onSave?.({
+          ...savedEntry,
+          mode: isEditMode ? "edit" : "create",
+        });
+      } catch (error) {
+        console.warn("[Temperature] Save notification failed:", error);
+      }
+
+      if (accessToken) {
+        void processSyncQueue({
+          userId,
+          accessToken,
+          refreshSession,
+        }).catch((error) => {
+          console.warn("Unable to synchronize tracking entries:", error);
+        });
       }
 
       await Haptics.notificationAsync(
@@ -609,21 +669,22 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
       ).catch(() => {});
 
       sheetRef.current?.dismiss();
-    } catch (error) {
-      Alert.alert(t("Unable to save temperature"), t("Please try again."));
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
   }, [
+    userId,
+    childId,
     displayUnit,
     editingEntry,
     isEditMode,
     location,
     measuredAt,
     onSave,
+    accessToken,
+    refreshSession,
     resolveTemperature,
-    sheetMode,
     showInvalidTemperature,
     t,
     updateTemperature,
@@ -865,6 +926,7 @@ const TemperatureEntrySheet = forwardRef(function TemperatureEntrySheet(
                   title={t("Delete")}
                   variant="destructive"
                   onPress={handleRequestDelete}
+                  disabled={isSaving}
                 />
               </View>
 

@@ -196,101 +196,140 @@ CREATE TABLE IF NOT EXISTS tracking_photos_local (
 CREATE INDEX IF NOT EXISTS idx_tracking_photos_local_entry
   ON tracking_photos_local (user_id, entry_id, sort_order);
 
-  CREATE TABLE IF NOT EXISTS child_custom_medications_local (
+  CREATE TABLE IF NOT EXISTS moments_local (
   user_id TEXT NOT NULL,
-  medication_id TEXT NOT NULL,
+  moment_id TEXT NOT NULL,
   child_id TEXT NOT NULL,
-  medication_json TEXT NOT NULL,
-  normalized_name TEXT NOT NULL,
+
+  moment_type TEXT NOT NULL,
+  moment_json TEXT NOT NULL,
+
+  occurred_on TEXT NOT NULL,
+  publication_status TEXT NOT NULL DEFAULT 'draft',
 
   server_version INTEGER,
   local_revision INTEGER NOT NULL DEFAULT 1,
 
   sync_status TEXT NOT NULL DEFAULT 'pending',
-  archived_at TEXT,
+
+  deleted_at TEXT,
   updated_at TEXT NOT NULL,
 
-  PRIMARY KEY (user_id, medication_id)
+  PRIMARY KEY (user_id, moment_id),
+
+  CHECK (moment_type IN ('photo', 'note', 'milestone')),
+  CHECK (publication_status IN ('draft', 'published')),
+  CHECK (local_revision >= 1),
+  CHECK (server_version IS NULL OR server_version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS idx_custom_medications_local_child
-  ON child_custom_medications_local (
+CREATE INDEX IF NOT EXISTS idx_moments_local_child_date
+  ON moments_local (
     user_id,
     child_id,
-    archived_at
+    occurred_on DESC,
+    moment_id DESC
+  )
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_moments_local_child_sync
+  ON moments_local (
+    user_id,
+    child_id,
+    sync_status
   );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_medications_local_active_name
-  ON child_custom_medications_local (
-    user_id,
-    child_id,
-    normalized_name
-  )
-  WHERE archived_at IS NULL;
-
-
-CREATE TABLE IF NOT EXISTS child_custom_vaccines_local (
+  CREATE TABLE IF NOT EXISTS moment_photos_local (
   user_id TEXT NOT NULL,
-  vaccine_id TEXT NOT NULL,
+  attachment_id TEXT NOT NULL,
+  moment_id TEXT NOT NULL,
   child_id TEXT NOT NULL,
-  vaccine_json TEXT NOT NULL,
+
+  relative_path TEXT,
+  photo_json TEXT NOT NULL,
+
+  display_order INTEGER NOT NULL,
+
+  local_revision INTEGER NOT NULL DEFAULT 1,
+  sync_status TEXT NOT NULL DEFAULT 'pending',
+
+  deleted_at TEXT,
+  updated_at TEXT NOT NULL,
+
+  PRIMARY KEY (user_id, attachment_id),
+
+  FOREIGN KEY (user_id, moment_id)
+    REFERENCES moments_local(user_id, moment_id)
+    ON DELETE CASCADE,
+
+  CHECK (display_order >= 0),
+  CHECK (local_revision >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_moment_photos_local_moment
+  ON moment_photos_local (
+    user_id,
+    moment_id,
+    display_order,
+    attachment_id
+  )
+  WHERE deleted_at IS NULL;
+
+
+  CREATE TABLE IF NOT EXISTS child_custom_milestones_local (
+  user_id TEXT NOT NULL,
+  milestone_id TEXT NOT NULL,
+  child_id TEXT NOT NULL,
+
+  milestone_json TEXT NOT NULL,
+
   normalized_name TEXT NOT NULL,
+  category_code TEXT NOT NULL,
 
   server_version INTEGER,
   local_revision INTEGER NOT NULL DEFAULT 1,
 
   sync_status TEXT NOT NULL DEFAULT 'pending',
+
   archived_at TEXT,
   updated_at TEXT NOT NULL,
 
-  PRIMARY KEY (user_id, vaccine_id)
+  PRIMARY KEY (user_id, milestone_id),
+
+  CHECK (
+    category_code IN (
+      'development',
+      'feeding',
+      'sleep',
+      'growth',
+      'daily-life'
+    )
+  ),
+
+  CHECK (local_revision >= 1),
+  CHECK (server_version IS NULL OR server_version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS idx_custom_vaccines_local_child
-  ON child_custom_vaccines_local (
+CREATE INDEX IF NOT EXISTS idx_custom_milestones_local_child
+  ON child_custom_milestones_local (
     user_id,
     child_id,
-    archived_at
+    archived_at,
+    category_code,
+    normalized_name
   );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_vaccines_local_active_name
-  ON child_custom_vaccines_local (
-    user_id,
-    child_id,
-    normalized_name
-  )
-  WHERE archived_at IS NULL;
-
-
-CREATE TABLE IF NOT EXISTS vaccination_reminders_local (
+  CREATE TABLE IF NOT EXISTS moments_sync_state_local (
   user_id TEXT NOT NULL,
-  source_tracking_entry_id TEXT NOT NULL,
-  reminder_id TEXT,
   child_id TEXT NOT NULL,
-  reminder_json TEXT NOT NULL,
 
-  server_version INTEGER,
-  sync_status TEXT NOT NULL DEFAULT 'pending',
-  status TEXT NOT NULL DEFAULT 'pending',
-  due_date TEXT NOT NULL,
+  moments_cursor TEXT,
+  custom_milestones_cursor TEXT,
+
   updated_at TEXT NOT NULL,
 
-  PRIMARY KEY (user_id, source_tracking_entry_id),
-
-  CHECK (status IN ('pending', 'completed', 'cancelled'))
+  PRIMARY KEY (user_id, child_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_vaccination_reminders_local_child_date
-  ON vaccination_reminders_local (
-    user_id,
-    child_id,
-    status,
-    due_date
-  );
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_vaccination_reminders_local_server_id
-  ON vaccination_reminders_local (user_id, reminder_id)
-  WHERE reminder_id IS NOT NULL;
       `);
 
   const columns = await database.getAllAsync(

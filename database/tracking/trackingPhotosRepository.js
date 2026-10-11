@@ -6,6 +6,8 @@ import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { getLocalDatabase } from "../localDatabase.js";
 import { enqueueSyncOperation } from "../../sync/syncQueueRepository.js";
 
+import { prepareNextTrackingDeletion } from "./trackingDeletionRepository.js";
+
 function getPhotoUri(relativePath) {
   if (
     !FileSystem.documentDirectory ||
@@ -188,6 +190,10 @@ export async function prepareTrackingPhotoPayload({ operation, payload }) {
     throw new Error("Invalid photo synchronization payload.");
   }
 
+  if (operation.http_method === "DELETE") {
+    return undefined;
+  }
+
   const database = await getLocalDatabase();
 
   const entry = await database.getFirstAsync(
@@ -208,7 +214,7 @@ export async function prepareTrackingPhotoPayload({ operation, payload }) {
     throw error;
   }
 
-  if (entry.deleted_at || entry.child_id !== payload.childId) {
+  if (entry.child_id !== payload.childId) {
     throw new Error("Photo tracking entry mismatch.");
   }
 
@@ -248,12 +254,16 @@ export async function prepareTrackingPhotoPayload({ operation, payload }) {
 
 export async function completeTrackingPhotoSync({ operation, response }) {
   const payload = JSON.parse(operation.payload_json);
+  const isDeletion = operation.http_method === "DELETE";
 
   if (
-    !response?.photo ||
-    response.photo.attachmentId !== payload.attachmentId ||
-    !Number.isInteger(response.entryVersion) ||
-    response.entryVersion < 1
+    !payload ||
+    payload.entryId !== operation.entity_id ||
+    !Number.isSafeInteger(response?.entryVersion) ||
+    response.entryVersion < 1 ||
+    (isDeletion
+      ? typeof response.removed !== "boolean"
+      : response.photo?.attachmentId !== payload.attachmentId)
   ) {
     throw new Error("Invalid photo synchronization response.");
   }
@@ -261,80 +271,109 @@ export async function completeTrackingPhotoSync({ operation, response }) {
   const database = await getLocalDatabase();
 
   await database.withExclusiveTransactionAsync(async (transaction) => {
-    const row = await transaction.getFirstAsync(
-      `
-        SELECT *
-        FROM tracking_photos_local
-        WHERE user_id = ?
-          AND attachment_id = ?
-          AND entry_id = ?
-      `,
-      [operation.user_id, payload.attachmentId, operation.entity_id],
-    );
-
     const entryRow = await transaction.getFirstAsync(
       `
         SELECT *
         FROM tracking_entries_local
-        WHERE user_id = ? AND entry_id = ?
+        WHERE user_id = ?
+          AND entry_id = ?
+          AND child_id = ?
       `,
-      [operation.user_id, operation.entity_id],
+      [operation.user_id, operation.entity_id, payload.childId],
     );
 
-    if (!row || !entryRow || row.child_id !== entryRow.child_id) {
+    if (!entryRow) {
       throw new Error("Photo synchronization mismatch.");
     }
 
-    const photo = {
-      ...JSON.parse(row.photo_json),
-      ...response.photo,
-      relativePath: row.relative_path,
-      uri: getPhotoUri(row.relative_path),
-      syncStatus: "synced",
-    };
+    const localEntry = JSON.parse(entryRow.entry_json);
+    let photos = localEntry.photos ?? [];
 
-    await transaction.runAsync(
-      `
-        UPDATE tracking_photos_local
-        SET photo_json = ?, sync_status = 'synced', updated_at = ?
-        WHERE user_id = ? AND attachment_id = ?
-      `,
-      [
-        JSON.stringify(photo),
-        new Date().toISOString(),
-        operation.user_id,
-        payload.attachmentId,
-      ],
-    );
+    if (isDeletion) {
+      photos = photos.filter(
+        (photo) => (photo.attachmentId ?? photo.id) !== payload.attachmentId,
+      );
 
-    const photoRows = await transaction.getAllAsync(
-      `
-        SELECT photo_json, relative_path, sync_status
-        FROM tracking_photos_local
-        WHERE user_id = ? AND entry_id = ?
-        ORDER BY sort_order ASC
-      `,
-      [operation.user_id, operation.entity_id],
-    );
+      await transaction.runAsync(
+        `
+          DELETE FROM tracking_photos_local
+          WHERE user_id = ?
+            AND entry_id = ?
+            AND attachment_id = ?
+        `,
+        [operation.user_id, operation.entity_id, payload.attachmentId],
+      );
+    } else {
+      const row = await transaction.getFirstAsync(
+        `
+          SELECT *
+          FROM tracking_photos_local
+          WHERE user_id = ?
+            AND entry_id = ?
+            AND attachment_id = ?
+            AND child_id = ?
+        `,
+        [
+          operation.user_id,
+          operation.entity_id,
+          payload.attachmentId,
+          payload.childId,
+        ],
+      );
 
-    const photos = photoRows.map((item) => ({
-      ...JSON.parse(item.photo_json),
-      uri: getPhotoUri(item.relative_path),
-      syncStatus: item.sync_status,
-    }));
+      if (!row) {
+        throw new Error("Local tracking photo not found.");
+      }
+
+      const photo = {
+        ...JSON.parse(row.photo_json),
+        ...response.photo,
+        relativePath: row.relative_path,
+        uri: getPhotoUri(row.relative_path),
+        syncStatus: "synced",
+      };
+
+      await transaction.runAsync(
+        `
+          UPDATE tracking_photos_local
+          SET photo_json = ?,
+              sync_status = 'synced',
+              updated_at = ?
+          WHERE user_id = ?
+            AND entry_id = ?
+            AND attachment_id = ?
+        `,
+        [
+          JSON.stringify(photo),
+          new Date().toISOString(),
+          operation.user_id,
+          operation.entity_id,
+          payload.attachmentId,
+        ],
+      );
+
+      // Conserver aussi les photos distantes qui ne possèdent
+      // pas de ligne dans tracking_photos_local.
+      // Ne pas réintroduire une photo retirée de l'état local.
+      photos = photos.map((current) =>
+        (current.attachmentId ?? current.id) === payload.attachmentId
+          ? photo
+          : current,
+      );
+    }
 
     const version = Math.max(
       entryRow.server_version ?? 0,
       response.entryVersion,
     );
 
-    const localEntry = JSON.parse(entryRow.entry_json);
-
     await transaction.runAsync(
       `
         UPDATE tracking_entries_local
-        SET entry_json = ?, server_version = ?
-        WHERE user_id = ? AND entry_id = ?
+        SET entry_json = ?,
+            server_version = ?
+        WHERE user_id = ?
+          AND entry_id = ?
       `,
       [
         JSON.stringify({
@@ -348,8 +387,18 @@ export async function completeTrackingPhotoSync({ operation, response }) {
       ],
     );
 
+    await prepareNextTrackingDeletion({
+      database: transaction,
+      operation,
+      serverVersion: response.entryVersion,
+    });
+
     await transaction.runAsync(
-      "DELETE FROM sync_queue WHERE id = ? AND user_id = ?",
+      `
+        DELETE FROM sync_queue
+        WHERE id = ?
+          AND user_id = ?
+      `,
       [operation.id, operation.user_id],
     );
   });

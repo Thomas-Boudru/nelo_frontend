@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
   Text,
   View,
 } from "react-native";
@@ -18,7 +19,6 @@ import DateTimePicker, {
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "../../auth/AuthProvider.js";
-import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 import TrackingHeader from "../../components/tracking/byDay/TrackingHeader.js";
 import TrackingViewSwitcher from "../../components/tracking/byDay/TrackingViewSwitcher.js";
@@ -30,7 +30,7 @@ import TrackingByTypeView from "../../components/tracking/byTracking/TrackingByT
 
 import ChildSelectorSheet from "../child/ChildSelectorSheet.js";
 import ShareChildDataSheet from "../child/Share/ShareChildDataSheet.js";
-import { loadChildren, selectChild } from "../../store/slices/childrenSlice.js";
+import { selectChild } from "../../store/slices/childrenSlice.js";
 
 import { getTrackingHistoryDestination } from "../../navigation/trackingHistoryDestinations.js";
 
@@ -41,6 +41,8 @@ import {
 } from "../../data/mockTrackingData.js";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
+
+import useTrackingPeriod from "../../hooks/useTrackingPeriod.js";
 
 const EMPTY_SUMMARY = {
   entryCount: 0,
@@ -139,8 +141,6 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
 
   const { user, accessToken, refreshSession } = useAuth();
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   const children = useSelector((state) => state.children.children);
 
   const selectedChildId = useSelector(
@@ -160,7 +160,7 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
   const [activeLinks, setActiveLinks] = useState(INITIAL_ACTIVE_LINKS);
 
   const [selectedDate, setSelectedDate] = useState(() =>
-    createLocalDate(mockTrackingDay.date),
+    normalizeDate(new Date()),
   );
 
   const [draftDate, setDraftDate] = useState(selectedDate);
@@ -233,29 +233,82 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
     [selectedDate],
   );
 
-  const selectedDay = useMemo(() => {
-    const matchesDate = mockTrackingDay.date === selectedDateKey;
+  const {
+    dayEntries: selectedDayEntries,
+    weekEntries: chartEntries,
+    loading: isTrackingLoading,
+    error: trackingError,
+    syncError,
+    isRefreshing,
+    refresh: handleRefresh,
+  } = useTrackingPeriod({
+    userId: user?.id,
+    childId: selectedChild?.id,
+    dateKey: selectedDateKey,
+    accessToken,
+    refreshSession,
+  });
 
-    const matchesChild = mockTrackingDay.childId === selectedChildId;
+  const selectedDaySummary = useMemo(() => {
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
 
-    if (!matchesDate || !matchesChild) {
-      return null;
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    const now = Date.now();
+
+    const sleepIntervals = selectedDayEntries
+      .filter((entry) => entry.type === "sleep")
+      .map((entry) => [
+        Math.max(Date.parse(entry.startedAt), start.getTime()),
+        Math.min(
+          entry.endedAt ? Date.parse(entry.endedAt) : now,
+          end.getTime(),
+          now,
+        ),
+      ])
+      .filter(([from, to]) => Number.isFinite(from) && to > from)
+      .sort((a, b) => a[0] - b[0]);
+
+    // Fusionner les chevauchements pour ne pas compter deux fois
+    // la même période si deux saisies de sommeil se recouvrent.
+    let totalSleepMs = 0;
+    let previousStart = null;
+    let previousEnd = null;
+
+    for (const [from, to] of sleepIntervals) {
+      if (previousEnd !== null && from <= previousEnd) {
+        previousEnd = Math.max(previousEnd, to);
+      } else {
+        if (previousEnd !== null) {
+          totalSleepMs += previousEnd - previousStart;
+        }
+
+        previousStart = from;
+        previousEnd = to;
+      }
     }
 
-    return mockTrackingDay;
-  }, [selectedChildId, selectedDateKey]);
+    if (previousEnd !== null) {
+      totalSleepMs += previousEnd - previousStart;
+    }
 
-  const selectedDaySummary = selectedDay?.summary ?? EMPTY_SUMMARY;
+    return {
+      entryCount: selectedDayEntries.length,
 
-  const selectedDayEntries = selectedDay?.entries ?? [];
+      // Le tirage de lait n'est pas un repas consommé par l'enfant.
+      feedingCount: selectedDayEntries.filter((entry) =>
+        ["bottle", "breastfeeding", "solids"].includes(entry.type),
+      ).length,
 
-  const chartEntries = useMemo(() => {
-    const nonSleepDayEntries = selectedDayEntries.filter(
-      (entry) => entry.type !== "sleep",
-    );
+      sleepDurationMinutes: Math.floor(totalSleepMs / 60000),
 
-    return [...mockSleepHistoryEntries, ...nonSleepDayEntries];
-  }, [selectedDayEntries]);
+      diaperCount: selectedDayEntries.filter((entry) =>
+        ["diaper", "potty"].includes(entry.type),
+      ).length,
+    };
+  }, [selectedDayEntries, selectedDate]);
 
   const dateLabel = useMemo(
     () => formatSelectedDate(selectedDate, i18n.language, t),
@@ -400,15 +453,11 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
      * On est déjà dans la pile Tracking : navigation directe, en laissant
      * l'écran surcharger le titre avec celui de la liste.
      */
-    navigation.navigate(
-      destination.screen,
-      destination.params
-        ? {
-            ...destination.params,
-            titleKey: item.titleKey ?? destination.params.titleKey,
-          }
-        : undefined,
-    );
+    navigation.navigate(destination.screen, {
+      ...(destination.params ?? {}),
+      childId: selectedChild?.id,
+      titleKey: item.titleKey ?? destination.params?.titleKey,
+    });
   };
   const handleCreateLink = (options = {}) => {
     const now = new Date();
@@ -476,59 +525,6 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
     return true;
   };
 
-  const handleRefresh = async () => {
-    if (isRefreshing || !user?.id || !accessToken) {
-      return;
-    }
-
-    setIsRefreshing(true);
-
-    try {
-      /*
-       * Envoie les suivis et autres modifications
-       * qui attendent dans SQLite.
-       */
-      await processSyncQueue({
-        userId: user.id,
-        accessToken,
-        refreshSession,
-      });
-
-      /*
-       * Recharge les informations générales de l'enfant.
-       */
-      await dispatch(
-        loadChildren({
-          userId: user.id,
-          accessToken,
-          refreshSession,
-        }),
-      ).unwrap();
-
-      /*
-       * Lorsque les vrais suivis seront connectés :
-       *
-       * await dispatch(
-       *   loadTrackingDay({
-       *     childId: selectedChildId,
-       *     date: selectedDateKey,
-       *     accessToken,
-       *     refreshSession,
-       *   }),
-       * ).unwrap();
-       */
-    } catch (error) {
-      console.error("Unable to refresh tracking data:", error);
-
-      Alert.alert(
-        t("Unable to refresh tracking data"),
-        t("Check your internet connection and try again."),
-      );
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
@@ -570,7 +566,40 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
           onChangeMode={handleChangeViewMode}
         />
 
-        {viewMode === "day" ? (
+        {isTrackingLoading ? (
+          <ActivityIndicator
+            color={colors.primary}
+            style={{ marginVertical: 20 }}
+          />
+        ) : null}
+
+        {trackingError ? (
+          <Text
+            accessibilityRole="alert"
+            style={{
+              marginHorizontal: 20,
+              marginVertical: 12,
+              color: colors.textSecondary,
+            }}
+          >
+            {t("Unable to load tracking data. Pull down to try again.")}
+          </Text>
+        ) : null}
+
+        {syncError && !trackingError ? (
+          <Text
+            accessibilityRole="alert"
+            style={{
+              marginHorizontal: 20,
+              marginVertical: 12,
+              color: colors.textSecondary,
+            }}
+          >
+            {t("Synchronization failed. Showing data saved on this device.")}
+          </Text>
+        ) : null}
+
+        {isTrackingLoading || trackingError ? null : viewMode === "day" ? (
           <>
             <TrackingDayToolbar
               dateLabel={dateLabel}
@@ -601,7 +630,10 @@ export default function TrackingScreen({ navigation, onEditTrackingEntry }) {
             )}
           </>
         ) : (
-          <TrackingByTypeView onPressTrackingType={handlePressTrackingType} />
+          <TrackingByTypeView
+            entries={chartEntries}
+            onPressTrackingType={handlePressTrackingType}
+          />
         )}
       </ScrollView>
 

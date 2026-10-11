@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -15,6 +15,14 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import * as Haptics from "expo-haptics";
+
+import {
+  createLocalSymptomsEntry,
+  updateLocalSymptomsEntry,
+} from "../../../database/tracking/symptoms/symptomsRepository.js";
+
+import { useAuth } from "../../../auth/AuthProvider.js";
+import { processSyncQueue } from "../../../sync/processSyncQueue.js";
 
 import PrimaryButton from "../../../components/ui/PrimaryButton.js";
 import DateTimeRow from "../../../components/addTracking/DateTimeRow.js";
@@ -130,10 +138,11 @@ function createSymptomsStateFromTrackingEntry(entry) {
 }
 
 const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
-  { childName, onSave, onRequestDelete, onPressHistory },
+  { userId, childId, childName, onSave, onRequestDelete, onPressHistory },
   ref,
 ) {
   const { t } = useTranslation();
+  const { accessToken, refreshSession } = useAuth();
   const colors = useThemeColors();
 
   const modalRef = useRef(null);
@@ -153,6 +162,9 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
 
   const canSave = selectedSymptoms.length > 0;
 
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   const resetForm = useCallback(() => {
     setSelectedSymptoms([]);
     setNote("");
@@ -166,10 +178,9 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
     ref,
     () => ({
       present(options = {}) {
-        /*
-         * Compatibilité avec l’appel actuel :
-         * symptomsEntrySheetRef.current?.present()
-         */
+        if (savingRef.current) {
+          return;
+        }
         if (!options || typeof options !== "object") {
           resetForm();
           modalRef.current?.present();
@@ -198,6 +209,10 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
       },
 
       dismiss() {
+        if (savingRef.current) {
+          return;
+        }
+
         noteSheetRef.current?.dismiss();
         modalRef.current?.dismiss();
       },
@@ -211,14 +226,18 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
         {...props}
         appearsOnIndex={0}
         disappearsOnIndex={-1}
-        pressBehavior="close"
+        pressBehavior={isSaving ? "none" : "close"}
         opacity={0.42}
       />
     ),
-    [],
+    [isSaving],
   );
 
   const handleToggleSymptom = useCallback((symptomId) => {
+    if (savingRef.current) {
+      return;
+    }
+
     Haptics.selectionAsync().catch(() => {});
 
     setSelectedSymptoms((currentSymptoms) => {
@@ -233,10 +252,18 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
   }, []);
 
   const handleOpenNote = useCallback(() => {
+    if (savingRef.current) {
+      return;
+    }
+
     noteSheetRef.current?.present(note);
   }, [note]);
 
   const handleRequestDelete = useCallback(() => {
+    if (savingRef.current) {
+      return;
+    }
+
     if (!isEditMode || !editingEntry) {
       return;
     }
@@ -245,6 +272,9 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
   }, [editingEntry, isEditMode, onRequestDelete]);
 
   const handleOpenHistory = useCallback(() => {
+    if (savingRef.current) {
+      return;
+    }
     modalRef.current?.dismiss();
 
     setTimeout(() => {
@@ -253,36 +283,120 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
   }, [onPressHistory]);
 
   const handleSave = useCallback(async () => {
-    if (!canSave) {
+    if (savingRef.current || !canSave) {
       return;
     }
 
-    await Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Success,
-    ).catch(() => {});
+    if (!userId || !childId) {
+      Alert.alert(
+        t("Unable to save symptoms"),
+        t("Missing user ID or child ID."),
+      );
+      return;
+    }
 
-    await onSave?.({
-      ...editingEntry,
+    if (isEditMode && !editingEntry?.id) {
+      Alert.alert(
+        t("Unable to save symptoms"),
+        t("Missing tracking entry ID."),
+      );
+      return;
+    }
 
-      id: editingEntry?.id,
+    if (
+      isEditMode &&
+      editingEntry?.childId &&
+      editingEntry.childId !== childId
+    ) {
+      Alert.alert(
+        t("Unable to save symptoms"),
+        t("This entry belongs to another child."),
+      );
+      return;
+    }
 
-      type: "symptoms",
-      mode: sheetMode,
+    savingRef.current = true;
+    setIsSaving(true);
 
-      symptoms: selectedSymptoms,
-      note: note.trim() || null,
-      observedAt,
-    });
+    let savedEntry;
 
-    modalRef.current?.dismiss();
+    try {
+      const data = {
+        symptoms: selectedSymptoms,
+        note,
+        observedAt,
+      };
+
+      savedEntry = isEditMode
+        ? await updateLocalSymptomsEntry({
+            userId,
+            childId,
+            entryId: editingEntry.id,
+            data,
+          })
+        : await createLocalSymptomsEntry({
+            userId,
+            childId,
+            data,
+          });
+    } catch (error) {
+      console.warn("[Symptoms] Local save failed:", error);
+
+      savingRef.current = false;
+      setIsSaving(false);
+
+      Alert.alert(t("Unable to save symptoms"), t("Please try again."));
+      return;
+    }
+
+    try {
+      // La sauvegarde locale est acquise.
+      setEditingEntry(savedEntry);
+      setSheetMode("edit");
+
+      try {
+        await onSave?.({
+          ...savedEntry,
+          mode: isEditMode ? "edit" : "create",
+        });
+      } catch (error) {
+        // Une erreur de notification ne doit pas entraîner
+        // une deuxième création de la même entrée.
+        console.warn("[Symptoms] Save notification failed:", error);
+      }
+
+      if (accessToken) {
+        void processSyncQueue({
+          userId,
+          accessToken,
+          refreshSession,
+        }).catch((error) => {
+          console.warn("Unable to synchronize tracking entries:", error);
+        });
+      }
+
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      ).catch(() => {});
+
+      modalRef.current?.dismiss();
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   }, [
     canSave,
+    userId,
+    childId,
+    isEditMode,
     editingEntry,
+    selectedSymptoms,
     note,
     observedAt,
+    accessToken,
+    refreshSession,
     onSave,
-    selectedSymptoms,
-    sheetMode,
+    t,
   ]);
 
   return (
@@ -292,7 +406,7 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
         index={0}
         snapPoints={snapPoints}
         enableDynamicSizing={false}
-        enablePanDownToClose
+        enablePanDownToClose={!isSaving}
         enableContentPanningGesture
         enableHandlePanningGesture
         backdropComponent={renderBackdrop}
@@ -303,7 +417,7 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
         android_keyboardInputMode="adjustResize"
         onDismiss={resetForm}
       >
-        <View style={styles.content}>
+        <View style={styles.content} pointerEvents={isSaving ? "none" : "auto"}>
           <View style={styles.header}>
             <View style={styles.headerContent}>
               <Text style={styles.title}>
@@ -430,7 +544,11 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
               </View>
 
               <View style={styles.dateContainer}>
-                <DateTimeRow date={observedAt} onChange={setObservedAt} />
+                <DateTimeRow
+                  value={observedAt}
+                  onChange={setObservedAt}
+                  maximumDate={new Date()}
+                />
               </View>
             </BottomSheetScrollView>
           </View>
@@ -450,7 +568,7 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
                   <PrimaryButton
                     title={t("Save changes")}
                     onPress={handleSave}
-                    disabled={!canSave}
+                    disabled={!canSave || isSaving}
                   />
                 </View>
               </View>
@@ -458,7 +576,7 @@ const SymptomsEntrySheet = forwardRef(function SymptomsEntrySheet(
               <PrimaryButton
                 title={t("Save symptoms")}
                 onPress={handleSave}
-                disabled={!canSave}
+                disabled={!canSave || isSaving}
               />
             )}
           </View>

@@ -313,8 +313,11 @@ export async function prepareCustomFoodPayload({ operation, payload }) {
         FROM sync_queue
         WHERE user_id = ?
           AND entity_type = 'tracking_entry'
-          AND http_method = 'POST'
-          AND endpoint LIKE '%/solids'
+          AND (
+            (http_method = 'POST' AND endpoint LIKE '%/solids')
+            OR
+            (http_method = 'PUT' AND endpoint LIKE '%/solids/%')
+          )
       `,
       [operation.user_id],
     );

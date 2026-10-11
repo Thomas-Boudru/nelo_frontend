@@ -12,6 +12,21 @@ import { markNotificationPreferencesSynced } from "../database/user/notification
 import { completeBottlePresetSync } from "../database/tracking/feed/bottlePresetsRepository.js";
 import { prepareBottlePresetUpdatePayload } from "../database/tracking/feed/bottlePresetUpdatesRepository.js";
 import { completeTrackingEntrySync } from "../database/tracking/feed/bottleRepository.js";
+import { prepareTemperatureSyncPayload } from "../database/tracking/temperature/temperatureRepository.js";
+import { prepareTeethingSyncPayload } from "../database/tracking/teething/teethingRepository.js";
+import { prepareGrowthSyncPayload } from "../database/tracking/growth/growthRepository.js";
+
+import { prepareSymptomsSyncPayload } from "../database/tracking/symptoms/symptomsRepository.js";
+
+import {
+  prepareTrackingDeletionPayload,
+  completeTrackingDeletionSync,
+} from "../database/tracking/trackingDeletionRepository.js";
+
+import {
+  prepareCustomMilestonePayload,
+  completeCustomMilestoneSync,
+} from "../database/moments/customMilestonesRepository.js";
 
 import {
   prepareCustomProductPayload,
@@ -19,6 +34,11 @@ import {
 } from "../database/tracking/medication/customProductsRepository.js";
 
 import { prepareMedicationSyncPayload } from "../database/tracking/medication/medicationRepository.js";
+
+import {
+  prepareMomentSyncPayload,
+  completeMomentSync,
+} from "../database/moments/momentsRepository.js";
 
 import {
   prepareSleepSyncPayload,
@@ -89,6 +109,20 @@ async function executeOperation({ operation, accessToken, refreshSession }) {
 
   let payload = parsedPayload;
 
+  if (operation.entity_type === "moment") {
+    payload = await prepareMomentSyncPayload({
+      operation,
+      payload,
+    });
+  }
+
+  if (operation.entity_type === "child_custom_milestone") {
+    payload = await prepareCustomMilestonePayload({
+      operation,
+      payload,
+    });
+  }
+
   if (
     operation.entity_type === "child_custom_medication" ||
     operation.entity_type === "child_custom_vaccine"
@@ -114,20 +148,47 @@ async function executeOperation({ operation, accessToken, refreshSession }) {
   }
 
   if (operation.entity_type === "tracking_entry") {
-    payload = await prepareSolidFeedingPayload({
-      operation,
-      payload,
-    });
+    if (operation.operation.startsWith("delete:")) {
+      payload = prepareTrackingDeletionPayload({
+        operation,
+        payload,
+      });
+    } else {
+      payload = await prepareSolidFeedingPayload({
+        operation,
+        payload,
+      });
 
-    payload = await prepareSleepSyncPayload({
-      operation,
-      payload,
-    });
+      payload = await prepareSleepSyncPayload({
+        operation,
+        payload,
+      });
 
-    payload = await prepareMedicationSyncPayload({
-      operation,
-      payload,
-    });
+      payload = await prepareGrowthSyncPayload({
+        operation,
+        payload,
+      });
+
+      payload = await prepareMedicationSyncPayload({
+        operation,
+        payload,
+      });
+
+      payload = await prepareTemperatureSyncPayload({
+        operation,
+        payload,
+      });
+
+      payload = await prepareSymptomsSyncPayload({
+        operation,
+        payload,
+      });
+
+      payload = await prepareTeethingSyncPayload({
+        operation,
+        payload,
+      });
+    }
   }
 
   if (operation.entity_type === "tracking_photo") {
@@ -171,6 +232,24 @@ async function executeOperation({ operation, accessToken, refreshSession }) {
 }
 
 async function completeOperation({ operation, response }) {
+  if (operation.entity_type === "moment") {
+    await completeMomentSync({
+      operation,
+      response,
+    });
+
+    return;
+  }
+
+  if (operation.entity_type === "child_custom_milestone") {
+    await completeCustomMilestoneSync({
+      operation,
+      serverMilestone: response?.milestone,
+    });
+
+    return;
+  }
+
   if (
     operation.entity_type === "child_custom_medication" ||
     operation.entity_type === "child_custom_vaccine"
@@ -202,10 +281,17 @@ async function completeOperation({ operation, response }) {
   }
 
   if (operation.entity_type === "tracking_entry") {
-    await completeTrackingEntrySync({
-      operation,
-      serverEntry: response?.entry,
-    });
+    if (operation.operation.startsWith("delete:")) {
+      await completeTrackingDeletionSync({
+        operation,
+        response,
+      });
+    } else {
+      await completeTrackingEntrySync({
+        operation,
+        serverEntry: response?.entry,
+      });
+    }
 
     return;
   }

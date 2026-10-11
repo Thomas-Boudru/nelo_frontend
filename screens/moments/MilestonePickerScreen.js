@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -13,6 +13,19 @@ import { useTranslation } from "react-i18next";
 
 import BackButton from "../../components/ui/BackButton.js";
 import CustomMilestoneSheet from "./CustomMilestoneSheet.js";
+
+import { useAuth } from "../../auth/AuthProvider.js";
+import { useToast } from "../../components/ui/toast/useToast.js";
+import { CommonActions, StackActions } from "@react-navigation/native";
+
+import {
+  getLocalCustomMilestones,
+  createLocalCustomMilestone,
+  updateLocalCustomMilestone,
+  archiveLocalCustomMilestone,
+} from "../../database/moments/customMilestonesRepository.js";
+
+import { processSyncQueue } from "../../sync/processSyncQueue.js";
 
 import { useThemeColors } from "../../theme/useThemeColors.js";
 
@@ -187,14 +200,29 @@ const MILESTONE_CATEGORIES = [
   },
 ];
 
-function createCustomMilestoneId() {
-  return `custom-milestone-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 9)}`;
+function toPickerMilestone(milestone) {
+  return {
+    ...milestone,
+    label: milestone.name,
+    categoryId: milestone.categoryCode,
+    isCustom: true,
+    icon: "heart-outline",
+
+    // Compatibilité avec le filtre actuel de CustomMilestoneSheet.
+    deletedAt: milestone.archivedAt ?? null,
+  };
 }
 
 export default function MilestonePickerScreen({ navigation, route }) {
   const { t } = useTranslation();
+
+  const { user, accessToken, refreshSession } = useAuth();
+  const { showToast } = useToast();
+
+  const childId =
+    route?.params?.childId ?? route?.params?.editorParams?.childId;
+
+  const customMutationRef = useRef(false);
 
   const colors = useThemeColors();
 
@@ -210,10 +238,59 @@ export default function MilestonePickerScreen({ navigation, route }) {
    */
   const [customMilestones, setCustomMilestones] = useState([]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    setCustomMilestones([]);
+
+    if (!user?.id || !childId) {
+      return;
+    }
+
+    async function loadLocalMilestones() {
+      try {
+        const milestones = await getLocalCustomMilestones({
+          userId: user.id,
+          childId,
+        });
+
+        if (!cancelled) {
+          setCustomMilestones(milestones.map(toPickerMilestone));
+        }
+      } catch (error) {
+        console.error("Unable to load local milestones:", error);
+
+        if (!cancelled) {
+          showToast({
+            type: "error",
+            title: t("Unable to load milestones"),
+            message: t("Please try again in a moment."),
+          });
+        }
+      }
+    }
+
+    void loadLocalMilestones();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [childId, user?.id, showToast, t]);
+
   const activeCustomMilestones = useMemo(
     () => customMilestones.filter((milestone) => !milestone.deletedAt),
     [customMilestones],
   );
+
+  function synchronizeCustomMilestones() {
+    void processSyncQueue({
+      userId: user?.id,
+      accessToken,
+      refreshSession,
+    }).catch((error) => {
+      console.warn("Unable to synchronize custom milestones:", error);
+    });
+  }
 
   const categoriesWithCustomMilestones = useMemo(
     () =>
@@ -262,32 +339,57 @@ export default function MilestonePickerScreen({ navigation, route }) {
   }
 
   function handleSelectMilestone(milestone, category) {
-    navigation.navigate({
-      name: "MomentEditor",
+    const state = navigation.getState();
+    const editorRouteKey = route?.params?.editorRouteKey;
 
-      params: {
-        ...route?.params?.editorParams,
+    let editorIndex = -1;
 
-        selectedMilestone: {
-          ...milestone,
+    // Chercher l'éditeur qui a ouvert ce sélecteur.
+    for (let index = state.index - 1; index >= 0; index -= 1) {
+      const candidate = state.routes[index];
 
-          /*
-           * On conserve l’identifiant technique
-           * et le libellé de la catégorie.
-           */
-          categoryId: category.id,
-          category: category.label,
+      const matches = editorRouteKey
+        ? candidate.key === editorRouteKey
+        : candidate.name === "MomentEditor";
 
-          /*
-           * Snapshot du texte affiché.
-           * Utile si le milestone personnalisé
-           * est renommé ou supprimé plus tard.
-           */
-          displayLabel: getMilestoneLabel(milestone),
-        },
-      },
+      if (matches) {
+        editorIndex = index;
+        break;
+      }
+    }
 
-      merge: true,
+    if (editorIndex < 0) {
+      showToast({
+        type: "error",
+        title: t("Unable to select milestone"),
+        message: t("Go back to the moment editor and try again."),
+      });
+
+      return;
+    }
+
+    const editorRoute = state.routes[editorIndex];
+
+    const selectedMilestone = {
+      ...milestone,
+      categoryId: category.id,
+      category: category.label,
+      displayLabel: getMilestoneLabel(milestone),
+    };
+
+    // Transmettre la sélection à l'éditeur existant.
+    navigation.dispatch({
+      ...CommonActions.setParams({
+        selectedMilestone,
+      }),
+      source: editorRoute.key,
+      target: state.key,
+    });
+
+    // Retirer le sélecteur de la pile et retrouver cet éditeur.
+    navigation.dispatch({
+      ...StackActions.pop(state.index - editorIndex),
+      target: state.key,
     });
   }
 
@@ -305,62 +407,102 @@ export default function MilestonePickerScreen({ navigation, route }) {
   }
 
   async function handleSaveCustomMilestone({ mode, milestone }) {
-    /*
-     * Plus tard :
-     *
-     * if (mode === "create") {
-     *   return await api.post(
-     *     `/children/${childId}/milestones`,
-     *     milestone,
-     *   );
-     * }
-     *
-     * return await api.patch(
-     *   `/children/${childId}/milestones/${milestone.id}`,
-     *   milestone,
-     * );
-     */
-
-    if (mode === "create") {
-      const savedMilestone = {
-        ...milestone,
-        id: createCustomMilestoneId(),
-      };
-
-      setCustomMilestones((currentMilestones) => [
-        ...currentMilestones,
-        savedMilestone,
-      ]);
-
-      return savedMilestone;
+    if (customMutationRef.current) {
+      return false;
     }
 
-    setCustomMilestones((currentMilestones) =>
-      currentMilestones.map((currentMilestone) =>
-        currentMilestone.id === milestone.id ? milestone : currentMilestone,
-      ),
-    );
+    if (!user?.id || !childId) {
+      throw new Error(t("Missing user ID or child ID."));
+    }
 
-    return milestone;
+    customMutationRef.current = true;
+
+    let savedMilestone;
+
+    try {
+      const data = {
+        name: milestone.label,
+        categoryCode: milestone.categoryId,
+      };
+
+      if (mode === "create") {
+        savedMilestone = await createLocalCustomMilestone({
+          userId: user.id,
+          childId,
+          data,
+        });
+      } else if (mode === "edit") {
+        savedMilestone = await updateLocalCustomMilestone({
+          userId: user.id,
+          childId,
+          milestoneId: milestone.id,
+          data,
+        });
+      } else {
+        throw new Error("Invalid custom milestone mode.");
+      }
+    } catch (error) {
+      console.error("Unable to save custom milestone locally:", error);
+
+      throw new Error(
+        t(error?.message || "Unable to save this milestone. Please try again."),
+      );
+    } finally {
+      customMutationRef.current = false;
+    }
+
+    const pickerMilestone = toPickerMilestone(savedMilestone);
+
+    setCustomMilestones((current) => {
+      const exists = current.some((item) => item.id === pickerMilestone.id);
+
+      return exists
+        ? current.map((item) =>
+            item.id === pickerMilestone.id ? pickerMilestone : item,
+          )
+        : [...current, pickerMilestone];
+    });
+
+    synchronizeCustomMilestones();
+
+    return pickerMilestone;
   }
 
   async function handleDeleteCustomMilestone({ milestone }) {
-    /*
-     * Plus tard :
-     *
-     * await api.delete(
-     *   `/children/${childId}/milestones/${milestone.id}`,
-     * );
-     *
-     * Le backend devrait effectuer une
-     * suppression logique avec deletedAt.
-     */
+    if (customMutationRef.current) {
+      return false;
+    }
 
-    setCustomMilestones((currentMilestones) =>
-      currentMilestones.map((currentMilestone) =>
-        currentMilestone.id === milestone.id ? milestone : currentMilestone,
-      ),
+    if (!user?.id || !childId) {
+      throw new Error(t("Missing user ID or child ID."));
+    }
+
+    customMutationRef.current = true;
+
+    try {
+      await archiveLocalCustomMilestone({
+        userId: user.id,
+        childId,
+        milestoneId: milestone.id,
+      });
+    } catch (error) {
+      console.error("Unable to archive custom milestone locally:", error);
+
+      throw new Error(
+        t(
+          error?.message ||
+            "Unable to delete this milestone. Please try again.",
+        ),
+      );
+    } finally {
+      customMutationRef.current = false;
+    }
+
+    setCustomMilestones((current) =>
+      current.filter((item) => item.id !== milestone.id),
     );
+
+    synchronizeCustomMilestones();
 
     return true;
   }

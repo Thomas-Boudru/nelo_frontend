@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +12,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+
+import { useSelector } from "react-redux";
+import { useGrowthHistory } from "../../hooks/useGrowthHistory.js";
+
+import {
+  mockGrowthHistoryEntries,
+  TRACKING_TYPE_CONFIG,
+} from "../../data/mockTrackingData.js";
+
 import Svg, {
   Circle,
   Line,
@@ -18,11 +29,6 @@ import Svg, {
   Text as SvgText,
 } from "react-native-svg";
 import { useTranslation } from "react-i18next";
-
-import {
-  mockGrowthHistoryEntries,
-  TRACKING_TYPE_CONFIG,
-} from "../../data/mockTrackingData.js";
 
 import {
   getWhoCurves,
@@ -38,12 +44,6 @@ const CHART_PADDING_TOP = 20;
 const CHART_PADDING_BOTTOM = 34;
 
 const MAX_REFERENCE_MONTHS = 18;
-
-/*
- * Date temporaire pour les données mockées.
- * Plus tard, la véritable date viendra de child.birthDate.
- */
-const MOCK_BIRTH_DATE = "2026-03-19";
 
 const MEASUREMENT_CONFIG = {
   weight: {
@@ -81,57 +81,111 @@ function getEntryData(entry) {
   return entry?.data ?? entry ?? {};
 }
 
+function parseCalendarDate(value) {
+  if (typeof value !== "string") return null;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (year < 1) return null;
+
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(12, 0, 0, 0);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 function getGrowthDate(entry) {
   const data = getEntryData(entry);
 
-  const dateValue =
-    data.measuredAt ?? entry?.measuredAt ?? entry?.startedAt ?? entry?.date;
-
-  const parsedDate = dateValue ? new Date(dateValue) : null;
-
-  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    return new Date();
-  }
-
-  return parsedDate;
+  return parseCalendarDate(data.measurementDate);
 }
 
 function getMeasurementValue(entry, dataKey) {
   const data = getEntryData(entry);
+  const value = data[dataKey];
 
-  const value = data[dataKey] ?? entry?.[dataKey];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
-  const numericValue = Number(value);
+function getDisplayConfig(measurement, units) {
+  const config = MEASUREMENT_CONFIG[measurement];
 
-  return Number.isFinite(numericValue) ? numericValue : null;
+  if (measurement === "weight") {
+    return {
+      ...config,
+      unit: units.weight === "lb" ? "lb" : "kg",
+      displayFactor: units.weight === "lb" ? 1 / 0.45359237 : 1,
+    };
+  }
+
+  return {
+    ...config,
+    unit: units.length === "in" ? "in" : "cm",
+    displayFactor: units.length === "in" ? 1 / 2.54 : 1,
+    decimals: units.length === "in" ? 2 : config.decimals,
+  };
 }
 
 function formatValue(value, config, language) {
-  if (value === null || value === undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return "—";
   }
 
-  const formattedValue = new Intl.NumberFormat(language, {
-    minimumFractionDigits: 0,
+  const formatted = new Intl.NumberFormat(language, {
     maximumFractionDigits: config.decimals,
-  }).format(value);
+  }).format(value * (config.displayFactor ?? 1));
 
-  return `${formattedValue} ${config.unit}`;
+  return `${formatted} ${config.unit}`;
 }
 
 function formatDifference(difference, config, language) {
-  if (difference === null || difference === undefined) {
+  if (typeof difference !== "number" || !Number.isFinite(difference)) {
     return null;
   }
 
-  const sign = difference > 0 ? "+" : "";
+  return (
+    (difference > 0 ? "+" : "") + formatValue(difference, config, language)
+  );
+}
 
-  const formattedDifference = new Intl.NumberFormat(language, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: config.decimals,
-  }).format(difference);
+function getAgeInMonths(date, birthDate) {
+  const birth = parseCalendarDate(birthDate);
 
-  return `${sign}${formattedDifference} ${config.unit}`;
+  if (!birth || !date || date < birth) {
+    return null;
+  }
+
+  // Comparaison des dates calendaires : les changements
+  // d'heure ne modifient pas le nombre de jours.
+  const calendarTimestamp = (value) => {
+    const result = new Date(0);
+    result.setUTCFullYear(
+      value.getFullYear(),
+      value.getMonth(),
+      value.getDate(),
+    );
+    result.setUTCHours(0, 0, 0, 0);
+
+    return result.getTime();
+  };
+
+  const days = (calendarTimestamp(date) - calendarTimestamp(birth)) / 86400000;
+
+  return days / 30.4375;
 }
 
 function formatShortDate(date, language) {
@@ -147,16 +201,6 @@ function formatLongDate(date, language) {
     month: "long",
     year: "numeric",
   }).format(date);
-}
-
-function getAgeInMonths(date, birthDate) {
-  const birth = birthDate ? new Date(birthDate) : null;
-
-  if (!birth || Number.isNaN(birth.getTime()) || date < birth) {
-    return null;
-  }
-
-  return (date.getTime() - birth.getTime()) / (1000 * 60 * 60 * 24 * 30.4375);
 }
 
 /*
@@ -216,13 +260,14 @@ function getChartData({ entries, config, width, birthDate, sex }) {
 
   const displayEndMonth = getDisplayEndMonth(values);
 
-  const whoCurves = getWhoCurves(sex, config.id).map((curve) => ({
-    ...curve,
+  const whoCurves = (sex ? getWhoCurves(sex, config.id) : [])
+    .map((curve) => ({
+      ...curve,
+      points: curve.points.filter((point) => point.month <= displayEndMonth),
+    }))
+    .filter((curve) => curve.points.length > 0);
 
-    points: curve.points.filter((point) => point.month <= displayEndMonth),
-  }));
-
-  if (values.length === 0 || whoCurves.length === 0) {
+  if (values.length === 0) {
     return {
       points: [],
       polyline: "",
@@ -309,9 +354,7 @@ function MeasurementTabs({ selectedMeasurement, onSelect, t, styles }) {
           <Pressable
             key={option.id}
             accessibilityRole="tab"
-            accessibilityState={{
-              selected: isSelected,
-            }}
+            accessibilityState={{ selected: isSelected }}
             onPress={() => onSelect(option.id)}
             style={({ pressed }) => [
               styles.tab,
@@ -371,7 +414,11 @@ function GrowthChart({
     return (
       <View style={styles.emptyChart}>
         <Text style={styles.emptyChartText}>
-          {t("Add the birth date to display the WHO growth curve.")}
+          {!parseCalendarDate(birthDate)
+            ? t("Add the child's birth date to display the growth chart.")
+            : t(
+                "No measurements available between birth and 18 months for this chart.",
+              )}
         </Text>
       </View>
     );
@@ -404,7 +451,7 @@ function GrowthChart({
               >
                 {new Intl.NumberFormat(language, {
                   maximumFractionDigits: config.decimals,
-                }).format(gridValue)}
+                }).format(gridValue * (config.displayFactor ?? 1))}
               </SvgText>
             </Fragment>
           );
@@ -545,7 +592,9 @@ function GrowthChart({
         ) : null}
       </Svg>
 
-      <Text style={styles.chartAxisCaption}>{t("Age in months")}</Text>
+      <Text style={styles.chartAxisCaption}>
+        {t("Age in months")} · {config.unit}
+      </Text>
     </View>
   );
 }
@@ -557,10 +606,9 @@ function GrowthHistoryCard({
   t,
   colors,
   styles,
-  selectedMeasurement,
+  config,
 }) {
-  const activeConfig = MEASUREMENT_CONFIG[selectedMeasurement];
-
+  const activeConfig = config;
   const activeValue = getMeasurementValue(entry, activeConfig.dataKey);
 
   return (
@@ -614,6 +662,24 @@ export default function GrowthHistoryScreen({
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const children = useSelector((state) => state.children.children);
+  const units = useSelector((state) => state.measurementUnits);
+
+  const childId = route?.params?.childId ?? child?.id;
+
+  const currentChild =
+    children.find((item) => item.id === childId) ??
+    (child?.id === childId ? child : null);
+
+  const {
+    entries: localEntries,
+    loading,
+    error,
+    syncError,
+    isRefreshing,
+    refresh,
+  } = useGrowthHistory(childId);
+
   /*
    * L'appelant (carte « Dernières mesures » du profil enfant) peut demander
    * l'onglet à ouvrir ; on retombe sur le poids si la mesure est inconnue.
@@ -634,24 +700,37 @@ export default function GrowthHistoryScreen({
     }
   }, [requestedMeasurement]);
 
-  const measurementConfig = MEASUREMENT_CONFIG[selectedMeasurement];
+  const measurementConfig = useMemo(
+    () => getDisplayConfig(selectedMeasurement, units),
+    [selectedMeasurement, units.weight, units.length],
+  );
 
-  const childBirthDate = child?.birthDate ?? MOCK_BIRTH_DATE;
+  const childBirthDate =
+    typeof currentChild?.birthDate === "string"
+      ? currentChild.birthDate.slice(0, 10)
+      : null;
 
-  /*
-   * Adapte cette ligne si tes données utilisent
-   * "boy"/"girl" au lieu de "male"/"female".
-   */
-  const childSex = child?.sex === "male" ? "male" : "female";
+  const childSex =
+    {
+      male: "male",
+      female: "female",
+      boy: "male",
+      girl: "female",
+    }[currentChild?.sex] ?? null;
 
   const entries = useMemo(
     () =>
-      [...mockGrowthHistoryEntries].sort(
-        (first, second) =>
-          getGrowthDate(second).getTime() - getGrowthDate(first).getTime(),
-      ),
-    [],
+      localEntries
+        .filter((entry) => getGrowthDate(entry) !== null)
+        .sort(
+          (first, second) =>
+            getGrowthDate(second).getTime() - getGrowthDate(first).getTime() ||
+            second.id.localeCompare(first.id),
+        ),
+    [localEntries],
   );
+
+  const invalidDateCount = localEntries.length - entries.length;
 
   const selectedEntries = useMemo(
     () =>
@@ -683,12 +762,19 @@ export default function GrowthHistoryScreen({
     ? getAgeInMonths(getGrowthDate(latestEntry), childBirthDate)
     : null;
 
-  const latestPercentile = getWhoPercentileEstimate(
-    childSex,
-    selectedMeasurement,
-    latestAgeMonths,
-    latestValue,
-  );
+  const latestPercentile =
+    childSex &&
+    latestAgeMonths !== null &&
+    latestAgeMonths >= 0 &&
+    latestAgeMonths <= MAX_REFERENCE_MONTHS &&
+    latestValue !== null
+      ? getWhoPercentileEstimate(
+          childSex,
+          selectedMeasurement,
+          latestAgeMonths,
+          latestValue,
+        )
+      : null;
 
   const chartWidth = Math.max(screenWidth - 66, 260);
 
@@ -720,143 +806,195 @@ export default function GrowthHistoryScreen({
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary}
+          />
+        }
       >
-        <MeasurementTabs
-          selectedMeasurement={selectedMeasurement}
-          onSelect={setSelectedMeasurement}
-          t={t}
-          styles={styles}
-        />
+        {loading ? (
+          <ActivityIndicator
+            color={colors.primary}
+            style={{ marginVertical: 24 }}
+          />
+        ) : null}
 
-        <View style={styles.latestCard}>
-          <View style={styles.latestContent}>
-            <Text style={styles.latestLabel}>{t("Latest measurement")}</Text>
+        {error ? (
+          <Text style={styles.referenceLabel}>
+            {t("Unable to load growth measurements. Pull down to try again.")}
+          </Text>
+        ) : null}
 
-            <Text style={styles.latestValue}>
-              {formatValue(latestValue, measurementConfig, i18n.language)}
-            </Text>
+        {syncError ? (
+          <Text style={styles.referenceLabel}>
+            {t("Synchronization failed. Showing data saved on this device.")}
+          </Text>
+        ) : null}
 
-            {latestEntry ? (
-              <Text style={styles.latestDate}>
-                {formatLongDate(getGrowthDate(latestEntry), i18n.language)}
-              </Text>
-            ) : null}
+        {invalidDateCount > 0 ? (
+          <Text style={styles.referenceLabel}>
+            {t(
+              "Some measurements have an invalid date and cannot be displayed.",
+            )}
+          </Text>
+        ) : null}
 
-            {difference !== null ? (
-              <View style={styles.badgesRow}>
-                <View style={styles.progressBadge}>
-                  <Ionicons
-                    name={difference >= 0 ? "trending-up" : "trending-down"}
-                    size={14}
-                    color={colors.primary}
-                  />
+        {!loading && !error ? (
+          <>
+            <MeasurementTabs
+              selectedMeasurement={selectedMeasurement}
+              onSelect={setSelectedMeasurement}
+              t={t}
+              styles={styles}
+            />
 
-                  <Text style={styles.progressText}>
-                    {formatDifference(
-                      difference,
-                      measurementConfig,
-                      i18n.language,
-                    )}{" "}
-                    {t("since last measurement")}
+            <View style={styles.latestCard}>
+              <View style={styles.latestContent}>
+                <Text style={styles.latestLabel}>
+                  {t("Latest measurement")}
+                </Text>
+
+                <Text style={styles.latestValue}>
+                  {formatValue(latestValue, measurementConfig, i18n.language)}
+                </Text>
+
+                {latestEntry ? (
+                  <Text style={styles.latestDate}>
+                    {formatLongDate(getGrowthDate(latestEntry), i18n.language)}
                   </Text>
-                </View>
+                ) : null}
 
-                {latestPercentile ? (
-                  <View style={styles.percentileBadge}>
-                    <Text style={styles.percentileText}>
-                      {t("WHO percentile {{percentile}}", {
-                        percentile: latestPercentile,
-                      })}
-                    </Text>
+                {difference !== null ? (
+                  <View style={styles.badgesRow}>
+                    <View style={styles.progressBadge}>
+                      <Ionicons
+                        name={difference >= 0 ? "trending-up" : "trending-down"}
+                        size={14}
+                        color={colors.primary}
+                      />
+
+                      <Text style={styles.progressText}>
+                        {formatDifference(
+                          difference,
+                          measurementConfig,
+                          i18n.language,
+                        )}{" "}
+                        {t("since last measurement")}
+                      </Text>
+                    </View>
+
+                    {latestPercentile ? (
+                      <View style={styles.percentileBadge}>
+                        <Text style={styles.percentileText}>
+                          {t("WHO percentile {{percentile}}", {
+                            percentile: latestPercentile,
+                          })}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
               </View>
+
+              <View
+                style={[
+                  styles.latestImageContainer,
+                  {
+                    backgroundColor: measurementConfig.backgroundColor,
+                  },
+                ]}
+              >
+                <Image
+                  source={measurementConfig.image}
+                  resizeMode="contain"
+                  style={styles.latestImage}
+                />
+              </View>
+            </View>
+
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionHeading}>
+                <Text style={styles.sectionTitle}>{t("Growth curve")}</Text>
+
+                <Text style={styles.referenceLabel}>
+                  {childSex
+                    ? t("WHO reference • {{sex}}", {
+                        sex: t(childSex === "male" ? "Boys" : "Girls"),
+                      })
+                    : t(
+                        "Reference curves require the child's sex to be recorded.",
+                      )}
+                </Text>
+              </View>
+
+              <Text style={styles.sectionMetadata}>
+                {selectedEntries.length === 1
+                  ? t("1 measurement")
+                  : t("{{count}} measurements", {
+                      count: selectedEntries.length,
+                    })}
+              </Text>
+            </View>
+
+            <View style={styles.chartCard}>
+              <GrowthChart
+                /*
+                 * Force la fermeture de l’infobulle
+                 * lorsque l’utilisateur change d’onglet.
+                 */
+                key={selectedMeasurement}
+                entries={selectedEntries}
+                config={measurementConfig}
+                language={i18n.language}
+                width={chartWidth}
+                birthDate={childBirthDate}
+                sex={childSex}
+                colors={colors}
+                styles={styles}
+                t={t}
+              />
+            </View>
+
+            <View style={styles.referenceNote}>
+              <Ionicons
+                name="information-circle-outline"
+                size={14}
+                color={colors.textSecondary}
+              />
+
+              <Text style={styles.referenceNoteText}>
+                {t(
+                  "Growth curves are a reference and do not replace medical advice.",
+                )}
+              </Text>
+            </View>
+
+            <Text style={styles.historyTitle}>{t("Measurement history")}</Text>
+
+            {selectedEntries.length === 0 ? (
+              <Text style={styles.referenceLabel}>
+                {t(
+                  "No measurements recorded for this measurement type on this device.",
+                )}
+              </Text>
             ) : null}
-          </View>
 
-          <View
-            style={[
-              styles.latestImageContainer,
-              {
-                backgroundColor: measurementConfig.backgroundColor,
-              },
-            ]}
-          >
-            <Image
-              source={measurementConfig.image}
-              resizeMode="contain"
-              style={styles.latestImage}
-            />
-          </View>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionHeading}>
-            <Text style={styles.sectionTitle}>{t("Growth curve")}</Text>
-
-            <Text style={styles.referenceLabel}>
-              {t("WHO reference • {{sex}}", {
-                sex: t(childSex === "male" ? "Boys" : "Girls"),
-              })}
-            </Text>
-          </View>
-
-          <Text style={styles.sectionMetadata}>
-            {selectedEntries.length === 1
-              ? t("1 measurement")
-              : t("{{count}} measurements", {
-                  count: selectedEntries.length,
-                })}
-          </Text>
-        </View>
-
-        <View style={styles.chartCard}>
-          <GrowthChart
-            /*
-             * Force la fermeture de l’infobulle
-             * lorsque l’utilisateur change d’onglet.
-             */
-            key={selectedMeasurement}
-            entries={selectedEntries}
-            config={measurementConfig}
-            language={i18n.language}
-            width={chartWidth}
-            birthDate={childBirthDate}
-            sex={childSex}
-            colors={colors}
-            styles={styles}
-            t={t}
-          />
-        </View>
-
-        <View style={styles.referenceNote}>
-          <Ionicons
-            name="information-circle-outline"
-            size={14}
-            color={colors.textSecondary}
-          />
-
-          <Text style={styles.referenceNoteText}>
-            {t(
-              "Growth curves are a reference and do not replace medical advice.",
-            )}
-          </Text>
-        </View>
-
-        <Text style={styles.historyTitle}>{t("Measurement history")}</Text>
-
-        {selectedEntries.map((entry) => (
-          <GrowthHistoryCard
-            key={entry.id}
-            entry={entry}
-            language={i18n.language}
-            onPress={onEditTrackingEntry}
-            t={t}
-            colors={colors}
-            styles={styles}
-            selectedMeasurement={selectedMeasurement}
-          />
-        ))}
+            {selectedEntries.map((entry) => (
+              <GrowthHistoryCard
+                key={entry.id}
+                entry={entry}
+                language={i18n.language}
+                onPress={onEditTrackingEntry}
+                t={t}
+                colors={colors}
+                styles={styles}
+                config={measurementConfig}
+              />
+            ))}
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

@@ -32,6 +32,12 @@ import TrackingStatsHistoryScreen from "../screens/tracking/TrackingStatsHistory
 import SleepHistoryScreen from "../screens/tracking/SleepHistoryScreen.js";
 import GrowthHistoryScreen from "../screens/tracking/GrowthHistoryScreen.js";
 
+import { notifyTrackingChanged } from "../database/tracking/trackingEvents.js";
+
+import { deleteLocalTrackingEntry } from "../database/tracking/trackingDeletionRepository.js";
+
+import { processSyncQueue } from "../sync/processSyncQueue.js";
+
 import { useAuth } from "../auth/AuthProvider.js";
 
 import ToastMessage from "../components/ui/toast/ToastMessage.js";
@@ -265,11 +271,8 @@ function TrackingNavigatorContent({
 
 export default function MainTabNavigator() {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  /*
-   * Les sheets d'ajout vivent en dehors du navigateur d'onglets : elles n'ont
-   * donc pas de prop `navigation`. On récupère celle de la route « MainTabs ».
-   */
+  const { user, accessToken, refreshSession } = useAuth();
+  const unitPreferences = useSelector((state) => state.measurementUnits);
   const navigation = useNavigation();
 
   const colors = useThemeColors();
@@ -338,9 +341,18 @@ export default function MainTabNavigator() {
    */
   const handleOpenTrackingHistory = useCallback(
     (trackingType) => {
-      navigateToTrackingHistory(navigation, trackingType);
+      const childId = selectedChild?.id;
+
+      if (!childId) {
+        console.warn("Cannot open tracking history: missing child ID.");
+        return;
+      }
+
+      navigateToTrackingHistory(navigation, trackingType, {
+        childId,
+      });
     },
-    [navigation],
+    [navigation, selectedChild?.id],
   );
 
   const handleOpenAddTracking = () => {
@@ -401,6 +413,11 @@ export default function MainTabNavigator() {
         throw new Error(t("This entry has not been saved on this device."));
       }
 
+      notifyTrackingChanged({
+        userId: user?.id,
+        childId: entry.childId ?? selectedChild?.id,
+      });
+
       showToast({
         type: "success",
         title,
@@ -409,7 +426,7 @@ export default function MainTabNavigator() {
 
       return true;
     },
-    [showToast, t],
+    [user?.id, selectedChild?.id, showToast, t],
   );
 
   const handlePressTrackingItem = (itemId) => {
@@ -628,24 +645,42 @@ export default function MainTabNavigator() {
         return;
       }
 
+      const entryChildId = entry.childId ?? selectedChild?.id;
+      const deletingUserId = user?.id;
+
       confirmationSheetRef.current?.present({
         title: t("Delete this entry?"),
-
-        description: t("This tracking entry will be permanently deleted."),
-
+        description: t(
+          "This entry will be removed from the child's tracking history.",
+        ),
         confirmLabel: t("Delete entry"),
         cancelLabel: t("Cancel"),
 
         onConfirm: async () => {
-          /*
-           * Plus tard :
-           * await deleteTrackingEntry(entry.id);
-           */
+          try {
+            await deleteLocalTrackingEntry({
+              userId: deletingUserId,
+              childId: entryChildId,
+              entryId: entry.id,
+            });
 
-          console.log("Entrée supprimée :", entry.id);
+            notifyTrackingChanged({
+              userId: deletingUserId,
+              childId: entryChildId,
+            });
+          } catch (error) {
+            console.error("Unable to delete tracking entry:", error);
 
-          const diaperTypes = ["diaper", "potty"];
+            showToast({
+              type: "error",
+              title: t("Unable to delete entry"),
+              message: t("Please try again."),
+            });
 
+            return false;
+          }
+
+          // La suppression est maintenant enregistrée dans SQLite.
           if (
             entry.type === "sleep" ||
             entry.type === "nap" ||
@@ -671,15 +706,35 @@ export default function MainTabNavigator() {
           } else {
             feedingSheetRef.current?.dismiss();
           }
+
           showToast({
             type: "success",
             title: t("Entry deleted"),
-            message: t("The entry was deleted successfully."),
+            message: t("The deletion was saved and will sync when connected."),
           });
+
+          if (
+            deletingUserId &&
+            accessToken &&
+            typeof refreshSession === "function"
+          ) {
+            processSyncQueue({
+              userId: deletingUserId,
+              accessToken,
+              refreshSession,
+            }).catch((error) => {
+              console.warn(
+                "Entry deleted locally but synchronization failed:",
+                error,
+              );
+            });
+          }
+
+          return true;
         },
       });
     },
-    [showToast, t],
+    [user?.id, selectedChild?.id, accessToken, refreshSession, showToast, t],
   );
 
   return (
@@ -968,148 +1023,92 @@ export default function MainTabNavigator() {
 
       <TemperatureEntrySheet
         ref={temperatureSheetRef}
+        userId={user?.id}
+        childId={selectedChild?.id}
         childName={childName}
-        childAgeInMonths={2}
         initialLocation="forehead"
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (temperatureEntry) => {
-          console.log("Température enregistrée :", temperatureEntry);
-
-          showToast({
-            type: "success",
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
             title:
-              temperatureEntry.mode === "edit"
+              entry.mode === "edit"
                 ? t("Temperature updated")
                 : t("Temperature saved"),
-            message:
-              temperatureEntry.mode === "edit"
-                ? t("Child's temperature was updated successfully", {
-                    childName,
-                  })
-                : t("Child's temperature was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
+            message: t("The temperature was saved on this device."),
+          })
+        }
       />
 
       <SymptomsEntrySheet
         ref={symptomsEntrySheetRef}
+        userId={user?.id}
+        childId={selectedChild?.id}
         childName={childName}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (symptomsData) => {
-          console.log("Symptoms saved:", symptomsData);
-
-          showToast({
-            type: "success",
-
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
             title:
-              symptomsData.mode === "edit"
+              entry.mode === "edit"
                 ? t("Symptoms updated")
                 : t("Symptoms saved"),
-
-            message:
-              symptomsData.mode === "edit"
-                ? t("Child's symptoms were updated successfully", {
-                    childName,
-                  })
-                : t("Child's symptoms were saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
+            message: t("The symptoms were saved on this device."),
+          })
+        }
       />
 
       <TeethingEntrySheet
         ref={teethingSheetRef}
+        userId={user?.id}
+        childId={selectedChild?.id}
         childName={childName}
-        eruptedTeeth={
-          [
-            // Les dents déjà enregistrées dans les autres entrées.
-          ]
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
+            title:
+              entry.mode === "edit"
+                ? t("Teething updated")
+                : t("Teething saved"),
+            message: t("The teething entry was saved on this device."),
+          })
         }
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (teethingEntry) => {
-          console.log("Dentition enregistrée :", teethingEntry);
-
-          showToast({
-            type: "success",
-
-            title:
-              teethingEntry.mode === "edit"
-                ? t("Teething updated")
-                : t("Teething saved"),
-
-            message:
-              teethingEntry.mode === "edit"
-                ? t("Child's teething was updated successfully", {
-                    childName,
-                  })
-                : t("Child's teething was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
       />
 
       <GrowthEntrySheet
         ref={growthEntrySheetRef}
+        userId={user?.id}
+        childId={selectedChild?.id}
         childName={childName}
+        unitPreferences={unitPreferences}
         visibleMeasurementTypes={visibleMeasurementTypes}
-        previousMeasurements={{
-          weight: 5.18,
-          height: 57.2,
-          headCircumference: 38.7,
-        }}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (growthEntry) => {
-          console.log("Croissance enregistrée :", growthEntry);
-
-          showToast({
-            type: "success",
-
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
             title:
-              growthEntry.mode === "edit"
-                ? t("Growth updated")
-                : t("Growth saved"),
-
-            message:
-              growthEntry.mode === "edit"
-                ? t("Child's growth measurements were updated successfully", {
-                    childName,
-                  })
-                : t("Child's growth was saved successfully", {
-                    childName,
-                  }),
-          });
-        }}
+              entry.mode === "edit" ? t("Growth updated") : t("Growth saved"),
+            message: t("The growth measurements were saved on this device."),
+          })
+        }
       />
 
       <NoteEntrySheet
         ref={noteEntrySheetRef}
+        userId={user?.id}
+        childId={selectedChild?.id}
+        accessToken={accessToken}
+        refreshSession={refreshSession}
         onRequestDelete={handleRequestDeleteTrackingEntry}
         onPressHistory={handleOpenTrackingHistory}
-        onSave={async (noteEntry) => {
-          console.log("Note enregistrée :", noteEntry);
-
-          showToast({
-            type: "success",
-
-            title:
-              noteEntry.mode === "edit" ? t("Note updated") : t("Note saved"),
-
-            message:
-              noteEntry.mode === "edit"
-                ? t("The note was updated successfully.")
-                : t("The note was saved successfully."),
-          });
-        }}
+        onSave={(entry) =>
+          handleTrackingSaved(entry, {
+            title: entry.mode === "edit" ? t("Note updated") : t("Note saved"),
+            message: t("The note was saved on this device."),
+          })
+        }
       />
-
       <ConfirmActionSheet ref={confirmationSheetRef} />
       <ToastMessage
         visible={toast.visible}

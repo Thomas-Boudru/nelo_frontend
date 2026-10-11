@@ -31,6 +31,7 @@ import {
 import { useAuth } from "../../../auth/AuthProvider.js";
 import {
   createLocalSleepEntry,
+  updateLocalSleepEntry,
   startLocalSleepEntry,
   stopLocalSleepEntry,
   getLocalActiveSleepEntry,
@@ -76,10 +77,7 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
 
   const isMainSheetPresentedRef = useRef(false);
 
-  const viewRef = useRef(view);
   const localChangeRef = useRef(0);
-
-  viewRef.current = view;
 
   const dismissMainSheet = useCallback(() => {
     if (!isMainSheetPresentedRef.current) {
@@ -98,6 +96,8 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   const [activeSleep, setActiveSleep] = useState(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [view, setView] = useState("main");
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [completedSleep, setCompletedSleep] = useState(null);
   const [wakeNote, setWakeNote] = useState("");
   const [isSavingWake, setIsSavingWake] = useState(false);
@@ -338,31 +338,61 @@ const SleepEntrySheet = forwardRef(function SleepEntrySheet(
   };
 
   const handleSaveManualSleep = async (sleep) => {
-    if (sleep.mode === "edit" || sleep.id) {
-      throw new Error(t("Sleep editing is not available yet."));
-    }
-
     if (!user?.id || !childId) {
       throw new Error(t("Missing user ID or child ID."));
     }
 
-    const entry = await createLocalSleepEntry({
-      userId: user.id,
-      childId,
-      data: {
-        sleepType: sleep.sleepType,
-        startedAt: sleep.startedAt,
-        endedAt: sleep.endedAt,
-        note: sleep.note,
-      },
-    });
+    const isEditing = sleep.mode === "edit" || Boolean(sleep.id);
 
-    // La sauvegarde est terminée. Le parent actualise seulement l'affichage.
+    if (isEditing && !sleep.id) {
+      throw new Error(t("Missing sleep entry ID."));
+    }
+
+    const data = {
+      sleepType: sleep.sleepType,
+      startedAt: sleep.startedAt,
+      endedAt: sleep.endedAt,
+      note: sleep.note ?? "",
+    };
+
+    let entry;
+
+    try {
+      if (isEditing) {
+        entry = await updateLocalSleepEntry({
+          userId: user.id,
+          childId,
+          entryId: sleep.id,
+          data,
+        });
+      } else {
+        entry = await createLocalSleepEntry({
+          userId: user.id,
+          childId,
+          data,
+        });
+      }
+    } catch (error) {
+      if (error?.code === "SLEEP_SYNC_PENDING") {
+        synchronizeTracking();
+
+        throw new Error(
+          t("Wait for this sleep to finish syncing before editing it."),
+        );
+      }
+
+      throw error;
+    }
+
+    localChangeRef.current += 1;
+
+    // L'enregistrement local a réussi.
+    // Le parent actualise l'affichage et affiche la confirmation.
     try {
       await onSaveManualSleep?.({
         ...entry,
         entryMode: "manual",
-        mode: "create",
+        mode: isEditing ? "edit" : "create",
         persistedLocally: true,
       });
     } catch (error) {

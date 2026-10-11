@@ -3,6 +3,8 @@ import * as Crypto from "expo-crypto";
 import { getLocalDatabase } from "../../localDatabase.js";
 import { enqueueSyncOperation } from "../../../sync/syncQueueRepository.js";
 
+import { saveLocalFeedingUpdate } from "./feedingUpdatesRepository.js";
+
 function validateDuration(value) {
   return Number.isInteger(value) && value >= 0 && value <= 2147483647;
 }
@@ -164,4 +166,64 @@ export async function createLocalBreastfeedingEntry({ userId, childId, data }) {
     localRevision: 1,
     syncStatus: "pending",
   };
+}
+
+export async function updateLocalBreastfeedingEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Invalid breastfeeding entry.");
+  }
+
+  const leftDurationSeconds = data.leftDurationSeconds ?? 0;
+  const rightDurationSeconds = data.rightDurationSeconds ?? 0;
+
+  if (
+    !validateDuration(leftDurationSeconds) ||
+    !validateDuration(rightDurationSeconds) ||
+    (leftDurationSeconds === 0 && rightDurationSeconds === 0)
+  ) {
+    throw new Error("Invalid breastfeeding duration.");
+  }
+
+  if (
+    !(data.feedingDate instanceof Date) &&
+    typeof data.feedingDate !== "string"
+  ) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  const date = new Date(data.feedingDate);
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  if (
+    data.note != null &&
+    (typeof data.note !== "string" || data.note.length > 10000)
+  ) {
+    throw new Error("The note must not exceed 10000 characters.");
+  }
+
+  const feedingDate = date.toISOString();
+
+  return saveLocalFeedingUpdate({
+    userId,
+    childId,
+    entryId,
+    type: "breastfeeding",
+    startedAt: feedingDate,
+    values: {
+      feedingDate,
+      leftDurationSeconds,
+      rightDurationSeconds,
+      firstSide: validateSide(data.firstSide, "first side"),
+      lastSide: validateSide(data.lastSide, "last side"),
+      note: data.note?.trim() || null,
+    },
+  });
 }

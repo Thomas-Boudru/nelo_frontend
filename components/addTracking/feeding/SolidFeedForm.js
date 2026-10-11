@@ -10,6 +10,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 
+import { FOODS } from "../../../data/foods.js";
+
 import DateTimeRow from "../DateTimeRow.js";
 import { useThemeColors } from "../../../theme/useThemeColors.js";
 import FeedingDetailsSheet from "../../../screens/addTracking/Feeding/FeedingDetailSheet.js";
@@ -361,6 +363,21 @@ export default function SolidsFeedForm({
 }
 
 function FoodCard({ food, quantityLabel, onPress, onRemove, colors, styles }) {
+  const { t } = useTranslation();
+
+  // foodId identifie l’aliment du catalogue.
+  // food.id identifie sa présence dans ce repas.
+  const catalogFood = food.isCustom
+    ? null
+    : FOODS.find((item) => item.id === food.foodId);
+
+  const image = catalogFood?.image ?? food.image;
+  const emoji = food.emoji ?? catalogFood?.emoji ?? "🥣";
+  const translationKey = catalogFood?.translationKey ?? food.translationKey;
+
+  const name =
+    !food.isCustom && translationKey ? t(translationKey) : (food.name ?? "");
+
   return (
     <Pressable
       onPress={onPress}
@@ -381,19 +398,19 @@ function FoodCard({ food, quantityLabel, onPress, onRemove, colors, styles }) {
       </Pressable>
 
       <View style={styles.foodIllustrationContainer}>
-        {food.image ? (
+        {image ? (
           <Image
-            source={food.image}
+            source={image}
             resizeMode="contain"
             style={styles.foodIllustration}
           />
         ) : (
-          <Text style={styles.foodEmoji}>{food.emoji ?? "🥣"}</Text>
+          <Text style={styles.foodEmoji}>{emoji}</Text>
         )}
       </View>
 
       <Text numberOfLines={1} style={styles.foodName}>
-        {food.name}
+        {name}
       </Text>
 
       {quantityLabel ? (

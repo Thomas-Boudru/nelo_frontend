@@ -5,6 +5,7 @@ import { getLocalDatabase } from "../../localDatabase.js";
 import { enqueueSyncOperation } from "../../../sync/syncQueueRepository.js";
 
 import { saveVaccinationReminderFromEntry } from "../medication/vaccinationReminderRepository.js";
+import { prepareNextTrackingDeletion } from "../trackingDeletionRepository.js";
 
 const MILK_TYPES = new Set(["formula", "breast_milk", "mixed", "other"]);
 
@@ -180,6 +181,211 @@ export async function createLocalBottleEntry({ userId, childId, data }) {
   };
 }
 
+export async function updateLocalBottleEntry({
+  userId,
+  childId,
+  entryId,
+  data,
+}) {
+  if (!userId || !childId || !entryId) {
+    throw new Error("Missing user ID, child ID or tracking entry ID.");
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Missing bottle entry.");
+  }
+
+  if (
+    !validatePositiveVolume(data.amountMl) ||
+    !validatePositiveVolume(data.bottleCapacityMl)
+  ) {
+    throw new Error("Invalid bottle volume.");
+  }
+
+  const amountMl = roundVolume(data.amountMl);
+  const bottleCapacityMl = roundVolume(data.bottleCapacityMl);
+
+  if (amountMl <= 0 || bottleCapacityMl <= 0) {
+    throw new Error("Invalid bottle volume.");
+  }
+
+  if (!MILK_TYPES.has(data.milkType)) {
+    throw new Error("Invalid milk type.");
+  }
+
+  if (
+    !(data.feedingDate instanceof Date) &&
+    typeof data.feedingDate !== "string"
+  ) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  const date = new Date(data.feedingDate);
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error("Invalid feeding date.");
+  }
+
+  if (data.note != null && typeof data.note !== "string") {
+    throw new Error("Invalid bottle note.");
+  }
+
+  const note = data.note?.trim() || null;
+
+  if (note && note.length > 10000) {
+    throw new Error("The bottle note is too long.");
+  }
+
+  const database = await getLocalDatabase();
+  let savedEntry;
+
+  await database.withExclusiveTransactionAsync(async (transaction) => {
+    const row = await transaction.getFirstAsync(
+      `
+        SELECT *
+        FROM tracking_entries_local
+        WHERE user_id = ?
+          AND child_id = ?
+          AND entry_id = ?
+          AND entry_type = 'bottle'
+          AND deleted_at IS NULL
+      `,
+      [userId, childId, entryId],
+    );
+
+    if (!row) {
+      throw new Error("Local bottle entry not found.");
+    }
+
+    const previousOperation = await transaction.getFirstAsync(
+      `
+        SELECT *
+        FROM sync_queue
+        WHERE user_id = ?
+          AND entity_type = 'tracking_entry'
+          AND entity_id = ?
+        ORDER BY rowid DESC
+        LIMIT 1
+      `,
+      [userId, entryId],
+    );
+
+    let expectedVersion = row.server_version;
+
+    if (previousOperation) {
+      if (
+        previousOperation.http_method === "POST" &&
+        /^create:[1-9]\d*$/.test(previousOperation.operation)
+      ) {
+        // La création du biberon produit sa première version.
+        expectedVersion = 1;
+      } else if (
+        previousOperation.http_method === "PUT" &&
+        /^update:[1-9]\d*$/.test(previousOperation.operation)
+      ) {
+        const previousPayload = JSON.parse(previousOperation.payload_json);
+
+        if (
+          !Number.isSafeInteger(previousPayload?.version) ||
+          previousPayload.version < 1
+        ) {
+          throw new Error("Invalid pending bottle version.");
+        }
+
+        expectedVersion = previousPayload.version + 1;
+      } else {
+        throw new Error("This bottle has an incompatible pending operation.");
+      }
+    }
+
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new Error("Missing bottle server version.");
+    }
+
+    const localRevision = row.local_revision + 1;
+
+    if (!Number.isSafeInteger(localRevision)) {
+      throw new Error("Invalid bottle local revision.");
+    }
+
+    const now = new Date().toISOString();
+    const feedingDate = date.toISOString();
+
+    // La version est fixée pour cette opération.
+    // Une nouvelle tentative renverra exactement la même demande.
+    const payload = {
+      amountMl,
+      bottleCapacityMl,
+      milkType: data.milkType,
+      feedingDate,
+      note,
+      version: expectedVersion,
+    };
+
+    const entry = {
+      ...JSON.parse(row.entry_json),
+      id: entryId,
+      childId,
+      type: "bottle",
+      amountMl,
+      bottleCapacityMl,
+      milkType: data.milkType,
+      feedingDate,
+      startedAt: feedingDate,
+      note,
+      updatedByUserId: userId,
+      updatedAt: now,
+      deletedAt: null,
+      version: row.server_version,
+    };
+
+    await transaction.runAsync(
+      `
+        UPDATE tracking_entries_local
+        SET entry_json = ?,
+            local_revision = ?,
+            sync_status = 'pending',
+            started_at = ?,
+            updated_at = ?
+        WHERE user_id = ?
+          AND child_id = ?
+          AND entry_id = ?
+      `,
+      [
+        JSON.stringify(entry),
+        localRevision,
+        feedingDate,
+        now,
+        userId,
+        childId,
+        entryId,
+      ],
+    );
+
+    await enqueueSyncOperation({
+      userId,
+      entityType: "tracking_entry",
+      entityId: entryId,
+      operation: `update:${localRevision}`,
+      endpoint:
+        `/api/children/${encodeURIComponent(childId)}` +
+        `/bottles/${encodeURIComponent(entryId)}`,
+      method: "PUT",
+      payload,
+      database: transaction,
+    });
+
+    savedEntry = {
+      ...entry,
+      serverVersion: row.server_version,
+      localRevision,
+      syncStatus: "pending",
+    };
+  });
+
+  return savedEntry;
+}
+
 export async function completeTrackingEntrySync({ operation, serverEntry }) {
   if (
     !serverEntry ||
@@ -195,6 +401,11 @@ export async function completeTrackingEntrySync({ operation, serverEntry }) {
       "mood",
       "medication",
       "vaccine",
+      "temperature",
+      "symptoms",
+      "teething",
+      "growth",
+      "note",
     ].includes(serverEntry.type) ||
     !Number.isInteger(serverEntry.version) ||
     serverEntry.version < 1 ||
@@ -204,9 +415,30 @@ export async function completeTrackingEntrySync({ operation, serverEntry }) {
     throw new Error("Invalid bottle entry synchronization response.");
   }
 
-  const match = /^(create|stop):([1-9]\d*)$/.exec(operation.operation);
+  const match = /^(create|stop|update):([1-9]\d*)$/.exec(operation.operation);
 
-  if (!match || (match[1] === "stop" && serverEntry.type !== "sleep")) {
+  if (
+    !match ||
+    (match[1] === "stop" && serverEntry.type !== "sleep") ||
+    (match[1] === "update" &&
+      ![
+        "bottle",
+        "breastfeeding",
+        "pumping",
+        "solids",
+        "sleep",
+        "diaper",
+        "potty",
+        "mood",
+        "medication",
+        "vaccine",
+        "note",
+        "temperature",
+        "symptoms",
+        "teething",
+        "growth",
+      ].includes(serverEntry.type))
+  ) {
     throw new Error("Invalid tracking entry synchronization operation.");
   }
 
@@ -226,6 +458,9 @@ export async function completeTrackingEntrySync({ operation, serverEntry }) {
     mood: "moodDate",
     medication: "medicationDate",
     vaccine: "vaccineDate",
+    temperature: "measuredAt",
+    symptoms: "observedAt",
+    note: "notedAt",
   };
 
   const dateField = dateFieldByType[serverEntry.type];
@@ -286,6 +521,12 @@ export async function completeTrackingEntrySync({ operation, serverEntry }) {
 
     const entryToSave = {
       ...normalizedEntry,
+
+      ...(serverEntry.type === "note"
+        ? {
+            photos: localEntryBeforeSync.photos ?? [],
+          }
+        : {}),
 
       ...(serverEntry.type === "solids"
         ? {
@@ -357,6 +598,12 @@ export async function completeTrackingEntrySync({ operation, serverEntry }) {
         ],
       );
     }
+
+    await prepareNextTrackingDeletion({
+      database: transaction,
+      operation,
+      serverVersion: serverEntry.version,
+    });
 
     // La mise à jour locale et la suppression de l'opération
     // sont validées dans la même transaction.
