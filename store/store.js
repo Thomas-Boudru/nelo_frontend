@@ -17,6 +17,7 @@ import invitationsReducer from "./slices/invitationsSlice.js";
 import onboardingReducer from "./slices/onboardingSlice.js";
 import themeReducer from "./slices/themeSlice.js";
 import measurementUnitsReducer from "./slices/measurementUnitsSlice.js";
+import entitlementsReducer from "./slices/entitlementsSlice.js";
 
 const onboardingPersistConfig = {
   key: "onboarding",
@@ -31,6 +32,7 @@ const rootReducer = combineReducers({
   measurementUnits: measurementUnitsReducer,
   onboarding: persistReducer(onboardingPersistConfig, onboardingReducer),
   theme: themeReducer,
+  entitlements: entitlementsReducer,
 });
 
 export const store = configureStore({

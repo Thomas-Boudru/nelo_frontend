@@ -32,6 +32,12 @@ import TrackingStatsHistoryScreen from "../screens/tracking/TrackingStatsHistory
 import SleepHistoryScreen from "../screens/tracking/SleepHistoryScreen.js";
 import GrowthHistoryScreen from "../screens/tracking/GrowthHistoryScreen.js";
 
+import useFamilyEntitlements from "../hooks/useFamilyEntitlements.js";
+
+import { usePremiumAccessModal } from "../components/billing/PremiumAccessProvider.js";
+
+import { useToast } from "../components/ui/toast/useToast.js";
+
 import { notifyTrackingChanged } from "../database/tracking/trackingEvents.js";
 
 import { deleteLocalTrackingEntry } from "../database/tracking/trackingDeletionRepository.js";
@@ -309,6 +315,45 @@ export default function MainTabNavigator() {
   const selectedChild =
     children.find((child) => child.id === selectedChildId) || null;
 
+  const familyId = selectedChild?.familyId ?? null;
+
+  const { entitlements, refresh: refreshEntitlements } =
+    useFamilyEntitlements(familyId);
+
+  const { showPremium } = usePremiumAccessModal();
+
+  // Le fichier possède déjà un showToast local.
+  // On utilise un autre nom pour le toast global.
+  const { showToast: showAccessToast } = useToast();
+
+  const [checkingVoiceAccess, setCheckingVoiceAccess] = useState(false);
+
+  const voiceCheckInProgressRef = useRef(false);
+  const afterTrackingDismissRef = useRef(null);
+  const voiceContextRef = useRef(null);
+  const voiceMountedRef = useRef(false);
+
+  const voiceScopeKey = `${user?.id ?? ""}:${familyId ?? ""}:${selectedChild?.id ?? ""}`;
+
+  voiceContextRef.current = voiceScopeKey;
+
+  const voiceFeature = entitlements?.features?.voice_entry;
+
+  const voiceAccessEnabled = voiceFeature?.enabled === true;
+
+  useEffect(() => {
+    voiceMountedRef.current = true;
+
+    return () => {
+      voiceMountedRef.current = false;
+      afterTrackingDismissRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    afterTrackingDismissRef.current = null;
+  }, [voiceScopeKey]);
+
   const visibleTrackingTypes =
     selectedChild?.visibleTrackingTypes ?? DEFAULT_VISIBLE_TRACKING_TYPES;
 
@@ -363,11 +408,148 @@ export default function MainTabNavigator() {
     addTrackingSheetRef.current?.dismiss();
   };
 
-  const handlePressVoice = () => {
-    console.log("Ouvrir la dictée Nelo");
+  const handleAddTrackingDismiss = () => {
+    const action = afterTrackingDismissRef.current;
 
-    // Plus tard :
-    // ouvrir l'écran ou le mode d'enregistrement vocal.
+    afterTrackingDismissRef.current = null;
+
+    action?.();
+  };
+
+  const handlePressVoice = async () => {
+    console.log("[Voice access] Context", {
+      hasUser: Boolean(user?.id),
+      familyId,
+      childId: selectedChild?.id,
+    });
+
+    if (voiceCheckInProgressRef.current) {
+      return;
+    }
+
+    if (!user?.id || !familyId || !selectedChild?.id) {
+      showAccessToast({
+        type: "error",
+        title: t("Unable to verify access"),
+        message: t("Select a child and try again."),
+      });
+
+      return;
+    }
+
+    const requestedScope = voiceScopeKey;
+    const requestedFamilyId = familyId;
+    const requestedChildId = selectedChild.id;
+
+    const isCurrent = () =>
+      voiceMountedRef.current && voiceContextRef.current === requestedScope;
+
+    voiceCheckInProgressRef.current = true;
+    setCheckingVoiceAccess(true);
+
+    try {
+      // La saisie vocale dépendra d'une API :
+      // pas d'autorisation basée sur un ancien quota hors connexion.
+      const latestEntitlements = await refreshEntitlements();
+
+      if (!isCurrent()) return;
+
+      const feature = latestEntitlements.features?.voice_entry;
+
+      if (typeof feature?.enabled !== "boolean") {
+        throw new Error("Voice entry access is not configured.");
+      }
+
+      if (!feature.enabled) {
+        showPremium({
+          familyId: requestedFamilyId,
+
+          message:
+            "Describe your baby's activities aloud and let Nelo prepare the tracking entries with Nelo Premium.",
+
+          onViewPlans: () => {
+            if (!isCurrent()) return;
+
+            // Ferme le tracking uniquement pour aller aux abonnements.
+            afterTrackingDismissRef.current = () => {
+              if (!isCurrent()) return;
+
+              navigation.navigate("Subscription", {
+                familyId: requestedFamilyId,
+                childId: requestedChildId,
+              });
+            };
+
+            addTrackingSheetRef.current?.dismiss();
+          },
+        });
+
+        return;
+      }
+
+      if (feature.quota != null) {
+        const remaining = Number(feature.quota.remaining);
+
+        if (!Number.isFinite(remaining) || remaining < 0) {
+          throw new Error("Invalid voice entry quota.");
+        }
+
+        if (remaining === 0) {
+          showAccessToast({
+            type: "info",
+            title: t("Daily limit reached"),
+            message: t(
+              "Your family has used all its voice entries for today. Try again after the daily reset.",
+            ),
+          });
+
+          return;
+        }
+      }
+
+      // Les callbacks actuels ne contiennent pas d'enregistrement audio.
+      // Ne pas afficher un faux état « enregistrement en cours ».
+      showAccessToast({
+        type: "info",
+        title: t("Voice entry"),
+        message: t("Voice recording is not available yet."),
+      });
+    } catch (error) {
+      console.error("[Voice access] Verification failed", {
+        code: error?.code,
+        status: error?.status,
+        message: error?.message,
+      });
+
+      if (!isCurrent()) return;
+
+      if (
+        error?.code === "ACCESS_CONTEXT_CHANGED" ||
+        error?.code === "AUTH_SESSION_CHANGED"
+      ) {
+        return;
+      }
+
+      const connectionUnavailable =
+        error?.code === "OFFLINE_SESSION" ||
+        error?.code === "NETWORK_ERROR" ||
+        error?.code === "REQUEST_TIMEOUT" ||
+        error?.status === 0;
+
+      showAccessToast({
+        type: "error",
+        title: t("Unable to verify access"),
+        message: connectionUnavailable
+          ? t("Connect to the internet to use voice entry.")
+          : t("Please try again in a moment."),
+      });
+    } finally {
+      voiceCheckInProgressRef.current = false;
+
+      if (voiceMountedRef.current) {
+        setCheckingVoiceAccess(false);
+      }
+    }
   };
 
   const hideToast = useCallback(() => {
@@ -885,17 +1067,11 @@ export default function MainTabNavigator() {
       <AddTrackingSheet
         ref={addTrackingSheetRef}
         childName={childName}
-        isPremiumUser={false}
+        voiceAccessEnabled={voiceAccessEnabled}
+        checkingVoiceAccess={checkingVoiceAccess}
         hiddenTrackingItems={hiddenTrackingItems}
-        onPressPremium={() => {
-          console.log("Ouvrir la présentation Premium");
-        }}
-        onPressVoiceStart={() => {
-          console.log("Début de la dictée");
-        }}
-        onPressVoiceEnd={() => {
-          console.log("Fin de la dictée");
-        }}
+        onPressVoice={() => void handlePressVoice()}
+        onDismiss={handleAddTrackingDismiss}
         onPressTrackingItem={handlePressTrackingItem}
       />
 

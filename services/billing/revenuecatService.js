@@ -36,22 +36,26 @@ function runForUser(userId, operation) {
   const task = queue.then(async () => {
     assertSession(normalizedUserId, version);
 
-    if (Platform.OS !== "ios") {
+    if (!["ios", "android"].includes(Platform.OS)) {
       throw billingError(
         "BILLING_PLATFORM_NOT_SUPPORTED",
-        "Purchases are currently available on iOS only.",
+        "Purchases are available on iOS and Android only.",
       );
     }
 
-    const apiKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim();
+    const apiKey =
+      Platform.OS === "ios"
+        ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim()
+        : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim();
 
-    if (!apiKey?.startsWith("appl_")) {
+    const expectedPrefix = Platform.OS === "ios" ? "appl_" : "goog_";
+
+    if (!apiKey?.startsWith(expectedPrefix)) {
       throw billingError(
         "BILLING_CONFIGURATION_ERROR",
-        "The RevenueCat Apple SDK key is missing or invalid.",
+        "The RevenueCat SDK key for this platform is missing or invalid.",
       );
     }
-
     if (!(await Purchases.isConfigured())) {
       assertSession(normalizedUserId, version);
 

@@ -17,6 +17,19 @@ export async function initializeLocalDatabase() {
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
 
+
+    CREATE TABLE IF NOT EXISTS family_entitlements_local (
+      user_id TEXT NOT NULL,
+      family_id TEXT NOT NULL,
+
+      entitlements_json TEXT NOT NULL,
+
+      server_time_ms INTEGER NOT NULL,
+      received_at_ms INTEGER NOT NULL,
+
+      PRIMARY KEY (user_id, family_id)
+    );
+
     CREATE TABLE IF NOT EXISTS sync_queue (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
@@ -329,6 +342,12 @@ CREATE INDEX IF NOT EXISTS idx_custom_milestones_local_child
   updated_at TEXT NOT NULL,
 
   PRIMARY KEY (user_id, child_id)
+);
+
+CREATE TABLE IF NOT EXISTS accessible_children_cache_local (
+  user_id TEXT PRIMARY KEY NOT NULL,
+  children_json TEXT NOT NULL,
+  synced_at TEXT NOT NULL
 );
       `);
 

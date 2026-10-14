@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import { setBillingUser } from "../services/billing/revenuecatService";
@@ -22,6 +22,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
 } from "react";
 
 import {
@@ -36,9 +37,16 @@ import {
 
 import {
   getRefreshToken,
+  getStoredSession,
   removeRefreshToken,
+  saveAuthenticatedSession,
   saveRefreshToken,
+  saveStoredUser,
 } from "./tokenStorage";
+
+const {
+  createRefreshSessionCoordinator,
+} = require("./refreshSessionCoordinator");
 
 const AuthContext = createContext(null);
 
@@ -55,6 +63,13 @@ function authReducer(state, action) {
         status: "authenticated",
         user: action.payload.user,
         accessToken: action.payload.accessToken,
+      };
+
+    case "OFFLINE_SESSION":
+      return {
+        status: "offline",
+        user: action.payload.user,
+        accessToken: null,
       };
 
     case "UNAUTHENTICATED":
@@ -93,14 +108,41 @@ async function createAppleNonce() {
   };
 }
 
+const INVALID_SESSION_CODES = new Set([
+  "INVALID_REFRESH_TOKEN",
+  "REFRESH_TOKEN_EXPIRED",
+  "ACCOUNT_UNAVAILABLE",
+  "INVALID_SESSION",
+  "INVALID_ACCESS_TOKEN",
+  "AUTHENTICATION_REQUIRED",
+]);
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+const {
+  assertCurrentGeneration,
+  beginSessionTransition,
+  getSessionGeneration,
+  refreshStoredSession,
+} = createRefreshSessionCoordinator({
+  getRefreshToken,
+  refreshAuthSession,
+  saveRefreshToken,
+});
+
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const restoreInFlightRef = useRef(null);
 
   useEffect(() => {
     setBillingUser(state.status === "authenticated" ? state.user?.id : null);
   }, [state.status, state.user?.id]);
 
   const clearSession = useCallback(async () => {
+    beginSessionTransition();
+
     // Bloque immédiatement les nouvelles opérations de paiement.
     setBillingUser(null);
 
@@ -113,43 +155,182 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const restoreSession = useCallback(async () => {
-    try {
-      const storedRefreshToken = await getRefreshToken();
+  const restoreSession = useCallback(() => {
+    if (restoreInFlightRef.current) {
+      return restoreInFlightRef.current;
+    }
 
-      if (!storedRefreshToken) {
-        dispatch({
-          type: "UNAUTHENTICATED",
+    const generation = getSessionGeneration();
+
+    const operation = (async () => {
+      let storedSession;
+
+      try {
+        storedSession = await getStoredSession();
+        assertCurrentGeneration(generation);
+
+        if (!storedSession?.refreshToken) {
+          dispatch({ type: "UNAUTHENTICATED" });
+          return;
+        }
+
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const refreshedSession = await refreshStoredSession();
+
+            assertCurrentGeneration(generation);
+
+            if (!refreshedSession) {
+              dispatch({ type: "UNAUTHENTICATED" });
+              return;
+            }
+
+            const currentUserResponse = await getCurrentUser(
+              refreshedSession.accessToken,
+            );
+
+            assertCurrentGeneration(generation);
+
+            const currentUser = currentUserResponse?.user;
+
+            if (!currentUser?.id) {
+              const error = new Error("Invalid user response.");
+              error.code = "INVALID_USER_RESPONSE";
+              throw error;
+            }
+
+            // Ajouter ou actualiser le profil de la session persistée.
+            // Un changement de token concurrent ne doit pas être écrasé.
+            try {
+              await saveStoredUser({
+                user: currentUser,
+                expectedRefreshToken: refreshedSession.refreshToken,
+              });
+            } catch {
+              // Une erreur de stockage ne doit pas annuler
+              // une authentification confirmée par le serveur.
+              console.warn("[Auth] Unable to cache the user profile.");
+            }
+
+            assertCurrentGeneration(generation);
+
+            dispatch({
+              type: "AUTHENTICATED",
+              payload: {
+                accessToken: refreshedSession.accessToken,
+                user: currentUser,
+              },
+            });
+
+            return;
+          } catch (error) {
+            // Vérifier aussi la génération sur les réponses en erreur :
+            // une ancienne requête ne doit pas effacer un nouveau compte.
+            assertCurrentGeneration(generation);
+
+            if (error?.code === "AUTH_SESSION_CHANGED") {
+              return;
+            }
+
+            if (INVALID_SESSION_CODES.has(error?.code)) {
+              await clearSession();
+              return;
+            }
+
+            const isTemporaryError =
+              error?.code === "NETWORK_ERROR" ||
+              error?.code === "REQUEST_TIMEOUT" ||
+              error?.status === 0 ||
+              error?.status === 429 ||
+              error?.status >= 500;
+
+            if (!isTemporaryError) {
+              throw error;
+            }
+
+            if (attempt === 0) {
+              await wait(750);
+              assertCurrentGeneration(generation);
+              continue;
+            }
+
+            // Le compte a déjà été connecté sur cet appareil.
+            // Autoriser uniquement la session locale :
+            // aucun access token n'est fabriqué ou réutilisé.
+            if (storedSession.user?.id) {
+              dispatch({
+                type: "OFFLINE_SESSION",
+                payload: {
+                  user: storedSession.user,
+                },
+              });
+            } else {
+              // Ancienne session sans profil sauvegardé :
+              // une connexion réseau reste nécessaire une première fois.
+              dispatch({ type: "UNAUTHENTICATED" });
+            }
+
+            return;
+          }
+        }
+      } catch (error) {
+        if (
+          error?.code === "AUTH_SESSION_CHANGED" ||
+          generation !== getSessionGeneration()
+        ) {
+          return;
+        }
+
+        console.warn("[Auth] Unable to restore session", {
+          code: error?.code,
+          status: error?.status,
         });
 
-        return;
+        dispatch({ type: "UNAUTHENTICATED" });
       }
+    })();
 
-      const refreshedSession = await refreshAuthSession(storedRefreshToken);
+    const trackedOperation = operation.finally(() => {
+      if (restoreInFlightRef.current === trackedOperation) {
+        restoreInFlightRef.current = null;
+      }
+    });
 
-      await saveRefreshToken(refreshedSession.refreshToken);
+    restoreInFlightRef.current = trackedOperation;
 
-      const currentUserResponse = await getCurrentUser(
-        refreshedSession.accessToken,
-      );
-
-      dispatch({
-        type: "AUTHENTICATED",
-        payload: {
-          accessToken: refreshedSession.accessToken,
-          user: currentUserResponse.user,
-        },
-      });
-    } catch (error) {
-      console.error("Unable to restore authentication session:", error);
-
-      await clearSession();
-    }
+    return trackedOperation;
   }, [clearSession]);
 
   useEffect(() => {
-    restoreSession();
+    void restoreSession();
   }, [restoreSession]);
+
+  useEffect(() => {
+    if (state.status !== "offline") {
+      return;
+    }
+
+    const retry = () => {
+      if (AppState.currentState === "active") {
+        void restoreSession();
+      }
+    };
+
+    // Réessayer au retour dans l'application.
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        retry();
+      }
+    });
+
+    // Couvre aussi le retour du réseau pendant que l'app reste ouverte.
+    const timer = setInterval(retry, 30_000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, [state.status, restoreSession]);
 
   const requestLoginCode = useCallback(async (email, locale) => {
     return requestLoginCodeApi(email.trim().toLowerCase(), locale);
@@ -161,7 +342,12 @@ export function AuthProvider({ children }) {
       email: parameters.email.trim().toLowerCase(),
     });
 
-    await saveRefreshToken(result.refreshToken);
+    beginSessionTransition();
+
+    await saveAuthenticatedSession({
+      refreshToken: result.refreshToken,
+      user: result.user,
+    });
 
     dispatch({
       type: "AUTHENTICATED",
@@ -236,7 +422,12 @@ export function AuthProvider({ children }) {
         appVersion,
       });
 
-      await saveRefreshToken(result.refreshToken);
+      beginSessionTransition();
+
+      await saveAuthenticatedSession({
+        refreshToken: result.refreshToken,
+        user: result.user,
+      });
 
       dispatch({
         type: "AUTHENTICATED",
@@ -301,7 +492,12 @@ export function AuthProvider({ children }) {
         };
       }
 
-      await saveRefreshToken(result.refreshToken);
+      beginSessionTransition();
+
+      await saveAuthenticatedSession({
+        refreshToken: result.refreshToken,
+        user: result.user,
+      });
 
       dispatch({
         type: "AUTHENTICATED",
@@ -320,17 +516,13 @@ export function AuthProvider({ children }) {
   );
 
   const refreshSession = useCallback(async () => {
-    const storedRefreshToken = await getRefreshToken();
-
-    if (!storedRefreshToken) {
-      await clearSession();
-      return null;
-    }
-
     try {
-      const result = await refreshAuthSession(storedRefreshToken);
+      const result = await refreshStoredSession();
 
-      await saveRefreshToken(result.refreshToken);
+      if (!result) {
+        await clearSession();
+        return null;
+      }
 
       dispatch({
         type: "AUTHENTICATED",
@@ -342,13 +534,25 @@ export function AuthProvider({ children }) {
 
       return result.accessToken;
     } catch (error) {
-      await clearSession();
+      console.warn("[Auth] Refresh failed", {
+        code: error?.code,
+        status: error?.status,
+      });
+
+      // Une panne réseau ou serveur ne doit pas effacer la session.
+      if (INVALID_SESSION_CODES.has(error?.code)) {
+        await clearSession();
+      }
+
       throw error;
     }
   }, [clearSession, state.user]);
 
   const logout = useCallback(async () => {
     const storedRefreshToken = await getRefreshToken();
+
+    beginSessionTransition();
+    setBillingUser(null);
 
     try {
       if (storedRefreshToken) {
@@ -372,7 +576,16 @@ export function AuthProvider({ children }) {
     () => ({
       status: state.status,
       isInitializing: state.status === "initializing",
-      isAuthenticated: state.status === "authenticated",
+      // Signifie ici : un compte est ouvert dans l'application,
+      // y compris pour consulter ses données locales.
+      isAuthenticated:
+        state.status === "authenticated" || state.status === "offline",
+
+      isOfflineSession: state.status === "offline",
+
+      // Nécessaire pour les traitements qui doivent contacter le backend.
+      canCallAuthenticatedApi:
+        state.status === "authenticated" && Boolean(state.accessToken),
       user: state.user,
       accessToken: state.accessToken,
       requestLoginCode,

@@ -210,17 +210,11 @@ function VoiceWave({ styles, reversed = false }) {
 const AddTrackingSheet = forwardRef(function AddTrackingSheet(
   {
     childName,
-    isPremiumUser = false,
-
-    /*
-     * Exemple :
-     * hiddenTrackingItems={["mood", "teething"]}
-     */
+    voiceAccessEnabled = false,
+    checkingVoiceAccess = false,
     hiddenTrackingItems = [],
-
-    onPressPremium,
-    onPressVoiceStart,
-    onPressVoiceEnd,
+    onPressVoice,
+    onDismiss,
     onPressTrackingItem,
   },
   ref,
@@ -231,8 +225,6 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const snapPoints = useMemo(() => ["92%"], []);
-
-  const [isRecording, setIsRecording] = useState(false);
 
   const hiddenItemIds = useMemo(
     () => new Set(hiddenTrackingItems),
@@ -267,25 +259,6 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
     [],
   );
 
-  const handleVoicePressIn = () => {
-    if (!isPremiumUser) {
-      onPressPremium?.();
-      return;
-    }
-
-    setIsRecording(true);
-    onPressVoiceStart?.();
-  };
-
-  const handleVoicePressOut = () => {
-    if (!isPremiumUser || !isRecording) {
-      return;
-    }
-
-    setIsRecording(false);
-    onPressVoiceEnd?.();
-  };
-
   return (
     <BottomSheetModal
       ref={ref}
@@ -303,6 +276,7 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
       handleIndicatorStyle={styles.handleIndicator}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
+      onDismiss={onDismiss}
       enableBlurKeyboardOnGesture
     >
       <BottomSheetScrollView
@@ -318,18 +292,18 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
         </View>
 
         <View style={styles.voiceCard}>
-          {!isPremiumUser ? (
+          {!voiceAccessEnabled ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={t("Discover Premium")}
-              onPress={onPressPremium}
-              hitSlop={8}
+              accessibilityLabel={t("Discover Nelo Premium")}
+              disabled={checkingVoiceAccess}
+              onPress={onPressVoice}
               style={({ pressed }) => [
                 styles.premiumBadge,
-                pressed && styles.premiumBadgePressed,
+                pressed && { opacity: 0.75 },
               ]}
             >
-              <Ionicons name="sparkles" size={11} color={colors.primary} />
+              <Ionicons name="sparkles" size={12} color={colors.primary} />
 
               <Text style={styles.premiumBadgeText}>{t("Premium")}</Text>
             </Pressable>
@@ -350,16 +324,21 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={t("Hold to talk")}
-              accessibilityHint={t(
-                "Hold the button while you describe what happened",
-              )}
-              onPressIn={handleVoicePressIn}
-              onPressOut={handleVoicePressOut}
+              accessibilityLabel={
+                checkingVoiceAccess
+                  ? t("Checking your access...")
+                  : t("Talk to Nelo")
+              }
+              accessibilityState={{
+                disabled: checkingVoiceAccess,
+                busy: checkingVoiceAccess,
+              }}
+              disabled={checkingVoiceAccess}
+              onPress={onPressVoice}
               style={({ pressed }) => [
                 styles.voiceButtonOuter,
-                isRecording && styles.voiceButtonOuterRecording,
                 pressed && styles.voiceButtonPressed,
+                checkingVoiceAccess && { opacity: 0.5 },
               ]}
             >
               <View style={styles.voiceButtonMiddle}>
@@ -372,7 +351,6 @@ const AddTrackingSheet = forwardRef(function AddTrackingSheet(
             <VoiceWave styles={styles} reversed />
           </View>
         </View>
-
         <TrackingSection
           title={t("Daily tracking")}
           items={visibleDailyItems}

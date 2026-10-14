@@ -26,6 +26,7 @@ import { toMomentDisplay } from "../../utils/momentDisplay.js";
 
 import { processSyncQueue } from "../../sync/processSyncQueue.js";
 import { useToast } from "../../components/ui/toast/useToast.js";
+import useMemoryCardAccess from "../../hooks/useMemoryCardAccess.js";
 
 function getPhotoSource(photo) {
   if (photo?.source) {
@@ -55,6 +56,17 @@ export default function MomentDetailsScreen({ navigation, route }) {
   const child = useSelector((state) =>
     state.children.children.find((item) => item.id === childId),
   );
+
+  const familyId = child?.familyId ?? null;
+
+  const {
+    requireAccess: requireMemoryCardAccess,
+    checking: checkingMemoryCardAccess,
+  } = useMemoryCardAccess({
+    familyId,
+    childId,
+    navigation,
+  });
 
   const requestIdRef = useRef(0);
 
@@ -157,13 +169,20 @@ export default function MomentDetailsScreen({ navigation, route }) {
   const selectedPhoto = photos[activePhotoIndex] ?? null;
   const selectedPhotoSource = getPhotoSource(selectedPhoto);
 
-  const handleShare = () => {
-    if (!moment) {
+  const handleShare = async () => {
+    if (!moment || checkingMemoryCardAccess) {
+      return;
+    }
+
+    const allowed = await requireMemoryCardAccess();
+
+    if (!allowed) {
       return;
     }
 
     navigation.navigate("ShareMoment", {
       childId,
+      familyId,
       momentId: moment.id,
       moment,
     });
@@ -550,7 +569,12 @@ export default function MomentDetailsScreen({ navigation, route }) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t("Share as a memory card")}
-            onPress={handleShare}
+            onPress={() => void handleShare()}
+            disabled={checkingMemoryCardAccess}
+            accessibilityState={{
+              disabled: checkingMemoryCardAccess,
+              busy: checkingMemoryCardAccess,
+            }}
             style={({ pressed }) => [
               styles.shareCard,
               pressed && styles.shareCardPressed,
@@ -567,7 +591,9 @@ export default function MomentDetailsScreen({ navigation, route }) {
             <View style={styles.shareContent}>
               <View style={styles.shareTitleRow}>
                 <Text style={styles.shareTitle} numberOfLines={1}>
-                  {t("Create a memory card")}
+                  {checkingMemoryCardAccess
+                    ? t("Checking your access...")
+                    : t("Create a memory card")}
                 </Text>
 
                 <View style={styles.premiumBadge}>

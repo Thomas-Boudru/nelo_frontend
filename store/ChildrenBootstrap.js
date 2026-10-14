@@ -3,6 +3,7 @@ import { useDispatch } from "react-redux";
 import { AppState } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider.js";
+
 import {
   clearChildrenAndSelection,
   loadChildren,
@@ -10,59 +11,51 @@ import {
 
 export default function ChildrenBootstrap() {
   const dispatch = useDispatch();
+
   const { accessToken, isAuthenticated, isInitializing, refreshSession, user } =
     useAuth();
+
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     if (isInitializing) {
       return undefined;
     }
 
-    if (!isAuthenticated || !accessToken || !user?.id) {
+    if (!isAuthenticated || !userId) {
       dispatch(clearChildrenAndSelection());
       return undefined;
     }
 
-    const request = dispatch(
-      loadChildren({
-        userId: user.id,
-        accessToken,
-        refreshSession,
-      }),
-    );
+    let currentRequest = null;
+    let disposed = false;
 
-    return () => {
-      request.abort();
-    };
-  }, [
-    accessToken,
-    dispatch,
-    isAuthenticated,
-    isInitializing,
-    refreshSession,
-    user?.onboardingCompletedAt,
-  ]);
+    const reload = () => {
+      if (disposed) return;
 
-  useEffect(() => {
-    if (isInitializing || !isAuthenticated || !accessToken || !user?.id) {
-      return undefined;
-    }
+      currentRequest?.abort();
 
-    const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState !== "active") {
-        return;
-      }
-
-      dispatch(
+      currentRequest = dispatch(
         loadChildren({
-          userId: user.id,
+          userId,
           accessToken,
           refreshSession,
         }),
       );
+    };
+
+    // Sans token, loadChildren lit uniquement SQLite.
+    reload();
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "active") {
+        reload();
+      }
     });
 
     return () => {
+      disposed = true;
+      currentRequest?.abort();
       subscription.remove();
     };
   }, [
@@ -71,7 +64,8 @@ export default function ChildrenBootstrap() {
     isAuthenticated,
     isInitializing,
     refreshSession,
-    user?.id,
+    userId,
+    user?.onboardingCompletedAt,
   ]);
 
   return null;

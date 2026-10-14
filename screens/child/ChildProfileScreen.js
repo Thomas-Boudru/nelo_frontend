@@ -1,4 +1,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
+
+import useFamilyEntitlements from "../../hooks/useFamilyEntitlements.js";
+
 import {
   ActivityIndicator,
   Image,
@@ -470,6 +473,33 @@ export default function ChildProfileScreen({ navigation }) {
 
   const child =
     children.find((item) => item.id === reduxSelectedChildId) ?? children[0];
+
+  const familyId = child?.familyId ?? null;
+
+  const { entitlements, refresh: refreshEntitlements } =
+    useFamilyEntitlements(familyId);
+
+  const hasPremiumAccess = entitlements?.isPremium === true;
+
+  // Actualise notamment au retour depuis l'écran d'abonnement.
+  useFocusEffect(
+    useCallback(() => {
+      if (!familyId || !accessToken) {
+        return;
+      }
+
+      refreshEntitlements().catch((error) => {
+        if (error?.code === "AUTH_SESSION_CHANGED") {
+          return;
+        }
+
+        console.warn("[Profile] Unable to refresh subscription status", {
+          code: error?.code,
+          status: error?.status,
+        });
+      });
+    }, [familyId, accessToken, refreshEntitlements]),
+  );
 
   const canEditChild = child?.currentUserRole === "owner";
 
@@ -1647,10 +1677,13 @@ export default function ChildProfileScreen({ navigation }) {
           <ProfileSettingRow
             icon="diamond-outline"
             title={t("Subscription")}
-            badge={t("Premium")}
+            badge={hasPremiumAccess ? t("Premium") : null}
             isLast
             onPress={() => {
-              navigation.navigate("Subscription");
+              navigation.navigate("Subscription", {
+                familyId,
+                childId: child.id,
+              });
             }}
             colors={colors}
             styles={styles}

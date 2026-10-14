@@ -86,6 +86,37 @@ const PREMIUM_FEATURES = [
   },
 ];
 
+function getBillingStore() {
+  if (Platform.OS === "ios") return "app_store";
+  if (Platform.OS === "android") return "play_store";
+
+  throw new Error("Purchases are not supported on this platform.");
+}
+
+function getRevenueCatProductIdentifier(product) {
+  const productId = product?.storeProductId;
+
+  if (typeof productId !== "string" || !productId.trim()) {
+    throw new Error("Missing store product ID.");
+  }
+
+  if (Platform.OS === "ios") {
+    return productId;
+  }
+
+  if (Platform.OS === "android") {
+    const basePlanId = product?.storeBasePlanId;
+
+    if (typeof basePlanId !== "string" || !basePlanId.trim()) {
+      throw new Error("Missing Google Play base plan ID.");
+    }
+
+    return `${productId}:${basePlanId}`;
+  }
+
+  throw new Error("Purchases are not supported on this platform.");
+}
+
 function LoadingPlanCard({ plan, styles, t }) {
   const progress = useRef(new Animated.Value(0)).current;
   const [reduceMotion, setReduceMotion] = useState(true);
@@ -263,69 +294,19 @@ function PremiumFeature({ feature, colors, styles, t }) {
   );
 }
 
-function ActiveSubscription({
-  subscription,
-  onManageSubscription,
-  onRestorePurchases,
-  colors,
-  styles,
-  t,
-}) {
+function ActiveSubscription({ colors, styles, t }) {
   return (
-    <>
-      <View style={styles.activeSubscriptionCard}>
-        <View style={styles.activeStatusRow}>
-          <View style={styles.activeStatusIcon}>
-            <Ionicons name="checkmark" size={18} color={colors.white} />
-          </View>
-
-          <Text style={styles.activeStatusText}>
-            {t("Your subscription is active")}
-          </Text>
+    <View style={styles.activeSubscriptionCard}>
+      <View style={[styles.activeStatusRow, { marginBottom: 0 }]}>
+        <View style={styles.activeStatusIcon}>
+          <Ionicons name="checkmark" size={18} color={colors.white} />
         </View>
 
-        <View style={styles.subscriptionDetailRow}>
-          <Text style={styles.subscriptionDetailLabel}>
-            {t("Current plan")}
-          </Text>
-
-          <Text style={styles.subscriptionDetailValue}>
-            {t(subscription.plan === "yearly" ? "Yearly" : "Monthly")}
-          </Text>
-        </View>
-
-        <View style={styles.subscriptionDetailDivider} />
-
-        <View style={styles.subscriptionDetailRow}>
-          <Text style={styles.subscriptionDetailLabel}>{t("Renews on")}</Text>
-
-          <Text style={styles.subscriptionDetailValue}>
-            {subscription.renewalDate}
-          </Text>
-        </View>
+        <Text style={styles.activeStatusText}>
+          {t("Your family has Premium access")}
+        </Text>
       </View>
-
-      <PrimaryButton
-        title={t("Manage subscription")}
-        onPress={onManageSubscription}
-        icon={
-          <Ionicons name="settings-outline" size={19} color={colors.white} />
-        }
-        style={styles.primaryAction}
-      />
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("Restore purchases")}
-        onPress={onRestorePurchases}
-        style={({ pressed }) => [
-          styles.textButton,
-          pressed && styles.textButtonPressed,
-        ]}
-      >
-        <Text style={styles.textButtonLabel}>{t("Restore purchases")}</Text>
-      </Pressable>
-    </>
+    </View>
   );
 }
 
@@ -342,6 +323,7 @@ export default function SubscriptionScreen({ navigation }) {
 
   const familyId = selectedChild?.familyId;
   const userId = user?.id;
+  const currentScopeKey = userId && familyId ? `${userId}:${familyId}` : null;
 
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -360,6 +342,12 @@ export default function SubscriptionScreen({ navigation }) {
   const busyRef = useRef(false);
   const screenRef = useRef({ userId, familyId });
   const mountedRef = useRef(true);
+  const loadedScopeRef = useRef(null);
+
+  // Le rendu ne doit jamais réutiliser les droits du compte ou de la
+  // famille précédente, même pendant le court délai avant l'effet suivant.
+  const visibleEntitlements =
+    loadedScopeRef.current === currentScopeKey ? entitlements : null;
 
   screenRef.current = { userId, familyId };
 
@@ -391,10 +379,16 @@ export default function SubscriptionScreen({ navigation }) {
 
   useEffect(() => {
     let cancelled = false;
+    const scopeKey = currentScopeKey;
+    const scopeChanged = loadedScopeRef.current !== scopeKey;
 
-    setPlans([]);
-    setEntitlements(null);
-    setPurchaseNeedsVerification(false);
+    if (scopeChanged) {
+      loadedScopeRef.current = scopeKey;
+      setPlans([]);
+      setEntitlements(null);
+      setPurchaseNeedsVerification(false);
+    }
+
     setIsLoading(true);
     setLoadFailed(false);
 
@@ -415,7 +409,7 @@ export default function SubscriptionScreen({ navigation }) {
       try {
         const [productsResponse, rightsResponse] = await Promise.all([
           getSubscriptionProducts({
-            store: "app_store",
+            store: getBillingStore(),
             accessToken,
             refreshSession,
           }),
@@ -430,6 +424,7 @@ export default function SubscriptionScreen({ navigation }) {
         const rights = readEntitlements(rightsResponse);
 
         if (cancelled) return;
+
         setEntitlements(rights);
 
         const products = productsResponse.products;
@@ -445,12 +440,14 @@ export default function SubscriptionScreen({ navigation }) {
 
         const storeProducts = await loadRevenueCatProducts({
           userId,
-          identifiers: products.map((product) => product.storeProductId),
+          identifiers: products.map(getRevenueCatProductIdentifier),
         });
 
         const availablePlans = products.flatMap((product) => {
+          const expectedIdentifier = getRevenueCatProductIdentifier(product);
+
           const storeProduct = storeProducts.find(
-            (item) => item.identifier === product.storeProductId,
+            (item) => item.identifier === expectedIdentifier,
           );
 
           if (!storeProduct) return [];
@@ -508,6 +505,7 @@ export default function SubscriptionScreen({ navigation }) {
   }, [
     userId,
     familyId,
+    currentScopeKey,
     accessToken,
     refreshSession,
     showToast,
@@ -537,8 +535,8 @@ export default function SubscriptionScreen({ navigation }) {
       isLoading ||
       !userId ||
       !familyId ||
-      entitlements?.isPremium ||
-      entitlements?.currentUserRole !== "owner"
+      visibleEntitlements?.isPremium ||
+      visibleEntitlements?.currentUserRole !== "owner"
     ) {
       return;
     }
@@ -559,7 +557,7 @@ export default function SubscriptionScreen({ navigation }) {
       // Conserve la même intention si la préparation est relancée
       // après une coupure réseau ou une annulation du paiement.
       const storageKey =
-        `nelo_purchase_intent:${purchaseUserId}:` +
+        `nelo_purchase_intent:revenuecat:${purchaseUserId}:` +
         `${purchaseFamilyId}:${plan.backendProduct.id}`;
 
       let savedRequest = null;
@@ -614,15 +612,32 @@ export default function SubscriptionScreen({ navigation }) {
         );
       }
 
+      const intentProduct = purchaseIntent?.product;
+      const expectedProduct = plan.backendProduct;
+
+      const productMatches =
+        intentProduct?.storeProductId === expectedProduct.storeProductId &&
+        (Platform.OS !== "android" ||
+          (typeof expectedProduct.storeBasePlanId === "string" &&
+            expectedProduct.storeBasePlanId.length > 0 &&
+            intentProduct?.storeBasePlanId ===
+              expectedProduct.storeBasePlanId));
+
+      const storeProductMatches =
+        getRevenueCatProductIdentifier(expectedProduct) ===
+        plan.storeProduct.identifier;
+
+      const expiresAt = Date.parse(purchaseIntent?.expiresAt);
+
       if (
         purchaseIntent?.status !== "pending" ||
-        purchaseIntent.managementProvider !== "revenuecat" ||
-        purchaseIntent.familyId !== purchaseFamilyId ||
-        purchaseIntent.revenuecatAppUserId !== purchaseUserId ||
-        purchaseIntent.product?.storeProductId !==
-          plan.storeProduct.identifier ||
-        !Number.isFinite(Date.parse(purchaseIntent.expiresAt)) ||
-        Date.parse(purchaseIntent.expiresAt) <= Date.now()
+        purchaseIntent?.managementProvider !== "revenuecat" ||
+        purchaseIntent?.familyId !== purchaseFamilyId ||
+        purchaseIntent?.revenuecatAppUserId !== purchaseUserId ||
+        !productMatches ||
+        !storeProductMatches ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now()
       ) {
         throw new Error("The purchase preparation is no longer valid.");
       }
@@ -798,62 +813,71 @@ export default function SubscriptionScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.heroTitle}>
-            {t("Unlock the full Nelo experience")}
-          </Text>
+          {!visibleEntitlements?.isPremium ? (
+            <>
+              <Text style={styles.heroTitle}>
+                {t("Unlock the full Nelo experience")}
+              </Text>
 
-          <Text style={styles.heroDescription}>
-            {t("Everything you need to support your parenting journey")}
-          </Text>
+              <Text style={styles.heroDescription}>
+                {t("Everything you need to support your parenting journey")}
+              </Text>
+            </>
+          ) : null}
         </View>
 
-        <Text style={styles.legalText} accessibilityLiveRegion="polite">
-          {isLoading
-            ? t("Loading subscriptions")
-            : entitlements?.isPremium
-              ? t("Your family has Premium access")
+        {!visibleEntitlements?.isPremium ? (
+          <Text style={styles.legalText} accessibilityLiveRegion="polite">
+            {isLoading
+              ? t("Loading subscriptions")
               : !familyId
                 ? t("Select a child to view subscriptions")
                 : loadFailed
                   ? t("Unable to load subscriptions")
-                  : entitlements?.currentUserRole !== "owner"
+                  : visibleEntitlements?.currentUserRole !== "owner"
                     ? t("Only a family owner can purchase a subscription")
                     : plans.length === 0
                       ? t("Subscriptions are not available yet")
                       : null}
-        </Text>
+          </Text>
+        ) : null}
 
-        <View
-          accessibilityRole={isLoading ? undefined : "radiogroup"}
-          style={styles.plansContainer}
-        >
-          {isLoading
-            ? LOADING_PLANS.map((plan) => (
-                <LoadingPlanCard
-                  key={plan.id}
-                  plan={plan}
-                  styles={styles}
-                  t={t}
-                />
-              ))
-            : plans.map((plan) => (
-                <PlanCard
-                  key={plan.id}
-                  plan={plan}
-                  selected={plan.id === selectedPlan}
-                  onPress={(id) => {
-                    if (!busyRef.current) {
-                      setSelectedPlan(id);
-                    }
-                  }}
-                  colors={colors}
-                  styles={styles}
-                  t={t}
-                />
-              ))}
-        </View>
+        {visibleEntitlements?.isPremium ? (
+          <ActiveSubscription colors={colors} styles={styles} t={t} />
+        ) : (
+          <View
+            accessibilityRole={isLoading ? undefined : "radiogroup"}
+            style={styles.plansContainer}
+          >
+            {isLoading
+              ? LOADING_PLANS.map((plan) => (
+                  <LoadingPlanCard
+                    key={plan.id}
+                    plan={plan}
+                    styles={styles}
+                    t={t}
+                  />
+                ))
+              : plans.map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    selected={plan.id === selectedPlan}
+                    onPress={(id) => {
+                      if (!busyRef.current) {
+                        setSelectedPlan(id);
+                      }
+                    }}
+                    colors={colors}
+                    styles={styles}
+                    t={t}
+                  />
+                ))}
+          </View>
+        )}
 
-        {!isLoading &&
+        {!visibleEntitlements?.isPremium &&
+        !isLoading &&
         userId &&
         familyId &&
         (loadFailed || plans.length === 0) ? (
@@ -927,7 +951,7 @@ export default function SubscriptionScreen({ navigation }) {
           title={
             isLoading
               ? t("Loading subscriptions")
-              : entitlements?.isPremium
+              : visibleEntitlements?.isPremium
                 ? t("Manage subscription")
                 : purchaseNeedsVerification
                   ? t("Restore purchases")
@@ -941,12 +965,13 @@ export default function SubscriptionScreen({ navigation }) {
             isPurchasing ||
             isRestoring ||
             !familyId ||
-            (!entitlements?.isPremium &&
+            (!visibleEntitlements?.isPremium &&
               !purchaseNeedsVerification &&
-              (plans.length === 0 || entitlements?.currentUserRole !== "owner"))
+              (plans.length === 0 ||
+                visibleEntitlements?.currentUserRole !== "owner"))
           }
           onPress={
-            entitlements?.isPremium
+            visibleEntitlements?.isPremium
               ? handleManageSubscription
               : purchaseNeedsVerification
                 ? handleRestorePurchases

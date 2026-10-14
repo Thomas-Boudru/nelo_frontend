@@ -8,6 +8,11 @@ import {
   uploadChildAvatar as uploadChildAvatarApi,
 } from "../../api/children/childrenApi.js";
 
+import {
+  getCachedChildren,
+  saveCachedChildren,
+} from "../../database/children/childrenCacheRepository.js";
+
 import { setThemeMode } from "./themeSlice.js";
 
 import { saveChildPreferencesLocally } from "../../database/children/childPreferencesRepository.js";
@@ -34,6 +39,7 @@ import {
 
 function createInitialState() {
   return {
+    userId: null,
     children: [],
     selectedChildId: null,
     status: "idle",
@@ -98,70 +104,45 @@ export const loadChildren = createAsyncThunk(
 
   async (
     { userId, accessToken, refreshSession },
-    { signal, rejectWithValue },
+    { signal, rejectWithValue, dispatch, getState, requestId },
   ) => {
-    try {
-      if (!userId) {
-        const error = new Error("Missing user ID.");
-        error.code = "MISSING_USER_ID";
+    const assertCurrentRequest = () => {
+      const current = getState().children;
+
+      if (
+        signal.aborted ||
+        current.userId !== userId ||
+        current.activeRequestId !== requestId
+      ) {
+        const error = new Error("The children request was cancelled.");
+        error.name = "AbortError";
         throw error;
       }
+    };
 
-      /*
-       * On lance en parallèle :
-       * - la lecture de l'enfant sélectionné ;
-       * - la lecture des modifications locales.
-       */
-      const storedSelectedChildIdPromise = readStoredSelection();
-      const localProfilesPromise = getLocalChildProfiles(userId);
-      const localRelationshipsPromise = getLocalChildRelationships(userId);
+    const buildChildren = async (baseChildren) => {
+      const [profiles, relationships] = await Promise.all([
+        getLocalChildProfiles(userId),
+        getLocalChildRelationships(userId),
+      ]);
 
-      /*
-       * On récupère les enfants depuis le backend.
-       */
-      const response = await executeWithRefreshedAccessToken({
-        accessToken,
-        refreshSession,
+      assertCurrentRequest();
 
-        request: (currentAccessToken) =>
-          getAccessibleChildren({
-            accessToken: currentAccessToken,
-            signal,
-          }),
-      });
-
-      const serverChildren = Array.isArray(response?.children)
-        ? response.children
-        : [];
-
-      const [storedSelectedChildId, localProfiles, localRelationships] =
-        await Promise.all([
-          storedSelectedChildIdPromise,
-          localProfilesPromise,
-          localRelationshipsPromise,
-        ]);
-
-      /*
-       * Si un profil local est encore "pending",
-       * ses informations passent devant celles du serveur.
-       */
-      const children = serverChildren.map((serverChild) => {
-        const localProfile = localProfiles.find(
-          (currentLocalChild) =>
-            currentLocalChild.id === serverChild.id &&
-            currentLocalChild.profileSyncStatus === "pending",
+      return baseChildren.map((child) => {
+        const localProfile = profiles.find(
+          (profile) =>
+            profile.id === child.id && profile.profileSyncStatus === "pending",
         );
 
-        const localRelationship = localRelationships.find(
-          (currentRelationship) =>
-            currentRelationship.childId === serverChild.id &&
-            currentRelationship.syncStatus === "pending",
+        const localRelationship = relationships.find(
+          (relationship) =>
+            relationship.childId === child.id &&
+            relationship.syncStatus === "pending",
         );
 
         return {
-          ...serverChild,
-
-          ...(localProfile || {}),
+          ...child,
+          ...(localProfile ?? {}),
 
           ...(localRelationship
             ? {
@@ -175,19 +156,112 @@ export const loadChildren = createAsyncThunk(
             : {}),
         };
       });
+    };
 
-      const selectedChildId = children.some(
-        (child) => child.id === storedSelectedChildId,
-      )
-        ? storedSelectedChildId
-        : children[0]?.id || null;
+    const chooseSelection = (children, storedId) => {
+      // Préserver aussi un choix effectué pendant le chargement.
+      const currentId = getState().children.selectedChildId;
+
+      if (children.some((child) => child.id === currentId)) {
+        return currentId;
+      }
+
+      if (children.some((child) => child.id === storedId)) {
+        return storedId;
+      }
+
+      return children[0]?.id ?? null;
+    };
+
+    try {
+      if (!userId) {
+        throw new Error("Missing user ID.");
+      }
+
+      const [cached, storedSelectedChildId] = await Promise.all([
+        getCachedChildren(userId),
+        readStoredSelection(),
+      ]);
+
+      assertCurrentRequest();
+
+      let localResult = {
+        children: [],
+        selectedChildId: null,
+        lastSyncAt: null,
+      };
+
+      if (cached) {
+        const children = await buildChildren(cached.children);
+
+        localResult = {
+          children,
+          selectedChildId: chooseSelection(children, storedSelectedChildId),
+          lastSyncAt: cached.lastSyncAt,
+        };
+
+        // Afficher les enfants avant d'attendre le réseau.
+        dispatch({
+          type: "children/cachedChildrenLoaded",
+          payload: localResult,
+          meta: { userId, requestId },
+        });
+      }
+
+      if (!accessToken) {
+        return localResult;
+      }
+
+      const response = await executeWithRefreshedAccessToken({
+        accessToken,
+        refreshSession,
+
+        request: (currentAccessToken) =>
+          getAccessibleChildren({
+            accessToken: currentAccessToken,
+            signal,
+          }),
+      });
+
+      assertCurrentRequest();
+
+      // Une réponse invalide ne doit pas effacer le cache.
+      if (
+        !Array.isArray(response?.children) ||
+        !response.children.every(
+          (child) =>
+            child && typeof child.id === "string" && child.id.length > 0,
+        )
+      ) {
+        const error = new Error("Invalid children response.");
+        error.code = "INVALID_CHILDREN_RESPONSE";
+        throw error;
+      }
+
+      const serverChildren = response.children;
+      const syncedAt = new Date().toISOString();
+
+      await saveCachedChildren({
+        userId,
+        children: serverChildren,
+        syncedAt,
+      });
+
+      assertCurrentRequest();
+
+      // Relire les modifications locales après la réponse réseau.
+      const children = await buildChildren(serverChildren);
+
+      const selectedChildId = chooseSelection(children, storedSelectedChildId);
 
       await persistSelection(selectedChildId);
+
+      assertCurrentRequest();
 
       return {
         children,
         selectedChildId,
-        lastSyncAt: new Date().toISOString(),
+        lastSyncAt: syncedAt,
       };
     } catch (error) {
       return rejectWithValue({
@@ -514,6 +588,21 @@ const childrenSlice = createSlice({
   initialState: createInitialState(),
 
   reducers: {
+    cachedChildrenLoaded(state, action) {
+      if (
+        state.userId !== action.meta.userId ||
+        state.activeRequestId !== action.meta.requestId
+      ) {
+        return;
+      }
+
+      state.children = action.payload.children;
+      state.selectedChildId = action.payload.selectedChildId;
+      state.lastSyncAt = action.payload.lastSyncAt;
+
+      // Le chargement serveur peut encore être en cours.
+    },
+
     childSelected(state, action) {
       const childId = action.payload.childId;
 
@@ -544,11 +633,17 @@ const childrenSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(loadChildren.pending, (state, action) => {
+        const userId = action.meta.arg.userId;
+
+        if (state.userId !== userId) {
+          Object.assign(state, createInitialState());
+          state.userId = userId;
+        }
+
         state.status = "loading";
         state.error = null;
         state.activeRequestId = action.meta.requestId;
       })
-
       .addCase(loadChildren.fulfilled, (state, action) => {
         if (state.activeRequestId !== action.meta.requestId) {
           return;

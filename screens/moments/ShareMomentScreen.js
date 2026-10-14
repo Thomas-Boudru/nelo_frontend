@@ -15,6 +15,9 @@ import { useTranslation } from "react-i18next";
 import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 
+import { useSelector } from "react-redux";
+import useMemoryCardAccess from "../../hooks/useMemoryCardAccess.js";
+
 import BackButton from "../../components/ui/BackButton.js";
 import PrimaryButton from "../../components/ui/PrimaryButton.js";
 import { useThemeColors } from "../../theme/useThemeColors.js";
@@ -76,29 +79,55 @@ export default function ShareMomentScreen({ navigation, route }) {
 
   const moment = route?.params?.moment ?? DEFAULT_MOMENT;
 
+  const childId = route?.params?.childId ?? null;
+
+  const child = useSelector((state) =>
+    state.children.children.find((item) => item.id === childId),
+  );
+
+  const familyId = child?.familyId ?? null;
+
+  const {
+    requireAccess: requireMemoryCardAccess,
+    checking: checkingMemoryCardAccess,
+  } = useMemoryCardAccess({
+    familyId,
+    childId,
+    navigation,
+  });
+
+  const generationInProgressRef = useRef(false);
+
   const [selectedTemplate, setSelectedTemplate] = useState("modern");
   const [selectedFormat, setSelectedFormat] = useState("square");
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerateAndShare = async () => {
-    if (isGenerating) {
+    if (generationInProgressRef.current) {
       return;
     }
 
+    generationInProgressRef.current = true;
     setIsGenerating(true);
 
     try {
-      const uri = await captureRef(previewRef, {
-        format: "png",
-        quality: 1,
-        result: "tmpfile",
-      });
+      const allowed = await requireMemoryCardAccess();
+
+      if (!allowed) {
+        return;
+      }
 
       const sharingAvailable = await Sharing.isAvailableAsync();
 
       if (!sharingAvailable) {
         throw new Error(t("Sharing is not available on this device."));
       }
+
+      const uri = await captureRef(previewRef, {
+        format: "png",
+        quality: 1,
+        result: "tmpfile",
+      });
 
       await Sharing.shareAsync(uri, {
         mimeType: "image/png",
@@ -111,6 +140,7 @@ export default function ShareMomentScreen({ navigation, route }) {
         error?.message ?? t("Please try again in a moment."),
       );
     } finally {
+      generationInProgressRef.current = false;
       setIsGenerating(false);
     }
   };
@@ -242,7 +272,11 @@ export default function ShareMomentScreen({ navigation, route }) {
 
       <View style={styles.footer}>
         <PrimaryButton
-          title={t("Generate and share")}
+          title={
+            checkingMemoryCardAccess
+              ? t("Checking your access...")
+              : t("Generate and share")
+          }
           loading={isGenerating}
           disabled={isGenerating}
           onPress={handleGenerateAndShare}

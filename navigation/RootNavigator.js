@@ -30,8 +30,14 @@ import {
 export default function RootNavigator() {
   const dispatch = useDispatch();
 
-  const { isInitializing, isAuthenticated, user, accessToken, refreshSession } =
-    useAuth();
+  const {
+    isInitializing,
+    isAuthenticated,
+    isOfflineSession,
+    user,
+    accessToken,
+    refreshSession,
+  } = useAuth();
 
   const localOnboardingCompleted = useSelector(
     (state) => state.onboarding.completed,
@@ -62,7 +68,9 @@ export default function RootNavigator() {
    * afin qu’une invitation ne détourne pas ce parcours.
    */
   const shouldCheckInvitations =
-    isAuthenticated && !(needsOnboarding && isClassicChildStatus(childStatus));
+    isAuthenticated &&
+    !isOfflineSession &&
+    !(needsOnboarding && isClassicChildStatus(childStatus));
 
   useEffect(() => {
     if (
@@ -185,6 +193,14 @@ export default function RootNavigator() {
   }
 
   if (developmentNavigationMode === "onboarding") {
+    return <OnboardingNavigator />;
+  }
+
+  if (isOfflineSession) {
+    if (user?.onboardingCompletedAt) {
+      return <AppNavigator />;
+    }
+
     return <OnboardingNavigator />;
   }
 

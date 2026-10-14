@@ -25,6 +25,8 @@ import { persistor, store } from "./store/store.js";
 import ChildrenBootstrap from "./store/ChildrenBootstrap.js";
 import { useAppFonts } from "./theme/fonts.js";
 import ToastProvider from "./components/ui/toast/ToastProvider.js";
+import EntitlementsBootstrap from "./store/EntitlementsBootstrap.js";
+import PremiumAccessProvider from "./components/billing/PremiumAccessProvider.js";
 
 function LoadingScreen() {
   return (
@@ -109,14 +111,17 @@ export default function App() {
              * démarrerait toujours sur WelcomeScreen.
              */}
             <PersistGate loading={<LoadingScreen />} persistor={persistor}>
+              <EntitlementsBootstrap />
               <ChildrenBootstrap />
               <SyncManager />
 
               <BottomSheetModalProvider>
                 <ToastProvider>
                   <NavigationContainer>
-                    <StatusBar style="dark" />
-                    <RootNavigator />
+                    <PremiumAccessProvider>
+                      <StatusBar style="dark" />
+                      <RootNavigator />
+                    </PremiumAccessProvider>
                   </NavigationContainer>
                 </ToastProvider>
               </BottomSheetModalProvider>
